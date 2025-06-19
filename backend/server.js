@@ -103,8 +103,7 @@ const addDemoMessages = () => {
   console.log('📨 Added demo messages:', demoMessages.length);
 };
 
-// Initialize demo messages after tickets are created
-setTimeout(addDemoMessages, 100);
+// Demo messages will be initialized after tickets are created
 const categories = [
   { id: uuidv4(), name: 'Software', description: 'Software-related issues', colorCode: '#28a745' },
   { id: uuidv4(), name: 'Hardware', description: 'Hardware problems', colorCode: '#dc3545' },
@@ -249,6 +248,9 @@ const demoTickets = [
   }
 ];
 
+// Ticket counter for sequential numbering
+let ticketCounters = {};
+
 // Initialize the ticket counter based on existing demo tickets
 ticketCounters['250619'] = 3; // Today has 3 tickets
 ticketCounters['250617'] = 1; // 2 days ago has 1 ticket
@@ -256,11 +258,11 @@ ticketCounters['250612'] = 1; // 7 days ago has 1 ticket
 
 tickets.push(...demoTickets);
 
+// Initialize demo messages now that tickets are created
+addDemoMessages();
+
 // JWT Secret
 const JWT_SECRET = 'demo-secret-key';
-
-// Ticket counter for sequential numbering
-let ticketCounters = {};
 
 // Utility functions
 const generateTicketNumber = () => {
@@ -436,13 +438,13 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
             id: sender.id,
             firstName: sender.firstName,
             lastName: sender.lastName,
-            userType: sender.userType
-          } : (msg.isAnonymous ? {
+            userType: sender.id === ticket.customerId ? 'customer' : sender.userType
+          } : {
             id: null,
-            firstName: msg.senderName?.split(' ')[0] || 'Anonymous',
-            lastName: msg.senderName?.split(' ').slice(1).join(' ') || '',
+            firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
+            lastName: ticket.customerName.split(' ').slice(1).join(' ') || '',
             userType: 'customer'
-          } : null)
+          }
         };
       })
     };
@@ -749,7 +751,7 @@ app.get('/api/tickets/:ticketId/messages', (req, res) => {
           id: sender.id,
           firstName: sender.firstName,
           lastName: sender.lastName,
-          userType: sender.userType
+          userType: sender.id === ticket.customerId ? 'customer' : sender.userType
         } : {
           id: null,
           firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
@@ -830,7 +832,10 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   console.log('  - user:', user);
   console.log('  - sender:', sender);
   console.log('  - ticket.customerName:', ticket.customerName);
+  console.log('  - ticket.customerId:', ticket.customerId);
   console.log('  - ticket.isAnonymous:', ticket.isAnonymous);
+  console.log('  - sender.id === ticket.customerId:', sender?.id === ticket.customerId);
+  console.log('  - determined userType:', sender?.id === ticket.customerId ? 'customer' : sender?.userType);
   
   const messageWithSender = {
     ...message,
@@ -838,7 +843,7 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
       id: sender.id,
       firstName: sender.firstName,
       lastName: sender.lastName,
-      userType: sender.userType
+      userType: sender.id === ticket.customerId ? 'customer' : sender.userType
     } : {
       id: null,
       firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
