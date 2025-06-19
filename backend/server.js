@@ -23,6 +23,88 @@ app.use(express.json());
 const users = [];
 const tickets = [];
 const messages = [];
+
+// Add some demo messages for testing
+const addDemoMessages = () => {
+  const demoMessages = [
+    {
+      id: uuidv4(),
+      ticketId: tickets[0]?.id, // First ticket (Login Issues)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I cannot login to my account. It keeps saying invalid credentials.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 4 * 60 * 1000).toISOString() // 4 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'The application crashed again while I was working on my project.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString() // 20 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[1].id, // agent@demo.com
+      content: 'Hi! I can help you with this issue. Can you tell me what version of the application you are using?',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString() // 15 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I am using version 2.1.4. The crash happens when I click Save.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() // 10 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[2]?.id, // Third ticket (Billing Question)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I was charged twice for my subscription this month. Can you help?',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() // 2 days ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[2]?.id, // Third ticket (Billing Question)
+      senderId: demoUsers[2].id, // agent2@demo.com
+      content: 'I have reviewed your account and processed a refund for the duplicate charge. You should see it in 3-5 business days.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[4]?.id, // Anonymous ticket (Feature Request)
+      senderId: null,
+      content: 'I would really love to see a dark mode option in the application. It would be much easier on the eyes.',
+      messageType: 'text',
+      isAnonymous: true,
+      senderName: 'Anonymous User',
+      createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 minutes ago
+    }
+  ];
+  
+  messages.push(...demoMessages);
+  console.log('📨 Added demo messages:', demoMessages.length);
+};
+
+// Initialize demo messages after tickets are created
+setTimeout(addDemoMessages, 100);
 const categories = [
   { id: uuidv4(), name: 'Software', description: 'Software-related issues', colorCode: '#28a745' },
   { id: uuidv4(), name: 'Hardware', description: 'Hardware problems', colorCode: '#dc3545' },
@@ -54,18 +136,150 @@ const demoUsers = [
     agentStatus: 'online',
     maxConcurrentTickets: 5,
     createdAt: new Date().toISOString()
+  },
+  {
+    id: uuidv4(),
+    email: 'agent2@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Mike',
+    lastName: 'Support',
+    userType: 'agent',
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 5,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: uuidv4(),
+    email: 'agent3@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Sarah',
+    lastName: 'Helper',
+    userType: 'agent',
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 5,
+    createdAt: new Date().toISOString()
   }
 ];
 
 users.push(...demoUsers);
 
+// Create demo tickets
+const demoTickets = [
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190001', // Today's first ticket
+    title: 'Login Issues',
+    description: 'Cannot login to my account',
+    status: 'new',
+    priority: 'high',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: null,
+    categoryId: categories[3].id, // Account
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+    updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190002', // Today's second ticket
+    title: 'Application Crash',
+    description: 'The application keeps crashing when I try to save my work',
+    status: 'in_progress',
+    priority: 'high',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[1].id, // agent@demo.com
+    categoryId: categories[0].id, // Software
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 minutes ago
+    updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506170001', // 2 days ago, first ticket
+    title: 'Billing Question',
+    description: 'I was charged twice for my subscription',
+    status: 'resolved',
+    priority: 'medium',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[2].id, // agent2@demo.com
+    categoryId: categories[2].id, // Billing
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506120001', // 7 days ago, first ticket
+    title: 'Hardware Replacement',
+    description: 'My keyboard is not working properly',
+    status: 'resolved',
+    priority: 'low',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[3].id, // agent3@demo.com
+    categoryId: categories[1].id, // Hardware
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
+    updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190003', // Today's third ticket
+    title: 'Feature Request',
+    description: 'Can you add dark mode to the application?',
+    status: 'new',
+    priority: 'low',
+    customerId: null,
+    agentId: null,
+    categoryId: categories[4].id, // General
+    isAnonymous: true,
+    customerName: 'Anonymous User',
+    customerEmail: 'anonymous@example.com',
+    createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
+    updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
+  }
+];
+
+// Initialize the ticket counter based on existing demo tickets
+ticketCounters['250619'] = 3; // Today has 3 tickets
+ticketCounters['250617'] = 1; // 2 days ago has 1 ticket
+ticketCounters['250612'] = 1; // 7 days ago has 1 ticket
+
+tickets.push(...demoTickets);
+
 // JWT Secret
 const JWT_SECRET = 'demo-secret-key';
 
+// Ticket counter for sequential numbering
+let ticketCounters = {};
+
 // Utility functions
 const generateTicketNumber = () => {
-  const num = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-  return `TKT-${num}`;
+  const now = new Date();
+  const year = now.getFullYear().toString().slice(-2); // Last 2 digits of year
+  const month = (now.getMonth() + 1).toString().padStart(2, '0'); // Month with leading zero
+  const day = now.getDate().toString().padStart(2, '0'); // Day with leading zero
+  const dateKey = `${year}${month}${day}`;
+  
+  // Initialize counter for this date if it doesn't exist
+  if (!ticketCounters[dateKey]) {
+    ticketCounters[dateKey] = 0;
+  }
+  
+  // Increment counter and format with leading zeros
+  ticketCounters[dateKey]++;
+  const sequentialNumber = ticketCounters[dateKey].toString().padStart(4, '0');
+  
+  return `${dateKey}${sequentialNumber}`;
 };
 
 const authenticateToken = (req, res, next) => {
@@ -148,6 +362,34 @@ app.get('/api/categories', (req, res) => {
   });
 });
 
+// Get available agents
+app.get('/api/agents', authenticateToken, (req, res) => {
+  if (req.user.userType !== 'agent') {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can view agent list' }
+    });
+  }
+
+  const agents = users
+    .filter(u => u.userType === 'agent' && u.isActive)
+    .map(agent => ({
+      id: agent.id,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      email: agent.email,
+      agentStatus: agent.agentStatus || 'offline',
+      maxConcurrentTickets: agent.maxConcurrentTickets || 5
+    }));
+
+  res.json({
+    success: true,
+    data: {
+      agents
+    }
+  });
+});
+
 // Get tickets
 app.get('/api/tickets', authenticateToken, (req, res) => {
   let userTickets = tickets;
@@ -185,7 +427,24 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
       } : null,
       category,
       messageCount: ticketMessages.length,
-      lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt
+      lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt,
+      messages: ticketMessages.map(msg => {
+        const sender = users.find(u => u.id === msg.senderId);
+        return {
+          ...msg,
+          sender: sender ? {
+            id: sender.id,
+            firstName: sender.firstName,
+            lastName: sender.lastName,
+            userType: sender.userType
+          } : (msg.isAnonymous ? {
+            id: null,
+            firstName: msg.senderName?.split(' ')[0] || 'Anonymous',
+            lastName: msg.senderName?.split(' ').slice(1).join(' ') || '',
+            userType: 'customer'
+          } : null)
+        };
+      })
     };
   });
 
@@ -380,7 +639,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   }
 
   // Only allow updating certain fields
-  const allowedUpdates = ['status', 'priority'];
+  const allowedUpdates = ['status', 'priority', 'agentId'];
   const updates = {};
   
   Object.keys(req.body).forEach(key => {
@@ -388,6 +647,17 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
       updates[key] = req.body[key];
     }
   });
+
+  // If reassigning agent, validate the new agent exists and is active
+  if (updates.agentId) {
+    const newAgent = users.find(u => u.id === updates.agentId && u.userType === 'agent' && u.isActive);
+    if (!newAgent) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_AGENT', message: 'Invalid or inactive agent selected' }
+      });
+    }
+  }
 
   // Update the ticket
   Object.assign(ticket, updates);
