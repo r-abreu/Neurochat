@@ -520,6 +520,88 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
   });
 });
 
+// Get single ticket by ID
+app.get('/api/tickets/:id', authenticateToken, (req, res) => {
+  console.log('🔍 GET SINGLE TICKET REQUEST');
+  console.log('  - ticketId:', req.params.id);
+  console.log('  - user:', req.user.sub, req.user.userType);
+  
+  const ticket = tickets.find(t => t.id === req.params.id);
+  if (!ticket) {
+    console.log('❌ Ticket not found');
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+  
+  // Check permissions
+  if (req.user.userType === 'customer' && ticket.customerId !== req.user.sub) {
+    console.log('❌ Permission denied - customer can only view own tickets');
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You can only view your own tickets' }
+    });
+  }
+  
+  // Enrich ticket with related data
+  const customer = users.find(u => u.id === ticket.customerId);
+  const agent = ticket.agentId ? users.find(u => u.id === ticket.agentId) : null;
+  const category = categories.find(c => c.id === ticket.categoryId);
+  const ticketMessages = messages.filter(m => m.ticketId === ticket.id);
+  
+  const enrichedTicket = {
+    ...ticket,
+    customer: customer ? {
+      id: customer.id,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      email: customer.email
+    } : (ticket.isAnonymous ? {
+      id: null,
+      firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
+      lastName: ticket.customerName.split(' ').slice(1).join(' ') || '',
+      email: ticket.customerEmail
+    } : null),
+    agent: agent ? {
+      id: agent.id,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      email: agent.email
+    } : null,
+    category,
+    messageCount: ticketMessages.length,
+    lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt,
+    messages: ticketMessages.map(msg => {
+      const sender = users.find(u => u.id === msg.senderId);
+      return {
+        ...msg,
+        sender: sender ? {
+          id: sender.id,
+          firstName: sender.firstName,
+          lastName: sender.lastName,
+          userType: sender.id === ticket.customerId ? 'customer' : sender.userType
+        } : {
+          id: null,
+          firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
+          lastName: ticket.customerName.split(' ').slice(1).join(' ') || '',
+          userType: 'customer'
+        }
+      };
+    })
+  };
+  
+  console.log('✅ Returning single ticket:', enrichedTicket.id);
+  console.log('  - customerAddress:', enrichedTicket.customerAddress);
+  
+  res.json({
+    success: true,
+    data: {
+      ticket: enrichedTicket
+    }
+  });
+});
+
 // Create ticket (supports both authenticated and anonymous)
 app.post('/api/tickets', (req, res) => {
   console.log('\n🎫 CREATE TICKET REQUEST RECEIVED');
@@ -683,6 +765,12 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
 
 // Update ticket
 app.put('/api/tickets/:id', authenticateToken, (req, res) => {
+  console.log('🔧 TICKET UPDATE REQUEST RECEIVED');
+  console.log('  - ticketId:', req.params.id);
+  console.log('  - body:', req.body);
+  console.log('  - customerAddress in body:', req.body.customerAddress);
+  console.log('  - typeof customerAddress:', typeof req.body.customerAddress);
+  
   if (req.user.userType !== 'agent') {
     return res.status(403).json({
       success: false,
@@ -698,6 +786,9 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     });
   }
 
+  console.log('🔧 TICKET BEFORE UPDATE:');
+  console.log('  - ticket.customerAddress:', ticket.customerAddress);
+
   // Only allow updating certain fields (exclude read-only fields like ticketNumber, createdAt)
   const allowedUpdates = [
     'title', 'description', 'status', 'priority', 'agentId',
@@ -710,6 +801,11 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
       updates[key] = req.body[key];
     }
   });
+
+  console.log('🔧 UPDATES OBJECT:');
+  console.log('  - updates:', updates);
+  console.log('  - updates.customerAddress:', updates.customerAddress);
+  console.log('  - customerAddress included:', 'customerAddress' in updates);
 
   // If reassigning agent, validate the new agent exists and is active
   if (updates.agentId) {
@@ -726,6 +822,8 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   Object.assign(ticket, updates);
   ticket.updatedAt = new Date().toISOString();
 
+  console.log('🔧 TICKET AFTER UPDATE:');
+  console.log('  - ticket.customerAddress:', ticket.customerAddress);
   console.log(`🎫 Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
 
   // Notify connected clients about ticket update
@@ -762,6 +860,9 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     } : null,
     category
   };
+
+  console.log('🔧 ENRICHED RESPONSE TICKET:');
+  console.log('  - enrichedTicket.customerAddress:', enrichedTicket.customerAddress);
 
   res.json({
     success: true,
