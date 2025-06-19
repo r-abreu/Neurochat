@@ -23,6 +23,7 @@ app.use(express.json());
 const users = [];
 const tickets = [];
 const messages = [];
+const internalComments = []; // New: Internal comments for tickets
 
 // Add some demo messages for testing
 const addDemoMessages = () => {
@@ -179,6 +180,9 @@ const demoTickets = [
     isAnonymous: false,
     customerName: null,
     customerEmail: null,
+    customerPhone: '+1-555-0101',
+    customerCompany: 'Acme Corporation',
+    customerAddress: '456 Main Street, Downtown, NY 10001',
     createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
     updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
   },
@@ -195,6 +199,9 @@ const demoTickets = [
     isAnonymous: false,
     customerName: null,
     customerEmail: null,
+    customerPhone: '+1-555-0202',
+    customerCompany: 'Innovative Solutions Ltd',
+    customerAddress: '789 Oak Avenue\nSuite 200\nTech City, CA 94102',
     createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 minutes ago
     updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
   },
@@ -211,6 +218,9 @@ const demoTickets = [
     isAnonymous: false,
     customerName: null,
     customerEmail: null,
+    customerPhone: null,
+    customerCompany: null,
+    customerAddress: null,
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
     updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
   },
@@ -227,6 +237,9 @@ const demoTickets = [
     isAnonymous: false,
     customerName: null,
     customerEmail: null,
+    customerPhone: null,
+    customerCompany: null,
+    customerAddress: null,
     createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
     updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
   },
@@ -243,6 +256,9 @@ const demoTickets = [
     isAnonymous: true,
     customerName: 'Anonymous User',
     customerEmail: 'anonymous@example.com',
+    customerPhone: '+1-555-0123',
+    customerCompany: 'Tech Startup Inc.',
+    customerAddress: '123 Tech Street, Innovation City, CA 94105',
     createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
     updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
   }
@@ -258,11 +274,51 @@ ticketCounters['250612'] = 1; // 7 days ago has 1 ticket
 
 tickets.push(...demoTickets);
 
+// Add demo internal comments
+const demoInternalComments = [
+  {
+    id: uuidv4(),
+    ticketId: demoTickets[1].id, // Application Crash ticket
+    agentId: demoUsers[1].id, // agent@demo.com
+    content: 'Customer confirmed they are using version 2.1.4. Need to check known issues for this version.',
+    createdAt: new Date(Date.now() - 8 * 60 * 1000).toISOString(), // 8 minutes ago
+    agentName: 'Jane Agent'
+  },
+  {
+    id: uuidv4(),
+    ticketId: demoTickets[1].id, // Application Crash ticket
+    agentId: demoUsers[1].id, // agent@demo.com
+    content: 'Found similar issue in bug tracker #BUG-2145. Escalating to development team.',
+    createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+    agentName: 'Jane Agent'
+  },
+  {
+    id: uuidv4(),
+    ticketId: demoTickets[2].id, // Billing Question ticket
+    agentId: demoUsers[2].id, // agent2@demo.com
+    content: 'Verified duplicate charge in billing system. Processing refund now.',
+    createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    agentName: 'Mike Support'
+  }
+];
+
+internalComments.push(...demoInternalComments);
+
 // Initialize demo messages now that tickets are created
 addDemoMessages();
 
+// Health check endpoint (no authentication required)
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Backend server is running',
+    timestamp: new Date().toISOString(),
+    port: PORT
+  });
+});
+
 // JWT Secret
-const JWT_SECRET = 'demo-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 // Utility functions
 const generateTicketNumber = () => {
@@ -509,7 +565,9 @@ app.post('/api/tickets', (req, res) => {
     customerId: user ? user.id : null,
     customerName: user ? `${user.firstName} ${user.lastName}` : customerInfo.name,
     customerEmail: user ? user.email : customerInfo.email,
+    customerPhone: customerInfo?.phone || null,
     customerCompany: customerInfo?.company || null,
+    customerAddress: customerInfo?.address || null,
     agentId: null,
     categoryId,
     title,
@@ -640,8 +698,11 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     });
   }
 
-  // Only allow updating certain fields
-  const allowedUpdates = ['status', 'priority', 'agentId'];
+  // Only allow updating certain fields (exclude read-only fields like ticketNumber, createdAt)
+  const allowedUpdates = [
+    'title', 'description', 'status', 'priority', 'agentId',
+    'customerName', 'customerEmail', 'customerPhone', 'customerCompany', 'customerAddress'
+  ];
   const updates = {};
   
   Object.keys(req.body).forEach(key => {
@@ -757,6 +818,103 @@ app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
       message: 'Ticket deleted successfully',
       ticketId: req.params.id,
       deletedAt: new Date().toISOString()
+    }
+  });
+});
+
+// Get internal comments for a ticket
+app.get('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, res) => {
+  if (req.user.userType !== 'agent') {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can view internal comments' }
+    });
+  }
+
+  const ticket = tickets.find(t => t.id === req.params.ticketId);
+  if (!ticket) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  const ticketComments = internalComments
+    .filter(c => c.ticketId === req.params.ticketId)
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  res.json({
+    success: true,
+    data: {
+      comments: ticketComments
+    }
+  });
+});
+
+// Add internal comment to a ticket
+app.post('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, res) => {
+  console.log('💬 INTERNAL COMMENT REQUEST RECEIVED');
+  console.log('  - ticketId:', req.params.ticketId);
+  console.log('  - body:', req.body);
+  console.log('  - user:', req.user);
+  console.log('  - userType:', req.user?.userType);
+
+  if (req.user.userType !== 'agent') {
+    console.log('  - REJECTED: User is not an agent');
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can add internal comments' }
+    });
+  }
+
+  const { content } = req.body;
+  
+  if (!content || !content.trim()) {
+    console.log('  - REJECTED: No content provided');
+    return res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Comment content is required' }
+    });
+  }
+
+  const ticket = tickets.find(t => t.id === req.params.ticketId);
+  if (!ticket) {
+    console.log('  - REJECTED: Ticket not found');
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  const agent = users.find(u => u.id === req.user.sub);
+  if (!agent) {
+    console.log('  - REJECTED: Agent not found');
+    return res.status(404).json({
+      success: false,
+      error: { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
+    });
+  }
+
+  console.log('  - Agent found:', agent.firstName, agent.lastName);
+
+  const comment = {
+    id: uuidv4(),
+    ticketId: req.params.ticketId,
+    agentId: req.user.sub,
+    content: content.trim(),
+    createdAt: new Date().toISOString(),
+    agentName: `${agent.firstName} ${agent.lastName}`
+  };
+
+  internalComments.push(comment);
+
+  console.log(`💬 Internal comment added to ticket ${req.params.ticketId} by agent ${req.user.sub}`);
+  console.log('💬 Comment created:', comment);
+
+  res.status(201).json({
+    success: true,
+    data: {
+      comment
     }
   });
 });

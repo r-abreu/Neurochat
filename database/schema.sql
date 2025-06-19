@@ -71,6 +71,13 @@ CREATE TABLE Tickets (
     status NVARCHAR(20) DEFAULT 'new' CHECK (status IN ('new', 'in_progress', 'resolved', 'closed')),
     priority NVARCHAR(10) DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
     
+    -- Customer information fields
+    customer_name NVARCHAR(200) NULL,
+    customer_email NVARCHAR(255) NULL,
+    customer_phone NVARCHAR(50) NULL,
+    customer_company NVARCHAR(200) NULL,
+    customer_address NVARCHAR(500) NULL,
+    
     created_at DATETIME2 DEFAULT GETUTCDATE(),
     updated_at DATETIME2 DEFAULT GETUTCDATE(),
     assigned_at DATETIME2 NULL,
