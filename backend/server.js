@@ -710,6 +710,57 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   });
 });
 
+// Delete ticket
+app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
+  if (req.user.userType !== 'agent') {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can delete tickets' }
+    });
+  }
+
+  const ticketIndex = tickets.findIndex(t => t.id === req.params.id);
+  if (ticketIndex === -1) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  const ticket = tickets[ticketIndex];
+  
+  // Remove the ticket from the array
+  tickets.splice(ticketIndex, 1);
+  
+  // Also remove all messages associated with this ticket
+  const messagesToRemove = messages.filter(m => m.ticketId === req.params.id);
+  messagesToRemove.forEach(msg => {
+    const msgIndex = messages.findIndex(m => m.id === msg.id);
+    if (msgIndex !== -1) {
+      messages.splice(msgIndex, 1);
+    }
+  });
+
+  console.log(`🗑️ Ticket ${req.params.id} deleted by agent ${req.user.sub}`);
+  console.log(`🗑️ Also removed ${messagesToRemove.length} associated messages`);
+
+  // Notify connected clients about ticket deletion
+  io.emit('ticket_deleted', {
+    ticketId: ticket.id,
+    deletedBy: req.user.sub,
+    deletedAt: new Date().toISOString()
+  });
+
+  res.json({
+    success: true,
+    data: {
+      message: 'Ticket deleted successfully',
+      ticketId: req.params.id,
+      deletedAt: new Date().toISOString()
+    }
+  });
+});
+
 // Get messages for a ticket (supports both authenticated and anonymous)
 app.get('/api/tickets/:ticketId/messages', (req, res) => {
   const ticket = tickets.find(t => t.id === req.params.ticketId);
