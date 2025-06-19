@@ -362,6 +362,82 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
   });
 });
 
+// Update ticket
+app.put('/api/tickets/:id', authenticateToken, (req, res) => {
+  if (req.user.userType !== 'agent') {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can update tickets' }
+    });
+  }
+
+  const ticket = tickets.find(t => t.id === req.params.id);
+  if (!ticket) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  // Only allow updating certain fields
+  const allowedUpdates = ['status', 'priority'];
+  const updates = {};
+  
+  Object.keys(req.body).forEach(key => {
+    if (allowedUpdates.includes(key)) {
+      updates[key] = req.body[key];
+    }
+  });
+
+  // Update the ticket
+  Object.assign(ticket, updates);
+  ticket.updatedAt = new Date().toISOString();
+
+  console.log(`🎫 Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
+
+  // Notify connected clients about ticket update
+  io.to(`ticket_${ticket.id}`).emit('ticket_updated', {
+    ticketId: ticket.id,
+    updates: updates,
+    updatedBy: req.user.sub,
+    updatedAt: ticket.updatedAt
+  });
+
+  // Send the updated ticket data back
+  const agent = users.find(u => u.id === ticket.agentId);
+  const customer = users.find(u => u.id === ticket.customerId);
+  const category = categories.find(c => c.id === ticket.categoryId);
+
+  const enrichedTicket = {
+    ...ticket,
+    customer: customer ? {
+      id: customer.id,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      email: customer.email
+    } : (ticket.isAnonymous ? {
+      id: null,
+      firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
+      lastName: ticket.customerName.split(' ').slice(1).join(' ') || '',
+      email: ticket.customerEmail
+    } : null),
+    agent: agent ? {
+      id: agent.id,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      email: agent.email
+    } : null,
+    category
+  };
+
+  res.json({
+    success: true,
+    data: {
+      ticket: enrichedTicket
+    }
+  });
+});
+
 // Get messages for a ticket (supports both authenticated and anonymous)
 app.get('/api/tickets/:ticketId/messages', (req, res) => {
   const ticket = tickets.find(t => t.id === req.params.ticketId);
