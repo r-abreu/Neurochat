@@ -1500,6 +1500,78 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
   });
 });
 
+// Submit feedback without closing ticket (for customers - no authentication required)
+app.post('/api/tickets/:ticketId/feedback', (req, res) => {
+  const { resolution } = req.body;
+  const ticket = tickets.find(t => t.id === req.params.ticketId);
+  
+  if (!ticket) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  // Don't allow feedback on already resolved tickets
+  if (ticket.status === 'resolved') {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'TICKET_ALREADY_CLOSED', message: 'Cannot submit feedback for closed ticket' }
+    });
+  }
+
+  // Validate resolution value
+  if (!resolution || !['resolved', 'not_resolved', 'partially_resolved'].includes(resolution)) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Invalid resolution value' }
+    });
+  }
+
+  // Create a system message with the feedback (but don't close ticket)
+  const feedbackMessages = {
+    'resolved': 'Customer feedback: Problem resolved',
+    'not_resolved': 'Customer feedback: Problem not resolved', 
+    'partially_resolved': 'Customer feedback: Problem partially resolved'
+  };
+
+  const systemMessage = {
+    id: uuidv4(),
+    ticketId: req.params.ticketId,
+    senderId: null,
+    content: feedbackMessages[resolution],
+    messageType: 'system',
+    createdAt: new Date().toISOString(),
+    isRead: false
+  };
+
+  messages.push(systemMessage);
+
+  console.log(`🎫 Feedback submitted for ticket ${req.params.ticketId}: ${resolution}`);
+
+  // Broadcast system message to agents
+  const messageWithSender = {
+    ...systemMessage,
+    sender: {
+      id: null,
+      firstName: 'System',
+      lastName: '',
+      userType: 'system'
+    }
+  };
+
+  io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
+    message: messageWithSender
+  });
+
+  res.json({
+    success: true,
+    data: {
+      message: 'Feedback submitted successfully'
+    }
+  });
+});
+
 // Close ticket with feedback (for customers - no authentication required)
 app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
   const { resolution } = req.body;
