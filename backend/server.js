@@ -215,6 +215,42 @@ const demoUsers = [
 users.push(...demoUsers);
 
 // Create demo tickets
+// Helper function to parse address into components
+const parseAddress = (fullAddress) => {
+  if (!fullAddress) {
+    return {
+      street: null,
+      state: null,
+      zipCode: null,
+      country: 'United States'
+    };
+  }
+  
+  // Simple parsing logic for demo addresses
+  const parts = fullAddress.split(',').map(part => part.trim());
+  if (parts.length >= 3) {
+    const lastPart = parts[parts.length - 1]; // "NY 10001" or "CA 94102"
+    const stateParts = lastPart.split(' ');
+    const state = stateParts[0];
+    const zipCode = stateParts[1];
+    const street = parts.slice(0, -1).join(', ');
+    
+    return {
+      street: street || null,
+      state: state || null,
+      zipCode: zipCode || null,
+      country: 'United States'
+    };
+  }
+  
+  return {
+    street: fullAddress,
+    state: null,
+    zipCode: null,
+    country: 'United States'
+  };
+};
+
 const demoTickets = [
   {
     id: uuidv4(),
@@ -232,6 +268,10 @@ const demoTickets = [
     customerPhone: '+1-555-0101',
     customerCompany: 'Acme Corporation',
     customerAddress: '456 Main Street, Downtown, NY 10001',
+    customerStreetAddress: '456 Main Street, Downtown',
+    customerState: 'NY',
+    customerZipCode: '10001',
+    customerCountry: 'United States',
     createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
     updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
   },
@@ -251,6 +291,10 @@ const demoTickets = [
     customerPhone: '+1-555-0202',
     customerCompany: 'Innovative Solutions Ltd',
     customerAddress: '789 Oak Avenue\nSuite 200\nTech City, CA 94102',
+    customerStreetAddress: '789 Oak Avenue, Suite 200',
+    customerState: 'CA',
+    customerZipCode: '94102',
+    customerCountry: 'United States',
     createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 minutes ago
     updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
   },
@@ -270,6 +314,10 @@ const demoTickets = [
     customerPhone: null,
     customerCompany: null,
     customerAddress: null,
+    customerStreetAddress: null,
+    customerState: null,
+    customerZipCode: null,
+    customerCountry: null,
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
     updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
     resolvedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
@@ -290,6 +338,10 @@ const demoTickets = [
     customerPhone: null,
     customerCompany: null,
     customerAddress: null,
+    customerStreetAddress: null,
+    customerState: null,
+    customerZipCode: null,
+    customerCountry: null,
     createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
     updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), // 6 days ago
     resolvedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
@@ -310,6 +362,10 @@ const demoTickets = [
     customerPhone: '+1-555-0123',
     customerCompany: 'Tech Startup Inc.',
     customerAddress: '123 Tech Street, Innovation City, CA 94105',
+    customerStreetAddress: '123 Tech Street',
+    customerState: 'CA',
+    customerZipCode: '94105',
+    customerCountry: 'United States',
     createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
     updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
   }
@@ -817,7 +873,11 @@ app.post('/api/tickets', (req, res) => {
     customerEmail: user ? user.email : customerInfo.email,
     customerPhone: customerInfo?.phone || null,
     customerCompany: customerInfo?.company || null,
-    customerAddress: customerInfo?.address || null,
+    customerAddress: customerInfo?.address || null, // Keep for backward compatibility
+    customerStreetAddress: customerInfo?.streetAddress || null,
+    customerState: customerInfo?.state || null,
+    customerZipCode: customerInfo?.zipCode || null,
+    customerCountry: customerInfo?.country || null,
     agentId: null,
     categoryId,
     title,
@@ -1004,7 +1064,8 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   // Only allow updating certain fields (exclude read-only fields like ticketNumber, createdAt)
   const allowedUpdates = [
     'title', 'description', 'status', 'priority', 'agentId',
-    'customerName', 'customerEmail', 'customerPhone', 'customerCompany', 'customerAddress'
+    'customerName', 'customerEmail', 'customerPhone', 'customerCompany', 'customerAddress',
+    'customerStreetAddress', 'customerState', 'customerZipCode', 'customerCountry'
   ];
   const updates = {};
   
@@ -3452,11 +3513,21 @@ function generateInsightsData(filters = {}) {
     return data.sort((a, b) => a.date.localeCompare(b.date));
   };
 
-  // Generate geography data from audit logs (country field)
+  // Generate geography data from ticket country information
   const geographyData = {};
-  auditLogs.forEach(log => {
-    if (log.country) {
-      geographyData[log.country] = (geographyData[log.country] || 0) + 1;
+  filteredTickets.forEach(ticket => {
+    // Use new customerCountry field first, fallback to parsing old customerAddress
+    let country = ticket.customerCountry;
+    if (!country && ticket.customerAddress) {
+      // Try to extract country from old address format (assuming country is at the end)
+      const addressParts = ticket.customerAddress.split(',').map(part => part.trim());
+      if (addressParts.length > 1) {
+        country = addressParts[addressParts.length - 1];
+      }
+    }
+    
+    if (country) {
+      geographyData[country] = (geographyData[country] || 0) + 1;
     }
   });
   

@@ -208,6 +208,10 @@ class ApiService {
         customerPhone: ticket.customerPhone,
         customerCompany: ticket.customerCompany,
         customerAddress: ticket.customerAddress,
+        customerStreetAddress: ticket.customerStreetAddress,
+        customerState: ticket.customerState,
+        customerZipCode: ticket.customerZipCode,
+        customerCountry: ticket.customerCountry,
         agentId: ticket.agentId,
         createdAt: ticket.createdAt,
         updatedAt: ticket.updatedAt,
@@ -249,7 +253,7 @@ class ApiService {
     return data.ticket;
   }
 
-  async createTicket(ticketData: any, customerInfo?: { name: string; email: string; company?: string; phone?: string }): Promise<Ticket> {
+  async createTicket(ticketData: any, customerInfo?: { name: string; email: string; company?: string; phone?: string; country?: string }): Promise<Ticket> {
     console.log('API: Creating ticket with data:', ticketData);
     console.log('API: Customer info:', customerInfo);
     
@@ -329,6 +333,10 @@ class ApiService {
       customerPhone: apiResponse.data.ticket.customerPhone || undefined,
       customerCompany: apiResponse.data.ticket.customerCompany || undefined,
       customerAddress: apiResponse.data.ticket.customerAddress || undefined,
+      customerStreetAddress: (apiResponse.data.ticket as any).customerStreetAddress || undefined,
+      customerState: (apiResponse.data.ticket as any).customerState || undefined,
+      customerZipCode: (apiResponse.data.ticket as any).customerZipCode || undefined,
+      customerCountry: (apiResponse.data.ticket as any).customerCountry || undefined,
       agentId: apiResponse.data.ticket.agentId || undefined,
       createdAt: apiResponse.data.ticket.createdAt,
       updatedAt: apiResponse.data.ticket.updatedAt,
@@ -382,6 +390,10 @@ class ApiService {
       customerPhone: apiResponse.data.ticket.customerPhone,
       customerCompany: apiResponse.data.ticket.customerCompany,
       customerAddress: apiResponse.data.ticket.customerAddress,
+      customerStreetAddress: (apiResponse.data.ticket as any).customerStreetAddress,
+      customerState: (apiResponse.data.ticket as any).customerState,
+      customerZipCode: (apiResponse.data.ticket as any).customerZipCode,
+      customerCountry: (apiResponse.data.ticket as any).customerCountry,
       agentId: apiResponse.data.ticket.agentId,
       createdAt: apiResponse.data.ticket.createdAt,
       updatedAt: apiResponse.data.ticket.updatedAt,

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import apiService from '../../services/api';
 import socketService from '../../services/socket';
 import soundService from '../../services/soundService';
+import CountrySelect from '../common/CountrySelect';
 
 interface TicketDetailProps {
   ticket: Ticket;
@@ -39,7 +40,11 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     customerEmail: initialTicket?.customerEmail || '',
     customerPhone: initialTicket?.customerPhone || '',
     customerCompany: initialTicket?.customerCompany || '',
-    customerAddress: initialTicket?.customerAddress || '',
+    customerAddress: initialTicket?.customerAddress || '', // Keep for backward compatibility
+    customerStreetAddress: initialTicket?.customerStreetAddress || '',
+    customerState: initialTicket?.customerState || '',
+    customerZipCode: initialTicket?.customerZipCode || '',
+    customerCountry: initialTicket?.customerCountry || '',
   });
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
@@ -72,6 +77,10 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
         customerPhone: initialTicket.customerPhone || '',
         customerCompany: initialTicket.customerCompany || '',
         customerAddress: initialTicket.customerAddress || '',
+        customerStreetAddress: initialTicket.customerStreetAddress || '',
+        customerState: initialTicket.customerState || '',
+        customerZipCode: initialTicket.customerZipCode || '',
+        customerCountry: initialTicket.customerCountry || '',
       });
     }
   }, [initialTicket]);
@@ -496,6 +505,10 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
         customerPhone: updatedTicket.customerPhone || '',
         customerCompany: updatedTicket.customerCompany || '',
         customerAddress: updatedTicket.customerAddress || '',
+        customerStreetAddress: updatedTicket.customerStreetAddress || '',
+        customerState: updatedTicket.customerState || '',
+        customerZipCode: updatedTicket.customerZipCode || '',
+        customerCountry: updatedTicket.customerCountry || '',
       });
       
       console.log('🔧 Updated editForm with new customerAddress:', updatedTicket.customerAddress);
@@ -539,6 +552,10 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       customerPhone: currentTicket.customerPhone || '',
       customerCompany: currentTicket.customerCompany || '',
       customerAddress: currentTicket.customerAddress || '',
+      customerStreetAddress: currentTicket.customerStreetAddress || '',
+      customerState: currentTicket.customerState || '',
+      customerZipCode: currentTicket.customerZipCode || '',
+      customerCountry: currentTicket.customerCountry || '',
     });
     setIsEditing(false);
   };
@@ -787,16 +804,55 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                       />
                     </div>
                     <div>
-                      <label htmlFor="customerAddress" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Address</label>
-                      <textarea
-                        id="customerAddress"
-                        name="customerAddress"
-                        rows={3}
-                        value={editForm.customerAddress}
+                      <label htmlFor="customerStreetAddress" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Street Address</label>
+                      <input
+                        type="text"
+                        id="customerStreetAddress"
+                        name="customerStreetAddress"
+                        value={editForm.customerStreetAddress}
                         onChange={handleEditFormChange}
-                        className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                        placeholder="Enter customer address"
+                        className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="123 Main Street"
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label htmlFor="customerState" className="block text-xs font-medium text-gray-400 dark:text-gray-500">State/Province</label>
+                        <input
+                          type="text"
+                          id="customerState"
+                          name="customerState"
+                          value={editForm.customerState}
+                          onChange={handleEditFormChange}
+                          className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="CA"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="customerZipCode" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Zip/Postal Code</label>
+                        <input
+                          type="text"
+                          id="customerZipCode"
+                          name="customerZipCode"
+                          value={editForm.customerZipCode}
+                          onChange={handleEditFormChange}
+                          className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="90210"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="customerCountry" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Country</label>
+                      <div className="mt-1">
+                        <CountrySelect
+                          id="customerCountry"
+                          name="customerCountry"
+                          value={editForm.customerCountry}
+                          onChange={(value) => handleEditFormChange({ target: { name: 'customerCountry', value } } as any)}
+                          placeholder="Select a country..."
+                          className="text-sm px-3 py-1"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -884,10 +940,33 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                     </div>
                     
                     <div>
-                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Address</h4>
-                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
-                        {ticket.customerAddress || 'No address provided'}
+                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Country</h4>
+                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                        {ticket.customerCountry || 'No country provided'}
                       </p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Address</h4>
+                      <div className="mt-1 text-sm text-gray-900 dark:text-gray-100 space-y-1">
+                        {ticket.customerStreetAddress && (
+                          <p>{ticket.customerStreetAddress}</p>
+                        )}
+                        {(ticket.customerState || ticket.customerZipCode) && (
+                          <p>
+                            {ticket.customerState && ticket.customerZipCode 
+                              ? `${ticket.customerState}, ${ticket.customerZipCode}`
+                              : ticket.customerState || ticket.customerZipCode
+                            }
+                          </p>
+                        )}
+                        {!ticket.customerStreetAddress && !ticket.customerState && !ticket.customerZipCode && ticket.customerAddress && (
+                          <p className="whitespace-pre-wrap">{ticket.customerAddress}</p>
+                        )}
+                        {!ticket.customerStreetAddress && !ticket.customerState && !ticket.customerZipCode && !ticket.customerAddress && (
+                          <p className="text-gray-500 dark:text-gray-400">No address provided</p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -5,12 +5,14 @@ import socketService from '../../services/socket';
 import soundService from '../../services/soundService';
 import ThemeToggle from '../common/ThemeToggle';
 import FileUpload from '../common/FileUpload';
+import CountrySelect from '../common/CountrySelect';
 
 interface CustomerInfo {
   name: string;
   email: string;
   company: string;
   phone: string;
+  country: string;
 }
 
 const CustomerChat: React.FC = () => {
@@ -34,13 +36,16 @@ const CustomerChat: React.FC = () => {
             typeof parsedInfo.email === 'string' &&
             typeof parsedInfo.company === 'string' &&
             typeof parsedInfo.phone === 'string') {
-          return parsedInfo;
+          return {
+            ...parsedInfo,
+            country: parsedInfo.country || ''
+          };
         }
       }
     } catch (error) {
       console.warn('Failed to load customer info from localStorage:', error);
     }
-    return { name: '', email: '', company: '', phone: '' };
+    return { name: '', email: '', company: '', phone: '', country: '' };
   };
 
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>(loadSavedCustomerInfo());
@@ -50,7 +55,7 @@ const CustomerChat: React.FC = () => {
   const clearSavedCustomerInfo = () => {
     try {
       localStorage.removeItem('neurochat_customer_info');
-      setCustomerInfo({ name: '', email: '', company: '', phone: '' });
+      setCustomerInfo({ name: '', email: '', company: '', phone: '', country: '' });
       setEmailError('');
     } catch (error) {
       console.warn('Failed to clear saved customer info:', error);
@@ -187,7 +192,7 @@ const CustomerChat: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const infoComplete = customerInfo.name.trim() && customerInfo.email.trim() && selectedCategory;
+    const infoComplete = customerInfo.name.trim() && customerInfo.email.trim() && customerInfo.country.trim() && selectedCategory;
     setIsInfoComplete(!!infoComplete);
   }, [customerInfo, selectedCategory]);
 
@@ -334,7 +339,8 @@ const CustomerChat: React.FC = () => {
         name: customerInfo.name,
         email: customerInfo.email,
         company: customerInfo.company,
-        phone: customerInfo.phone
+        phone: customerInfo.phone,
+        country: customerInfo.country
       };
 
       console.log('🎫 Ticket data:', ticketData);
@@ -766,34 +772,49 @@ const CustomerChat: React.FC = () => {
                 </div>
               </div>
               
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  What can we help you with? *
-                </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => {
-                    setSelectedCategory(e.target.value);
-                    // Update completeness when category changes
-                    const isComplete = customerInfo.name.trim() !== '' && 
-                                      customerInfo.email.trim() !== '' && 
-                                      validateEmail(customerInfo.email) &&
-                                      e.target.value !== '' &&
-                                      emailError === '';
-                    setIsInfoComplete(isComplete);
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Country *
+                  </label>
+                  <CountrySelect
+                    value={customerInfo.country}
+                    onChange={(value) => handleInfoChange('country', value)}
+                    placeholder="Select your country..."
+                    className="text-sm"
+                    required={true}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    What can we help you with? *
+                  </label>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => {
+                      setSelectedCategory(e.target.value);
+                      // Update completeness when category changes
+                      const isComplete = customerInfo.name.trim() !== '' && 
+                                        customerInfo.email.trim() !== '' && 
+                                        customerInfo.country.trim() !== '' &&
+                                        validateEmail(customerInfo.email) &&
+                                        e.target.value !== '' &&
+                                        emailError === '';
+                      setIsInfoComplete(isComplete);
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Saved Info Indicator and Clear Button */}
-              {(customerInfo.name || customerInfo.email || customerInfo.phone || customerInfo.company) && (
+              {(customerInfo.name || customerInfo.email || customerInfo.phone || customerInfo.company || customerInfo.country) && (
                 <div className="mt-4 flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
                   <div className="flex items-center space-x-2">
                     <svg className="h-4 w-4 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1077,8 +1098,6 @@ const CustomerChat: React.FC = () => {
               )}
               <div ref={messagesEndRef} />
             </div>
-
-
 
             {/* Message Input */}
             {!ticketClosed && (

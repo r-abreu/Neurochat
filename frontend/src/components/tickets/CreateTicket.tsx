@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Category, Ticket } from '../../types';
 import apiService from '../../services/api';
+import CountrySelect from '../common/CountrySelect';
 
 interface CreateTicketProps {
   onBack: () => void;
@@ -16,7 +17,11 @@ interface TicketFormData {
   customerEmail: string;
   customerPhone: string;
   customerCompany: string;
-  customerAddress: string;
+  customerAddress: string; // Keep for backward compatibility
+  customerStreetAddress: string;
+  customerState: string;
+  customerZipCode: string;
+  customerCountry: string;
 }
 
 const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) => {
@@ -29,7 +34,11 @@ const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) 
     customerEmail: '',
     customerPhone: '',
     customerCompany: '',
-    customerAddress: '',
+    customerAddress: '', // Keep for backward compatibility
+    customerStreetAddress: '',
+    customerState: '',
+    customerZipCode: '',
+    customerCountry: '',
   });
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,7 +113,11 @@ const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) 
           email: formData.customerEmail,
           phone: formData.customerPhone,
           company: formData.customerCompany,
-          address: formData.customerAddress
+          address: formData.customerAddress, // Keep for backward compatibility
+          streetAddress: formData.customerStreetAddress,
+          state: formData.customerState,
+          zipCode: formData.customerZipCode,
+          country: formData.customerCountry
         }
       };
       
@@ -261,20 +274,67 @@ const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) 
 
             </div>
 
-            {/* Address Field - Full Width */}
-            <div className="mt-6">
-              <label htmlFor="customerAddress" className="block text-sm font-medium text-gray-700 mb-2">
-                Address
-              </label>
-              <textarea
-                id="customerAddress"
-                name="customerAddress"
-                rows={3}
-                value={formData.customerAddress}
-                onChange={handleChange}
-                placeholder="Your full address (street, city, state, zip code)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-none"
-              />
+            {/* Address Fields */}
+            <div className="mt-6 space-y-4">
+              <div>
+                <label htmlFor="customerStreetAddress" className="block text-sm font-medium text-gray-700 mb-2">
+                  Street Address
+                </label>
+                <input
+                  type="text"
+                  id="customerStreetAddress"
+                  name="customerStreetAddress"
+                  value={formData.customerStreetAddress}
+                  onChange={handleChange}
+                  placeholder="123 Main Street"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                />
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="customerState" className="block text-sm font-medium text-gray-700 mb-2">
+                    State/Province
+                  </label>
+                  <input
+                    type="text"
+                    id="customerState"
+                    name="customerState"
+                    value={formData.customerState}
+                    onChange={handleChange}
+                    placeholder="California"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                  />
+                </div>
+                
+                <div>
+                  <label htmlFor="customerZipCode" className="block text-sm font-medium text-gray-700 mb-2">
+                    Zip/Postal Code
+                  </label>
+                  <input
+                    type="text"
+                    id="customerZipCode"
+                    name="customerZipCode"
+                    value={formData.customerZipCode}
+                    onChange={handleChange}
+                    placeholder="90210"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label htmlFor="customerCountry" className="block text-sm font-medium text-gray-700 mb-2">
+                  Country
+                </label>
+                <CountrySelect
+                  id="customerCountry"
+                  name="customerCountry"
+                  value={formData.customerCountry}
+                  onChange={(value) => setFormData(prev => ({ ...prev, customerCountry: value }))}
+                  placeholder="Select your country..."
+                />
+              </div>
             </div>
           </div>
 

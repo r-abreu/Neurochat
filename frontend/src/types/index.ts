@@ -36,7 +36,11 @@ export interface Ticket {
   customerEmail?: string;
   customerPhone?: string;
   customerCompany?: string;
-  customerAddress?: string;
+  customerAddress?: string; // Keep for backward compatibility
+  customerStreetAddress?: string;
+  customerState?: string;
+  customerZipCode?: string;
+  customerCountry?: string;
   agentId?: string;
   createdAt: string;
   updatedAt: string;
