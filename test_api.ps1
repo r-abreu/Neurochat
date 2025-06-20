@@ -70,4 +70,31 @@ try {
     Write-Host "Update failed: $($_.Exception.Message)"
 }
 
-Write-Host "`nTest completed!" 
+Write-Host "`nTest completed!"
+
+$ticketId = "2730b4ed-b8b7-47ac-ba7c-578c5c89cb10"
+$token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzZWI5MzIxYS1mYjJlLTQzNjctOGI1YS1jMmEyNzY2YWY4MjciLCJlbWFpbCI6InRpZXIyQGRlbW8uY29tIiwiaWF0IjoxNzM3MzUxMzE1LCJleHAiOjE3MzczNTQ5MTV9.gE7TdQGr6oj7Gu0dJGJxjJfqJtl3Y8CWwYT5_8bRmkY"
+$url = "http://localhost:3001/api/tickets/$ticketId/files"
+
+Write-Host "Testing Files API Endpoint"
+Write-Host "URL: $url"
+Write-Host "Ticket ID: $ticketId"
+Write-Host ""
+
+try {
+    $headers = @{
+        'Authorization' = "Bearer $token"
+        'Content-Type' = 'application/json'
+    }
+    
+    $response = Invoke-WebRequest -Uri $url -Headers $headers -Method GET
+    Write-Host "✅ Success! Status: $($response.StatusCode)"
+    Write-Host "Response Content:"
+    Write-Host $response.Content
+} catch {
+    Write-Host "❌ Error: $($_.Exception.Message)"
+    if ($_.Exception.Response) {
+        Write-Host "Status Code: $($_.Exception.Response.StatusCode)"
+        Write-Host "Status Description: $($_.Exception.Response.StatusDescription)"
+    }
+} 
