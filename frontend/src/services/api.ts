@@ -646,6 +646,64 @@ class ApiService {
     return categories;
   }
 
+  async createCategory(categoryData: { name: string; description: string; colorCode?: string }): Promise<Category> {
+    const response = await this.fetchWithAuth('/categories', {
+      method: 'POST',
+      body: JSON.stringify(categoryData)
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { category: any } }>(response);
+    
+    return {
+      id: apiResponse.data.category.id,
+      name: apiResponse.data.category.name,
+      description: apiResponse.data.category.description
+    };
+  }
+
+  async updateCategory(id: string, categoryData: { name?: string; description?: string; colorCode?: string }): Promise<Category> {
+    const response = await this.fetchWithAuth(`/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(categoryData)
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { category: any } }>(response);
+    
+    return {
+      id: apiResponse.data.category.id,
+      name: apiResponse.data.category.name,
+      description: apiResponse.data.category.description
+    };
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    const response = await this.fetchWithAuth(`/categories/${id}`, {
+      method: 'DELETE'
+    });
+    await this.handleResponse<{ success: boolean; message: string }>(response);
+  }
+
+  // System Settings API (Admin only)
+  async getSystemSettings(): Promise<any> {
+    const response = await this.fetchWithAuth('/system-settings');
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { settings: any } }>(response);
+    return apiResponse.data.settings;
+  }
+
+  async updateSystemSettings(settings: any): Promise<any> {
+    const response = await this.fetchWithAuth('/system-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings)
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { settings: any } }>(response);
+    return apiResponse.data.settings;
+  }
+
+  // Get public system settings for components
+  async getPublicSystemSettings(): Promise<any> {
+    const response = await this.fetchWithAuth('/system-settings/public');
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { settings: any } }>(response);
+    return apiResponse.data.settings;
+  }
+
   // User APIs (for agents)
   async getUsers(): Promise<User[]> {
     const response = await this.fetchWithAuth('/users');

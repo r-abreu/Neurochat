@@ -6,12 +6,13 @@ import CreateUserForm from './CreateUserForm';
 import EditUserForm from './EditUserForm';
 import RoleManagement from './RoleManagement';
 import AuditTrail from './AuditTrail';
+import SystemSettings from './SystemSettings';
 
 interface UserManagementProps {}
 
 const UserManagement: React.FC<UserManagementProps> = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'agents' | 'roles' | 'audit'>('agents');
+  const [activeTab, setActiveTab] = useState<'agents' | 'roles' | 'audit' | 'settings'>('agents');
   const [agents, setAgents] = useState<AgentUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +26,7 @@ const UserManagement: React.FC<UserManagementProps> = () => {
   const canEditUsers = user?.permissions?.includes('users.edit') ?? false;
   const canDeleteUsers = user?.permissions?.includes('users.delete') ?? false;
   const canViewAudit = user?.permissions?.includes('audit.view') ?? false;
+  const isAdmin = user?.roleName === 'Admin';
 
   useEffect(() => {
     if (hasUserAccess) {
@@ -272,6 +274,18 @@ const UserManagement: React.FC<UserManagementProps> = () => {
               Audit Trail
             </button>
           )}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'settings'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              System Settings
+            </button>
+          )}
         </nav>
       </div>
 
@@ -319,6 +333,10 @@ const UserManagement: React.FC<UserManagementProps> = () => {
 
       {activeTab === 'audit' && canViewAudit && (
         <AuditTrail />
+      )}
+
+      {activeTab === 'settings' && isAdmin && (
+        <SystemSettings />
       )}
     </div>
   );

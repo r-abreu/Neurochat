@@ -619,6 +619,34 @@ app.get('/api/categories', (req, res) => {
   });
 });
 
+// Get system settings for frontend components (authenticated users)
+app.get('/api/system-settings/public', authenticateToken, (req, res) => {
+  try {
+    // Return only settings that frontend components need
+    const publicSettings = {
+      urgency_yellow_unassigned: systemSettings.urgency_yellow_unassigned,
+      urgency_red_unassigned: systemSettings.urgency_red_unassigned,
+      urgency_yellow_in_progress: systemSettings.urgency_yellow_in_progress,
+      urgency_red_in_progress: systemSettings.urgency_red_in_progress,
+      sound_enabled_green: systemSettings.sound_enabled_green,
+      sound_enabled_yellow: systemSettings.sound_enabled_yellow,
+      sound_enabled_red: systemSettings.sound_enabled_red,
+      customer_timeout_minutes: systemSettings.customer_timeout_minutes,
+    };
+
+    res.json({
+      success: true,
+      data: { settings: publicSettings }
+    });
+  } catch (error) {
+    console.error('Error fetching public system settings:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
 // This endpoint was removed to avoid conflict with User Management endpoint
 
 // Get customer connection status for a ticket
@@ -3857,3 +3885,315 @@ server.listen(PORT, () => {
   console.log('📡 Socket.IO server ready for real-time connections');
   console.log('👤 Demo accounts ready: customer@demo.com / agent@demo.com (password: demo123)');
 }); 
+
+// ==========================================
+// SYSTEM SETTINGS ENDPOINTS (Admin only)
+// ==========================================
+
+// In-memory system settings (replace with database in production)
+let systemSettings = {
+  // General Settings
+  organizationName: 'NeuroChat Support',
+  supportEmail: 'support@neurochat.com',
+  
+  // File Upload Settings
+  maxFileSize: 10, // MB
+  allowedFileTypes: ['pdf', 'doc', 'docx', 'txt', 'jpg', 'png', 'xls', 'xlsx'],
+  enableFileUpload: true,
+  
+  // Security Settings
+  sessionTimeout: 60, // minutes
+  maxLoginAttempts: 5,
+  
+  // User Settings
+  enableRegistration: true,
+  defaultUserRole: 'Customer',
+  maxTicketsPerUser: 10,
+  
+  // System Status
+  systemNotifications: true,
+  maintenanceMode: false,
+  
+  // Urgency thresholds (in seconds)
+  urgency_yellow_unassigned: 60,
+  urgency_red_unassigned: 120,
+  urgency_yellow_in_progress: 600, // 10 minutes
+  urgency_red_in_progress: 1200, // 20 minutes
+  
+  // Sound notifications enabled/disabled
+  sound_enabled_green: true,
+  sound_enabled_yellow: true,
+  sound_enabled_red: true,
+  
+  // Timeout settings (in minutes)
+  agent_timeout_minutes: 30,
+  customer_timeout_minutes: 5,
+};
+
+// Get system settings (Admin only)
+app.get('/api/system-settings', authenticateToken, (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { settings: systemSettings }
+    });
+  } catch (error) {
+    console.error('Error fetching system settings:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Update system settings (Admin only)
+app.put('/api/system-settings', authenticateToken, (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const updatedSettings = req.body;
+    
+    // Validate settings
+    const validKeys = Object.keys(systemSettings);
+    const invalidKeys = Object.keys(updatedSettings).filter(key => !validKeys.includes(key));
+    
+    if (invalidKeys.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_SETTINGS', message: `Invalid setting keys: ${invalidKeys.join(', ')}` }
+      });
+    }
+
+    // Update settings
+    Object.keys(updatedSettings).forEach(key => {
+      if (validKeys.includes(key)) {
+        systemSettings[key] = updatedSettings[key];
+      }
+    });
+
+    // Log audit trail
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'system_settings_updated',
+      targetType: 'system',
+      targetId: 'settings',
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Updated system settings: ${Object.keys(updatedSettings).join(', ')}`
+    });
+
+    res.json({
+      success: true,
+      data: { settings: systemSettings }
+    });
+  } catch (error) {
+    console.error('Error updating system settings:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Create new category (Admin only)
+app.post('/api/categories', authenticateToken, (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { name, description, colorCode } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_FIELDS', message: 'Category name is required' }
+      });
+    }
+
+    // Check if category name already exists
+    const existingCategory = categories.find(c => c.name.toLowerCase() === name.toLowerCase());
+    if (existingCategory) {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'CATEGORY_EXISTS', message: 'Category name already exists' }
+      });
+    }
+
+    const newCategory = {
+      id: uuidv4(),
+      name,
+      description: description || '',
+      colorCode: colorCode || '#6c757d'
+    };
+
+    categories.push(newCategory);
+
+    // Log audit trail
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'category_created',
+      targetType: 'category',
+      targetId: newCategory.id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Created category: ${name}`
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { category: newCategory }
+    });
+  } catch (error) {
+    console.error('Error creating category:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Update category (Admin only)
+app.put('/api/categories/:id', authenticateToken, (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { id } = req.params;
+    const { name, description, colorCode } = req.body;
+
+    const categoryIndex = categories.findIndex(c => c.id === id);
+    if (categoryIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CATEGORY_NOT_FOUND', message: 'Category not found' }
+      });
+    }
+
+    // Check if new name conflicts with existing categories (excluding current)
+    if (name) {
+      const existingCategory = categories.find(c => c.id !== id && c.name.toLowerCase() === name.toLowerCase());
+      if (existingCategory) {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'CATEGORY_EXISTS', message: 'Category name already exists' }
+        });
+      }
+    }
+
+    // Update category
+    if (name !== undefined) categories[categoryIndex].name = name;
+    if (description !== undefined) categories[categoryIndex].description = description;
+    if (colorCode !== undefined) categories[categoryIndex].colorCode = colorCode;
+
+    // Log audit trail
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'category_updated',
+      targetType: 'category',
+      targetId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Updated category: ${categories[categoryIndex].name}`
+    });
+
+    res.json({
+      success: true,
+      data: { category: categories[categoryIndex] }
+    });
+  } catch (error) {
+    console.error('Error updating category:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Delete category (Admin only)
+app.delete('/api/categories/:id', authenticateToken, (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { id } = req.params;
+
+    const categoryIndex = categories.findIndex(c => c.id === id);
+    if (categoryIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CATEGORY_NOT_FOUND', message: 'Category not found' }
+      });
+    }
+
+    // Check if any tickets use this category
+    const ticketsWithCategory = tickets.filter(t => t.categoryId === id);
+    if (ticketsWithCategory.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'CATEGORY_IN_USE', message: 'Cannot delete category: tickets are using it' }
+      });
+    }
+
+    const deletedCategory = categories[categoryIndex];
+    categories.splice(categoryIndex, 1);
+
+    // Log audit trail
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'category_deleted',
+      targetType: 'category',
+      targetId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Deleted category: ${deletedCategory.name}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Category deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting category:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
