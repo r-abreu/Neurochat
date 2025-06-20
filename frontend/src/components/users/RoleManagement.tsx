@@ -1,0 +1,423 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
+
+interface Role {
+  id: string;
+  name: string;
+  description: string;
+  permissions?: {
+    'tickets.create': boolean;
+    'tickets.edit': boolean;
+    'tickets.delete': boolean;
+    'tickets.message': boolean;
+    'users.access': boolean;
+    'audit.view': boolean;
+  };
+}
+
+const RoleManagement: React.FC = () => {
+  const { token } = useAuth();
+  const { isDarkMode } = useTheme();
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingRole, setEditingRole] = useState<Role | null>(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    permissions: {
+      'tickets.create': false,
+      'tickets.edit': false,
+      'tickets.delete': false,
+      'tickets.message': false,
+      'users.access': false,
+      'audit.view': false,
+    }
+  });
+
+  const fetchRoles = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/roles', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch roles');
+      }
+
+      const data = await response.json();
+      console.log('Roles API response:', data);
+      setRoles(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch roles');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRoles();
+  }, [token]);
+
+  const handleCreateRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const response = await fetch('http://localhost:3001/api/roles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (!response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to create role');
+        } else {
+          const errorText = await response.text();
+          console.error('Non-JSON response:', errorText);
+          throw new Error(`Server error (${response.status}): ${response.statusText}`);
+        }
+      }
+
+      await fetchRoles();
+      setShowCreateForm(false);
+      resetForm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create role');
+    }
+  };
+
+  const handleUpdateRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRole) return;
+
+    console.log('Updating role:', editingRole.id, 'with data:', formData);
+    console.log('Token:', token);
+    console.log('Full URL:', `http://localhost:3001/api/roles/${editingRole.id}`);
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/roles/${editingRole.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(formData),
+      });
+
+      console.log('Update response status:', response.status);
+      console.log('Update response headers:', response.headers);
+
+      if (!response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to update role');
+        } else {
+          const errorText = await response.text();
+          console.error('Non-JSON response:', errorText);
+          throw new Error(`Server error (${response.status}): ${response.statusText}`);
+        }
+      }
+
+      await fetchRoles();
+      setEditingRole(null);
+      resetForm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update role');
+    }
+  };
+
+  const handleDeleteRole = async (roleId: string) => {
+    if (!window.confirm('Are you sure you want to delete this role?')) return;
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/roles/${roleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to delete role');
+      }
+
+      await fetchRoles();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete role');
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      description: '',
+      permissions: {
+        'tickets.create': false,
+        'tickets.edit': false,
+        'tickets.delete': false,
+        'tickets.message': false,
+        'users.access': false,
+        'audit.view': false,
+      }
+    });
+  };
+
+  const startEdit = (role: Role) => {
+    setEditingRole(role);
+    setFormData({
+      name: role.name,
+      description: role.description,
+      permissions: role.permissions ? { ...role.permissions } : {
+        'tickets.create': false,
+        'tickets.edit': false,
+        'tickets.delete': false,
+        'tickets.message': false,
+        'users.access': false,
+        'audit.view': false,
+      }
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingRole(null);
+    setShowCreateForm(false);
+    resetForm();
+  };
+
+  if (loading) return <div className="p-4">Loading roles...</div>;
+  if (error) return <div className="p-4 text-red-500">Error: {error}</div>;
+
+  const isDefaultRole = (roleId: string) => ['1', '2', '3', '4'].includes(roleId);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold">Role Management</h2>
+        <button
+          onClick={() => setShowCreateForm(true)}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+        >
+          Create New Role
+        </button>
+      </div>
+
+      {/* Create/Edit Form */}
+      {(showCreateForm || editingRole) && (
+        <div className={`p-6 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+          <h3 className="text-lg font-medium mb-4">
+            {editingRole ? 'Edit Role' : 'Create New Role'}
+          </h3>
+          <form onSubmit={editingRole ? handleUpdateRole : handleCreateRole} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Role Name</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                className={`w-full px-3 py-2 border rounded-lg ${
+                  isDarkMode 
+                    ? 'bg-gray-700 border-gray-600 text-white' 
+                    : 'bg-white border-gray-300 text-gray-900'
+                }`}
+                required
+                disabled={editingRole ? isDefaultRole(editingRole.id) : false}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Description</label>
+              <input
+                type="text"
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                className={`w-full px-3 py-2 border rounded-lg ${
+                  isDarkMode 
+                    ? 'bg-gray-700 border-gray-600 text-white' 
+                    : 'bg-white border-gray-300 text-gray-900'
+                }`}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-3">Permissions</label>
+              <div className="space-y-3">
+                <div>
+                  <h4 className="font-medium text-sm mb-2">Tickets</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { key: 'tickets.create', label: 'Create' },
+                      { key: 'tickets.edit', label: 'Edit' },
+                      { key: 'tickets.delete', label: 'Delete' },
+                      { key: 'tickets.message', label: 'Send Messages' },
+                    ].map(perm => (
+                      <label key={perm.key} className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={formData.permissions[perm.key as keyof typeof formData.permissions]}
+                          onChange={(e) => setFormData(prev => ({
+                            ...prev,
+                            permissions: {
+                              ...prev.permissions,
+                              [perm.key]: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <span className="text-sm">{perm.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-sm mb-2">User Management</h4>
+                  <div className="space-y-2">
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['users.access']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'users.access': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Access User Management</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['audit.view']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'audit.view': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">View Audit Trail</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+              >
+                {editingRole ? 'Update Role' : 'Create Role'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className={`px-4 py-2 rounded-lg border ${
+                  isDarkMode
+                    ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Roles Table */}
+      <div className={`rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className={`border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Role</th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Tickets</th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">User Management</th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
+              {roles.map((role) => (
+                <tr key={role.id} className={isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}>
+                  <td className="px-6 py-4">
+                    <div>
+                      <div className="font-medium">{role.name}</div>
+                      <div className="text-sm text-gray-500">{role.description}</div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {role.permissions?.['tickets.create'] && (
+                        <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">Create</span>
+                      )}
+                      {role.permissions?.['tickets.edit'] && (
+                        <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">Edit</span>
+                      )}
+                      {role.permissions?.['tickets.delete'] && (
+                        <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded">Delete</span>
+                      )}
+                      {role.permissions?.['tickets.message'] && (
+                        <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded">Message</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="space-y-1">
+                      {role.permissions?.['users.access'] ? (
+                        <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">User Mgmt</span>
+                      ) : (
+                        <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">No Access</span>
+                      )}
+                      {role.permissions?.['audit.view'] && (
+                        <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded ml-1">Audit</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => startEdit(role)}
+                        className="text-blue-600 hover:text-blue-900 text-sm"
+                      >
+                        Edit
+                      </button>
+                      {!isDefaultRole(role.id) && (
+                        <button
+                          onClick={() => handleDeleteRole(role.id)}
+                          className="text-red-600 hover:text-red-900 text-sm"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default RoleManagement; 
