@@ -129,7 +129,8 @@ const demoUsers = [
     userType: 'customer',
     isActive: true,
     lastLogin: null,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
   },
   {
     id: uuidv4(),
@@ -145,7 +146,8 @@ const demoUsers = [
     agentStatus: 'online',
     maxConcurrentTickets: 10,
     lastLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
   },
   {
     id: uuidv4(),
@@ -161,7 +163,8 @@ const demoUsers = [
     agentStatus: 'online',
     maxConcurrentTickets: 8,
     lastLogin: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), // 4 hours ago
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
   },
   {
     id: uuidv4(),
@@ -177,7 +180,8 @@ const demoUsers = [
     agentStatus: 'online',
     maxConcurrentTickets: 5,
     lastLogin: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
   },
   {
     id: uuidv4(),
@@ -193,7 +197,8 @@ const demoUsers = [
     agentStatus: 'online',
     maxConcurrentTickets: 3,
     lastLogin: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
   }
 ];
 
@@ -444,7 +449,8 @@ app.post('/api/auth/login', async (req, res) => {
         agentStatus: user.agentStatus || null,
         roleId: user.roleId,
         roleName: user.roleName,
-        permissions: user.permissions || []
+        permissions: user.permissions || [],
+        avatarUrl: user.avatarUrl || null
       },
       tokens: {
         accessToken: token,
@@ -1827,7 +1833,8 @@ app.post('/api/agents', authenticateToken, async (req, res) => {
       agentStatus: 'offline',
       maxConcurrentTickets: maxConcurrentTickets || 5,
       createdAt: new Date().toISOString(),
-      mustChangePassword: false
+      mustChangePassword: false,
+      avatarUrl: null
     };
 
     users.push(newAgent);
@@ -1976,6 +1983,99 @@ app.post('/api/agents/:id/reset-password', authenticateToken, async (req, res) =
     });
   } catch (error) {
     console.error('Error resetting password:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// ==========================================
+// PROFILE MANAGEMENT ENDPOINTS
+// ==========================================
+
+// Get current user profile
+app.get('/api/profile', authenticateToken, (req, res) => {
+  try {
+    const user = users.find(u => u.id === req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Return user profile without password
+    const { password: _, ...userProfile } = user;
+    res.json(userProfile);
+  } catch (error) {
+    console.error('Error fetching profile:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Update user profile (name and avatar)
+app.put('/api/profile', authenticateToken, (req, res) => {
+  try {
+    const { firstName, lastName, avatarUrl } = req.body;
+    
+    const userIndex = users.findIndex(u => u.id === req.user.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const user = users[userIndex];
+
+    // Update profile fields
+    if (firstName !== undefined) user.firstName = firstName.trim();
+    if (lastName !== undefined) user.lastName = lastName.trim();
+    if (avatarUrl !== undefined) user.avatarUrl = avatarUrl;
+
+    user.updatedAt = new Date().toISOString();
+    users[userIndex] = user;
+
+    // Return updated profile without password
+    const { password: _, ...userProfile } = user;
+    res.json(userProfile);
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Change password
+app.put('/api/profile/password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Validation
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters long' });
+    }
+
+    const userIndex = users.findIndex(u => u.id === req.user.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const user = users[userIndex];
+
+    // Verify current password
+    const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!isValidPassword) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update password
+    user.password = hashedPassword;
+    user.mustChangePassword = false;
+    user.updatedAt = new Date().toISOString();
+    users[userIndex] = user;
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error changing password:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
