@@ -343,15 +343,27 @@ const Insights: React.FC = () => {
           </h3>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.geographyData} layout="horizontal">
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis type="number" className="text-xs fill-gray-600 dark:fill-gray-400" />
-                <YAxis 
-                  dataKey="country" 
-                  type="category" 
-                  width={80}
-                  className="text-xs fill-gray-600 dark:fill-gray-400"
-                />
+              <PieChart>
+                <Pie
+                  data={(() => {
+                    const total = data.geographyData.reduce((sum, item) => sum + item.count, 0);
+                    return data.geographyData.map((item, index) => ({
+                      ...item,
+                      percentage: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0.0'
+                    }));
+                  })()}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ country, percentage }) => `${country}: ${percentage}%`}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="count"
+                >
+                  {data.geographyData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
                 <Tooltip 
                   contentStyle={{ 
                     backgroundColor: 'rgb(31 41 55)', 
@@ -359,9 +371,13 @@ const Insights: React.FC = () => {
                     borderRadius: '8px',
                     color: 'white'
                   }}
+                  formatter={(value, name, props) => {
+                    const total = data.geographyData.reduce((sum, item) => sum + item.count, 0);
+                    const percentage = total > 0 ? ((value as number / total) * 100).toFixed(1) : '0.0';
+                    return [`${value} tickets (${percentage}%)`, 'Count'];
+                  }}
                 />
-                <Bar dataKey="count" fill="#10B981" />
-              </BarChart>
+              </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -488,35 +504,7 @@ const Insights: React.FC = () => {
         </div>
       </div>
 
-      {/* Ticket Flow */}
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
-          Ticket Flow Analysis
-        </h3>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data.ticketFlowData} layout="horizontal">
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis type="number" className="text-xs fill-gray-600 dark:fill-gray-400" />
-              <YAxis 
-                dataKey="stage" 
-                type="category" 
-                width={100}
-                className="text-xs fill-gray-600 dark:fill-gray-400"
-              />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: 'rgb(31 41 55)', 
-                  border: 'none', 
-                  borderRadius: '8px',
-                  color: 'white'
-                }}
-              />
-              <Bar dataKey="count" fill="#F59E0B" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+
     </div>
   );
 };
