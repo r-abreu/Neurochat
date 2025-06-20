@@ -141,7 +141,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '1',
     roleName: 'Admin',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 10,
@@ -158,7 +158,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '2',
     roleName: 'Tier2',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'users.access', 'users.edit'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'users.access', 'users.edit', 'audit.view'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 8,
@@ -346,6 +346,57 @@ internalComments.push(...demoInternalComments);
 // Initialize demo messages now that tickets are created
 addDemoMessages();
 
+// Initialize audit logs array early
+let auditLogs = [];
+
+// Generate demo audit logs
+const generateDemoAuditLogs = () => {
+  const actions = [
+    'login_success', 'login_failed', 'ticket_created', 'ticket_updated', 
+    'ticket_claimed', 'message_sent', 'customer_chat_joined', 'customer_chat_left'
+  ];
+  
+  const agents = demoUsers.filter(u => u.userType === 'agent');
+  const customers = demoUsers.filter(u => u.userType === 'customer');
+  
+  for (let i = 0; i < 50; i++) {
+    const isCustomerAction = Math.random() > 0.6;
+    const user = isCustomerAction ? customers[0] : agents[Math.floor(Math.random() * agents.length)];
+    const action = actions[Math.floor(Math.random() * actions.length)];
+    const timestamp = new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000); // Last 7 days
+    
+    let status = 'success';
+    if (action === 'login_failed' || Math.random() > 0.9) {
+      status = 'failed';
+    } else if (Math.random() > 0.95) {
+      status = 'warning';
+    }
+    
+    const auditEntry = {
+      id: uuidv4(),
+      timestamp: timestamp.toISOString(),
+      userId: user.id,
+      userName: `${user.firstName} ${user.lastName}`,
+      userType: user.userType,
+      action,
+      ticketNumber: Math.random() > 0.3 ? `TKT-${Math.floor(Math.random() * 100000).toString().padStart(6, '0')}` : null,
+      targetType: action.includes('ticket') ? 'ticket' : action.includes('message') ? 'message' : 'session',
+      targetId: uuidv4(),
+      ipAddress: `192.168.1.${Math.floor(Math.random() * 255)}`,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      country: ['USA', 'Canada', 'UK', 'Germany', 'France'][Math.floor(Math.random() * 5)],
+      details: `Demo ${action.replace(/_/g, ' ')} action`,
+      status
+    };
+    
+    auditLogs.push(auditEntry);
+  }
+  
+  console.log('📝 Generated demo audit logs:', auditLogs.length);
+};
+
+generateDemoAuditLogs();
+
 // Health check endpoint (no authentication required)
 app.get('/api/health', (req, res) => {
   res.json({
@@ -412,6 +463,19 @@ app.post('/api/auth/login', async (req, res) => {
   
   if (!user || !bcrypt.compareSync(password, user.password)) {
     console.log('❌ Authentication failed');
+    
+    // Log failed login attempt
+    logAudit({
+      userId: user ? user.id : null,
+      userName: user ? `${user.firstName} ${user.lastName}` : email,
+      userType: user ? user.userType : 'unknown',
+      action: 'login_failed',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Failed login attempt for ${email}`,
+      status: 'failed'
+    });
+    
     return res.status(401).json({
       success: false,
       error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' }
@@ -424,10 +488,23 @@ app.post('/api/auth/login', async (req, res) => {
   user.lastLogin = new Date().toISOString();
   console.log('🕒 Updated lastLogin for', user.email, 'to:', user.lastLogin);
   
+  // Log successful login
+  logAudit({
+    userId: user.id,
+    userName: `${user.firstName} ${user.lastName}`,
+    userType: user.userType,
+    action: 'login_success',
+    ipAddress: getClientIP(req),
+    userAgent: req.headers['user-agent'],
+    details: `Successful login`
+  });
+  
   const token = jwt.sign(
     { 
       sub: user.id, 
       email: user.email, 
+      firstName: user.firstName,
+      lastName: user.lastName,
       userType: user.userType,
       roleId: user.roleId,
       roleName: user.roleName,
@@ -741,6 +818,20 @@ app.post('/api/tickets', (req, res) => {
   console.log('✅ Created ticket:', ticket);
   tickets.push(ticket);
   console.log('Total tickets now:', tickets.length);
+  
+  // Log ticket creation
+  logAudit({
+    userId: user ? user.id : null,
+    userName: user ? `${user.firstName} ${user.lastName}` : customerInfo.name,
+    userType: user ? user.userType : 'customer',
+    action: 'ticket_created',
+    ticketNumber: ticket.ticketNumber,
+    targetType: 'ticket',
+    targetId: ticket.id,
+    ipAddress: getClientIP(req),
+    userAgent: req.headers['user-agent'],
+    details: `Created ticket: ${title} (Priority: ${priority}, Category: ${categoryId})`
+  });
 
   // Create initial message with the ticket description
   const initialMessage = {
@@ -822,6 +913,20 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
   ticket.status = 'in_progress';
   ticket.assignedAt = new Date().toISOString();
   ticket.updatedAt = new Date().toISOString();
+  
+  // Log ticket claim
+  logAudit({
+    userId: req.user.sub,
+    userName: `${req.user.firstName} ${req.user.lastName}`,
+    userType: 'agent',
+    action: 'ticket_claimed',
+    ticketNumber: ticket.ticketNumber,
+    targetType: 'ticket',
+    targetId: ticket.id,
+    ipAddress: getClientIP(req),
+    userAgent: req.headers['user-agent'],
+    details: `Agent claimed ticket and changed status to in_progress`
+  });
 
   // Notify customer of assignment
   io.to(`ticket_${ticket.id}`).emit('ticket_claimed', {
@@ -910,6 +1015,12 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     }
   }
 
+  // Store original values for audit log
+  const originalValues = {};
+  Object.keys(updates).forEach(key => {
+    originalValues[key] = ticket[key];
+  });
+
   // Update the ticket
   Object.assign(ticket, updates);
   ticket.updatedAt = new Date().toISOString();
@@ -917,6 +1028,24 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   console.log('🔧 TICKET AFTER UPDATE:');
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
   console.log(`🎫 Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
+  
+  // Log ticket update
+  const changes = Object.keys(updates).map(key => 
+    `${key}: "${originalValues[key]}" → "${updates[key]}"`
+  ).join(', ');
+  
+  logAudit({
+    userId: req.user.sub,
+    userName: `${req.user.firstName} ${req.user.lastName}`,
+    userType: 'agent',
+    action: 'ticket_updated',
+    ticketNumber: ticket.ticketNumber,
+    targetType: 'ticket',
+    targetId: ticket.id,
+    ipAddress: getClientIP(req),
+    userAgent: req.headers['user-agent'],
+    details: `Updated ticket fields: ${changes}`
+  });
 
   // Notify connected clients about ticket update
   io.to(`ticket_${ticket.id}`).emit('ticket_updated', {
@@ -990,6 +1119,20 @@ app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
   }
 
   const ticket = tickets[ticketIndex];
+  
+  // Log ticket deletion before removing it
+  logAudit({
+    userId: req.user.sub,
+    userName: `${req.user.firstName} ${req.user.lastName}`,
+    userType: 'agent',
+    action: 'ticket_deleted',
+    ticketNumber: ticket.ticketNumber,
+    targetType: 'ticket',
+    targetId: ticket.id,
+    ipAddress: getClientIP(req),
+    userAgent: req.headers['user-agent'],
+    details: `Deleted ticket: ${ticket.title} (Status: ${ticket.status})`
+  });
   
   // Remove the ticket from the array
   tickets.splice(ticketIndex, 1);
@@ -1108,6 +1251,20 @@ app.post('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, re
   };
 
   internalComments.push(comment);
+  
+  // Log internal comment addition
+  logAudit({
+    userId: req.user.sub,
+    userName: `${agent.firstName} ${agent.lastName}`,
+    userType: 'agent',
+    action: 'internal_comment_added',
+    ticketNumber: ticket.ticketNumber,
+    targetType: 'comment',
+    targetId: comment.id,
+    ipAddress: getClientIP(req),
+    userAgent: req.headers['user-agent'],
+    details: `Added internal comment: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+  });
 
   console.log(`💬 Internal comment added to ticket ${req.params.ticketId} by agent ${req.user.sub}`);
   console.log('💬 Comment created:', comment);
@@ -1521,6 +1678,20 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   };
 
   messages.push(message);
+  
+  // Log message sending
+  logAudit({
+    userId: user ? user.id : null,
+    userName: user ? `${user.firstName} ${user.lastName}` : ticket.customerName,
+    userType: user ? (user.id === ticket.customerId ? 'customer' : user.userType) : 'customer',
+    action: 'message_sent',
+    ticketNumber: ticket.ticketNumber,
+    targetType: 'message',
+    targetId: message.id,
+    ipAddress: getClientIP(req),
+    userAgent: req.headers['user-agent'],
+    details: `Sent message in ticket (${messageType}): ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+  });
 
   const sender = user ? users.find(u => u.id === user.id) : null;
   
@@ -1577,7 +1748,8 @@ let rolesConfig = [
       'tickets.edit': true, 
       'tickets.delete': true,
       'tickets.message': true,
-      'users.access': true
+      'users.access': true,
+      'audit.view': true
     }
   },
   { 
@@ -1589,7 +1761,8 @@ let rolesConfig = [
       'tickets.edit': true,
       'tickets.delete': false,
       'tickets.message': true,
-      'users.access': true
+      'users.access': true,
+      'audit.view': true
     }
   },
   { 
@@ -1601,7 +1774,8 @@ let rolesConfig = [
       'tickets.edit': true,
       'tickets.delete': false,
       'tickets.message': true,
-      'users.access': false
+      'users.access': false,
+      'audit.view': false
     }
   },
   { 
@@ -1613,7 +1787,8 @@ let rolesConfig = [
       'tickets.edit': false,
       'tickets.delete': false,
       'tickets.message': false,
-      'users.access': false
+      'users.access': false,
+      'audit.view': false
     }
   }
 ];
@@ -2080,6 +2255,209 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
   }
 });
 
+// ==========================================
+// AUDIT LOGGING SYSTEM
+// ==========================================
+
+// In-memory audit log storage (replace with database in production)
+// auditLogs is declared earlier in the file
+
+// Helper function to log audit events
+const logAudit = (params) => {
+  const {
+    userId = null,
+    userName = null,
+    userType,
+    action,
+    ticketNumber = null,
+    targetType = null,
+    targetId = null,
+    ipAddress = null,
+    userAgent = null,
+    country = null,
+    details = null,
+    status = 'success'
+  } = params;
+
+  const auditEntry = {
+    id: uuidv4(),
+    timestamp: new Date().toISOString(),
+    userId,
+    userName,
+    userType,
+    action,
+    ticketNumber,
+    targetType,
+    targetId,
+    ipAddress,
+    userAgent,
+    country,
+    details: typeof details === 'object' ? JSON.stringify(details) : details,
+    status
+  };
+
+  auditLogs.push(auditEntry);
+  console.log('🔍 Audit Log:', auditEntry);
+  
+  // Keep only last 10000 entries in memory
+  if (auditLogs.length > 10000) {
+    auditLogs = auditLogs.slice(-10000);
+  }
+};
+
+// Helper function to get client IP
+const getClientIP = (req) => {
+  return req.headers['x-forwarded-for'] || 
+         req.connection.remoteAddress || 
+         req.socket.remoteAddress ||
+         (req.connection.socket ? req.connection.socket.remoteAddress : null);
+};
+
+// Get audit logs with filtering and pagination
+app.get('/api/audit', authenticateToken, (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('audit.view')) {
+      logAudit({
+        userId: req.user.id,
+        userName: `${req.user.firstName} ${req.user.lastName}`,
+        userType: 'agent',
+        action: 'audit_access_denied',
+        ipAddress: getClientIP(req),
+        userAgent: req.headers['user-agent'],
+        status: 'failed'
+      });
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const {
+      page = 1,
+      limit = 50,
+      search = '',
+      startDate = '',
+      endDate = '',
+      userType = '',
+      action = '',
+      status = ''
+    } = req.query;
+
+    let filteredLogs = [...auditLogs];
+
+    // Apply filters
+    if (search) {
+      const searchTerm = search.toLowerCase();
+      filteredLogs = filteredLogs.filter(log =>
+        (log.userName && log.userName.toLowerCase().includes(searchTerm)) ||
+        log.action.toLowerCase().includes(searchTerm) ||
+        (log.ticketNumber && log.ticketNumber.toLowerCase().includes(searchTerm)) ||
+        (log.details && log.details.toLowerCase().includes(searchTerm))
+      );
+    }
+
+    if (startDate) {
+      filteredLogs = filteredLogs.filter(log => log.timestamp >= startDate);
+    }
+
+    if (endDate) {
+      filteredLogs = filteredLogs.filter(log => log.timestamp <= endDate);
+    }
+
+    if (userType) {
+      filteredLogs = filteredLogs.filter(log => log.userType === userType);
+    }
+
+    if (action) {
+      filteredLogs = filteredLogs.filter(log => log.action === action);
+    }
+
+    if (status) {
+      filteredLogs = filteredLogs.filter(log => log.status === status);
+    }
+
+    // Sort by timestamp (newest first)
+    filteredLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // Pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
+    const paginatedLogs = filteredLogs.slice(offset, offset + limitNum);
+
+    // Log the audit view access
+    logAudit({
+      userId: req.user.sub,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: 'agent',
+      action: 'audit_viewed',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Viewed page ${page}, filters: ${JSON.stringify(req.query)}`
+    });
+
+    res.json({
+      logs: paginatedLogs,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(filteredLogs.length / limitNum),
+        totalRecords: filteredLogs.length,
+        hasNext: offset + limitNum < filteredLogs.length,
+        hasPrev: pageNum > 1
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching audit logs:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get audit log statistics
+app.get('/api/audit/stats', authenticateToken, (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('audit.view')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const stats = {
+      total: auditLogs.length,
+      last24h: auditLogs.filter(log => new Date(log.timestamp) >= last24h).length,
+      last7d: auditLogs.filter(log => new Date(log.timestamp) >= last7d).length,
+      byUserType: {
+        agent: auditLogs.filter(log => log.userType === 'agent').length,
+        customer: auditLogs.filter(log => log.userType === 'customer').length,
+        system: auditLogs.filter(log => log.userType === 'system').length
+      },
+      byStatus: {
+        success: auditLogs.filter(log => log.status === 'success').length,
+        failed: auditLogs.filter(log => log.status === 'failed').length,
+        warning: auditLogs.filter(log => log.status === 'warning').length
+      },
+      topActions: getTopActions()
+    };
+
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching audit stats:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+function getTopActions() {
+  const actionCounts = {};
+  auditLogs.forEach(log => {
+    actionCounts[log.action] = (actionCounts[log.action] || 0) + 1;
+  });
+  
+  return Object.entries(actionCounts)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 10)
+    .map(([action, count]) => ({ action, count }));
+}
+
 // Serve static demo page
 app.get('/', (req, res) => {
   res.send(`
@@ -2288,6 +2666,20 @@ io.on('connection', (socket) => {
         lastSeen: new Date().toISOString()
       });
       
+      // Log customer entry
+      logAudit({
+        userId: ticket?.customerId || null,
+        userName: ticket?.customerName || 'Anonymous Customer',
+        userType: 'customer',
+        action: 'customer_chat_joined',
+        ticketNumber: ticket?.ticketNumber || null,
+        targetType: 'session',
+        targetId: socket.id,
+        ipAddress: socket.request.connection.remoteAddress,
+        userAgent: socket.handshake.headers['user-agent'],
+        details: `Customer joined chat session for ticket ${data.ticketId}`
+      });
+      
       console.log(`🟢 Customer for ticket ${data.ticketId} is now online - session created:`, customerSessions.get(data.ticketId));
       
       // Notify agents that customer is online
@@ -2315,6 +2707,21 @@ io.on('connection', (socket) => {
     if (session && session.socketId === socket.id) {
       session.isOnline = false;
       session.lastSeen = new Date().toISOString();
+      
+      // Log customer exit
+      const ticket = tickets.find(t => t.id === data.ticketId);
+      logAudit({
+        userId: ticket?.customerId || null,
+        userName: ticket?.customerName || 'Anonymous Customer',
+        userType: 'customer',
+        action: 'customer_chat_left',
+        ticketNumber: ticket?.ticketNumber || null,
+        targetType: 'session',
+        targetId: socket.id,
+        ipAddress: socket.request.connection.remoteAddress,
+        userAgent: socket.handshake.headers['user-agent'],
+        details: `Customer left chat session for ticket ${data.ticketId}`
+      });
       
       // Remove socket to ticket mapping
       socketToTicketMap.delete(socket.id);
@@ -2361,6 +2768,21 @@ io.on('connection', (socket) => {
       if (session && session.socketId === socket.id && session.isOnline) {
         session.isOnline = false;
         session.lastSeen = new Date().toISOString();
+        
+        // Log customer disconnect
+        const ticket = tickets.find(t => t.id === ticketId);
+        logAudit({
+          userId: ticket?.customerId || null,
+          userName: ticket?.customerName || 'Anonymous Customer',
+          userType: 'customer',
+          action: 'customer_chat_disconnected',
+          ticketNumber: ticket?.ticketNumber || null,
+          targetType: 'session',
+          targetId: socket.id,
+          ipAddress: socket.request.connection.remoteAddress,
+          userAgent: socket.handshake.headers['user-agent'],
+          details: `Customer disconnected from chat session for ticket ${ticketId}`
+        });
         
         // Notify agents that customer disconnected
         // Use io.to() instead of socket.to() because socket is already disconnecting

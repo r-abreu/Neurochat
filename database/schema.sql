@@ -256,7 +256,8 @@ INSERT INTO Permissions (permission_name, description, category) VALUES
 ('users.access', 'Access user management', 'users'),
 ('users.create', 'Create new users', 'users'),
 ('users.edit', 'Edit existing users', 'users'),
-('users.delete', 'Delete users', 'users');
+('users.delete', 'Delete users', 'users'),
+('audit.view', 'View audit trail logs', 'audit');
 
 -- Role-Permission mapping
 CREATE TABLE RolePermissions (
@@ -297,7 +298,40 @@ WHERE r.role_name = 'Viewer'
 AND p.permission_name IN ('tickets.view');
 
 -- ==========================================
--- 9. TRIGGERS
+-- 9. AUDIT TRAIL
+-- ==========================================
+
+CREATE TABLE AuditLog (
+    audit_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    timestamp DATETIME2 DEFAULT GETUTCDATE(),
+    user_id UNIQUEIDENTIFIER NULL, -- NULL for system actions or anonymous customers
+    user_name NVARCHAR(255) NULL, -- For anonymous customers
+    user_type NVARCHAR(20) NOT NULL CHECK (user_type IN ('customer', 'agent', 'system')),
+    action NVARCHAR(100) NOT NULL, -- login_attempt, ticket_created, ticket_edited, etc.
+    ticket_number NVARCHAR(20) NULL, -- Reference to ticket if applicable
+    target_type NVARCHAR(50) NULL, -- ticket, user, message, etc.
+    target_id NVARCHAR(255) NULL, -- ID of the target object
+    ip_address NVARCHAR(45) NULL, -- IPv4 or IPv6
+    user_agent NVARCHAR(500) NULL,
+    country NVARCHAR(100) NULL,
+    details NVARCHAR(MAX) NULL, -- JSON or text description of changes
+    status NVARCHAR(20) DEFAULT 'success' CHECK (status IN ('success', 'failed', 'warning')),
+    
+    -- Foreign keys
+    FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    
+    -- Indexes
+    INDEX IX_AuditLog_Timestamp (timestamp),
+    INDEX IX_AuditLog_UserId (user_id),
+    INDEX IX_AuditLog_UserType (user_type),
+    INDEX IX_AuditLog_Action (action),
+    INDEX IX_AuditLog_TicketNumber (ticket_number),
+    INDEX IX_AuditLog_IpAddress (ip_address),
+    INDEX IX_AuditLog_Status (status)
+);
+
+-- ==========================================
+-- 10. TRIGGERS
 -- ==========================================
 
 -- Trigger to update ticket updated_at timestamp
@@ -360,7 +394,7 @@ BEGIN
 END;
 
 -- ==========================================
--- 10. VIEWS FOR REPORTING
+-- 11. VIEWS FOR REPORTING
 -- ==========================================
 
 -- View for ticket statistics
