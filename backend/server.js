@@ -1271,6 +1271,190 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
   });
 });
 
+// Close ticket with feedback (for customers - no authentication required)
+app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
+  const { resolution } = req.body;
+  const ticket = tickets.find(t => t.id === req.params.ticketId);
+  
+  if (!ticket) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  // Only allow closing if the ticket is not already resolved
+  if (ticket.status === 'resolved') {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'TICKET_ALREADY_CLOSED', message: 'Ticket is already closed' }
+    });
+  }
+
+  // Validate resolution value
+  if (!resolution || !['resolved', 'not_resolved', 'partially_resolved'].includes(resolution)) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Invalid resolution value' }
+    });
+  }
+
+  // Update ticket status to resolved
+  ticket.status = 'resolved';
+  ticket.updatedAt = new Date().toISOString();
+
+  // Create a system message with the resolution feedback
+  const resolutionMessages = {
+    'resolved': 'Ticket closed by customer. Problem: resolved',
+    'not_resolved': 'Ticket closed by customer. Problem: not resolved', 
+    'partially_resolved': 'Ticket closed by customer. Problem: partially resolved'
+  };
+
+  const systemMessage = {
+    id: uuidv4(),
+    ticketId: req.params.ticketId,
+    senderId: null,
+    content: resolutionMessages[resolution],
+    messageType: 'system',
+    createdAt: new Date().toISOString(),
+    isRead: false
+  };
+
+  messages.push(systemMessage);
+
+  console.log(`🎫 Ticket ${req.params.ticketId} closed by customer with resolution: ${resolution}`);
+
+  // Clean up customer session when ticket is closed
+  const session = customerSessions.get(req.params.ticketId);
+  if (session) {
+    session.isOnline = false;
+    session.lastSeen = new Date().toISOString();
+    
+    // Remove socket mapping if exists
+    if (session.socketId) {
+      socketToTicketMap.delete(session.socketId);
+    }
+    
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
+  }
+
+  // Broadcast system message to agents
+  const messageWithSender = {
+    ...systemMessage,
+    sender: {
+      id: null,
+      firstName: 'System',
+      lastName: '',
+      userType: 'system'
+    }
+  };
+
+  io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
+    message: messageWithSender
+  });
+
+  // Notify agents about ticket closure and customer disconnect
+  io.emit('ticket_updated', {
+    ticketId: ticket.id,
+    updates: { status: 'resolved' },
+    updatedBy: 'customer',
+    updatedAt: ticket.updatedAt
+  });
+
+  // Also notify about customer disconnect
+  io.to(`ticket_${req.params.ticketId}`).emit('customer_status_changed', {
+    ticketId: req.params.ticketId,
+    isOnline: false,
+    lastSeen: new Date().toISOString()
+  });
+
+  res.json({
+    success: true,
+    data: {
+      message: 'Ticket closed successfully with feedback'
+    }
+  });
+});
+
+// Mark ticket as abandoned (for customers - no authentication required)
+app.post('/api/tickets/:ticketId/abandon', (req, res) => {
+  const { reason } = req.body;
+  const ticket = tickets.find(t => t.id === req.params.ticketId);
+  
+  if (!ticket) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  // Don't mark as abandoned if already resolved
+  if (ticket.status === 'resolved') {
+    return res.json({
+      success: true,
+      data: { message: 'Ticket already resolved' }
+    });
+  }
+
+  // Create a system message about the abandonment
+  const systemMessage = {
+    id: uuidv4(),
+    ticketId: req.params.ticketId,
+    senderId: null,
+    content: 'Ticket abandoned by customer',
+    messageType: 'system',
+    createdAt: new Date().toISOString(),
+    isRead: false
+  };
+
+  messages.push(systemMessage);
+
+  console.log(`🎫 Ticket ${req.params.ticketId} abandoned by customer (reason: ${reason})`);
+
+  // Clean up customer session
+  const session = customerSessions.get(req.params.ticketId);
+  if (session) {
+    session.isOnline = false;
+    session.lastSeen = new Date().toISOString();
+    
+    // Remove socket mapping if exists
+    if (session.socketId) {
+      socketToTicketMap.delete(session.socketId);
+    }
+    
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to abandonment`);
+  }
+
+  // Broadcast system message to agents
+  const messageWithSender = {
+    ...systemMessage,
+    sender: {
+      id: null,
+      firstName: 'System',
+      lastName: '',
+      userType: 'system'
+    }
+  };
+
+  io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
+    message: messageWithSender
+  });
+
+  // Notify agents about customer disconnect
+  io.to(`ticket_${req.params.ticketId}`).emit('customer_status_changed', {
+    ticketId: req.params.ticketId,
+    isOnline: false,
+    lastSeen: new Date().toISOString()
+  });
+
+  res.json({
+    success: true,
+    data: {
+      message: 'Ticket marked as abandoned'
+    }
+  });
+});
+
 // Send message (supports both authenticated and anonymous)
 app.post('/api/tickets/:ticketId/messages', (req, res) => {
   const { content, messageType = 'text' } = req.body;
