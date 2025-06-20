@@ -20,10 +20,15 @@ app.use(cors());
 app.use(express.json());
 
 // In-memory storage (for demo - replace with real database)
-const users = [];
-const tickets = [];
-const messages = [];
-const internalComments = []; // New: Internal comments for tickets
+let users = [];
+let tickets = [];
+let messages = [];
+let internalComments = []; // New: Internal comments for tickets
+let categories = [];
+
+// Customer session tracking
+let customerSessions = new Map(); // ticketId -> { customerId, socketId, isOnline, lastSeen }
+let socketToTicketMap = new Map(); // socketId -> ticketId (for disconnect cleanup)
 
 // Add some demo messages for testing
 const addDemoMessages = () => {
@@ -104,8 +109,8 @@ const addDemoMessages = () => {
   console.log('📨 Added demo messages:', demoMessages.length);
 };
 
-// Demo messages will be initialized after tickets are created
-const categories = [
+// Initialize categories
+categories = [
   { id: uuidv4(), name: 'Software', description: 'Software-related issues', colorCode: '#28a745' },
   { id: uuidv4(), name: 'Hardware', description: 'Hardware problems', colorCode: '#dc3545' },
   { id: uuidv4(), name: 'Billing', description: 'Billing inquiries', colorCode: '#ffc107' },
@@ -113,7 +118,7 @@ const categories = [
   { id: uuidv4(), name: 'General', description: 'General support', colorCode: '#6c757d' }
 ];
 
-// Create demo users
+// Demo messages will be initialized after tickets are created
 const demoUsers = [
   {
     id: uuidv4(),
@@ -123,42 +128,71 @@ const demoUsers = [
     lastName: 'Customer',
     userType: 'customer',
     isActive: true,
+    lastLogin: null,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: uuidv4(),
+    email: 'admin@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Jane',
+    lastName: 'Admin',
+    userType: 'agent',
+    roleId: '1',
+    roleName: 'Admin',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 10,
+    lastLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: uuidv4(),
+    email: 'tier2@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Mike',
+    lastName: 'Senior',
+    userType: 'agent',
+    roleId: '2',
+    roleName: 'Tier2',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'users.access', 'users.edit'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 8,
+    lastLogin: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), // 4 hours ago
     createdAt: new Date().toISOString()
   },
   {
     id: uuidv4(),
     email: 'agent@demo.com',
     password: bcrypt.hashSync('demo123', 10),
-    firstName: 'Jane',
+    firstName: 'Sarah',
     lastName: 'Agent',
     userType: 'agent',
+    roleId: '3',
+    roleName: 'Tier1',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'users.access'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 5,
+    lastLogin: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
     createdAt: new Date().toISOString()
   },
   {
     id: uuidv4(),
-    email: 'agent2@demo.com',
+    email: 'viewer@demo.com',
     password: bcrypt.hashSync('demo123', 10),
-    firstName: 'Mike',
-    lastName: 'Support',
+    firstName: 'Bob',
+    lastName: 'Viewer',
     userType: 'agent',
+    roleId: '4',
+    roleName: 'Viewer',
+    permissions: ['tickets.view'],
     isActive: true,
     agentStatus: 'online',
-    maxConcurrentTickets: 5,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: uuidv4(),
-    email: 'agent3@demo.com',
-    password: bcrypt.hashSync('demo123', 10),
-    firstName: 'Sarah',
-    lastName: 'Helper',
-    userType: 'agent',
-    isActive: true,
-    agentStatus: 'online',
-    maxConcurrentTickets: 5,
+    maxConcurrentTickets: 3,
+    lastLogin: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
     createdAt: new Date().toISOString()
   }
 ];
@@ -380,11 +414,19 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   console.log('✅ Authentication successful for:', user.email);
+  
+  // Update lastLogin timestamp
+  user.lastLogin = new Date().toISOString();
+  console.log('🕒 Updated lastLogin for', user.email, 'to:', user.lastLogin);
+  
   const token = jwt.sign(
     { 
       sub: user.id, 
       email: user.email, 
-      userType: user.userType 
+      userType: user.userType,
+      roleId: user.roleId,
+      roleName: user.roleName,
+      permissions: user.permissions || []
     }, 
     JWT_SECRET, 
     { expiresIn: '1h' }
@@ -399,7 +441,10 @@ app.post('/api/auth/login', async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         userType: user.userType,
-        agentStatus: user.agentStatus || null
+        agentStatus: user.agentStatus || null,
+        roleId: user.roleId,
+        roleName: user.roleName,
+        permissions: user.permissions || []
       },
       tokens: {
         accessToken: token,
@@ -420,32 +465,47 @@ app.get('/api/categories', (req, res) => {
   });
 });
 
-// Get available agents
-app.get('/api/agents', authenticateToken, (req, res) => {
-  if (req.user.userType !== 'agent') {
-    return res.status(403).json({
-      success: false,
-      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can view agent list' }
-    });
-  }
+// This endpoint was removed to avoid conflict with User Management endpoint
 
-  const agents = users
-    .filter(u => u.userType === 'agent' && u.isActive)
-    .map(agent => ({
-      id: agent.id,
-      firstName: agent.firstName,
-      lastName: agent.lastName,
-      email: agent.email,
-      agentStatus: agent.agentStatus || 'offline',
-      maxConcurrentTickets: agent.maxConcurrentTickets || 5
-    }));
-
-  res.json({
-    success: true,
-    data: {
-      agents
+// Get customer connection status for a ticket
+app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`🔍 Getting customer status for ticket ${id}`);
+    console.log(`🔍 All customer sessions:`, Array.from(customerSessions.entries()));
+    
+    const session = customerSessions.get(id);
+    console.log(`🔍 Found session for ticket ${id}:`, session);
+    
+    if (session) {
+      const responseData = {
+        isOnline: session.isOnline,
+        lastSeen: session.lastSeen,
+        customerId: session.customerId
+      };
+      console.log(`🔍 Returning session data:`, responseData);
+      
+      res.json({
+        success: true,
+        data: responseData
+      });
+    } else {
+      const responseData = {
+        isOnline: false,
+        lastSeen: null,
+        customerId: null
+      };
+      console.log(`🔍 No session found, returning default:`, responseData);
+      
+      res.json({
+        success: true,
+        data: responseData
+      });
     }
-  });
+  } catch (error) {
+    console.error('Error getting customer status:', error);
+    res.status(500).json({ success: false, error: { message: 'Internal server error' } });
+  }
 });
 
 // Get tickets
@@ -623,6 +683,16 @@ app.post('/api/tickets', (req, res) => {
     }
   }
 
+  // For agents, check if they have tickets.create permission
+  if (user && user.userType === 'agent') {
+    if (!user.permissions || !user.permissions.includes('tickets.create')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to create tickets' }
+      });
+    }
+  }
+
   // Validate required fields
   if (!title || !description || !categoryId) {
     console.log('❌ Validation failed - missing required fields');
@@ -719,6 +789,14 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
     });
   }
 
+  // Check if user has tickets.edit permission (claiming is editing the ticket)
+  if (!req.user.permissions || !req.user.permissions.includes('tickets.edit')) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to claim tickets' }
+    });
+  }
+
   const ticket = tickets.find(t => t.id === req.params.id);
   if (!ticket) {
     return res.status(404).json({
@@ -775,6 +853,14 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     return res.status(403).json({
       success: false,
       error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can update tickets' }
+    });
+  }
+
+  // Check if user has tickets.edit permission
+  if (!req.user.permissions || !req.user.permissions.includes('tickets.edit')) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to edit tickets' }
     });
   }
 
@@ -878,6 +964,14 @@ app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
     return res.status(403).json({
       success: false,
       error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can delete tickets' }
+    });
+  }
+
+  // Check if user has tickets.delete permission
+  if (!req.user.permissions || !req.user.permissions.includes('tickets.delete')) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to delete tickets' }
     });
   }
 
@@ -1085,6 +1179,98 @@ app.get('/api/tickets/:ticketId/messages', (req, res) => {
   });
 });
 
+// Get customer status for a ticket
+app.get('/api/tickets/:ticketId/customer-status', authenticateToken, (req, res) => {
+  // Only agents can check customer status
+  if (req.user.userType !== 'agent') {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Only agents can check customer status' }
+    });
+  }
+
+  const ticket = tickets.find(t => t.id === req.params.ticketId);
+  if (!ticket) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  const session = customerSessions.get(req.params.ticketId);
+  const customerStatus = {
+    isOnline: session ? session.isOnline : false,
+    lastSeen: session ? session.lastSeen : null,
+    hasEverConnected: !!session
+  };
+
+  res.json({
+    success: true,
+    data: { customerStatus }
+  });
+});
+
+// Close ticket (for customers - no authentication required)
+app.post('/api/tickets/:ticketId/close', (req, res) => {
+  const ticket = tickets.find(t => t.id === req.params.ticketId);
+  if (!ticket) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+    });
+  }
+
+  // Only allow closing if the ticket is not already resolved
+  if (ticket.status === 'resolved') {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'TICKET_ALREADY_CLOSED', message: 'Ticket is already closed' }
+    });
+  }
+
+  // Update ticket status to resolved
+  ticket.status = 'resolved';
+  ticket.updatedAt = new Date().toISOString();
+
+  console.log(`🎫 Ticket ${req.params.ticketId} closed by customer`);
+
+  // Clean up customer session when ticket is closed
+  const session = customerSessions.get(req.params.ticketId);
+  if (session) {
+    session.isOnline = false;
+    session.lastSeen = new Date().toISOString();
+    
+    // Remove socket mapping if exists
+    if (session.socketId) {
+      socketToTicketMap.delete(session.socketId);
+    }
+    
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
+  }
+
+  // Notify agents about ticket closure and customer disconnect
+  io.emit('ticket_updated', {
+    ticketId: ticket.id,
+    updates: { status: 'resolved' },
+    updatedBy: 'customer',
+    updatedAt: ticket.updatedAt
+  });
+
+  // Also notify about customer disconnect
+  io.to(`ticket_${req.params.ticketId}`).emit('customer_status_changed', {
+    ticketId: req.params.ticketId,
+    isOnline: false,
+    lastSeen: new Date().toISOString()
+  });
+
+  res.json({
+    success: true,
+    data: {
+      message: 'Ticket closed successfully'
+    }
+  });
+});
+
 // Send message (supports both authenticated and anonymous)
 app.post('/api/tickets/:ticketId/messages', (req, res) => {
   const { content, messageType = 'text' } = req.body;
@@ -1122,6 +1308,16 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
       success: false,
       error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Access denied' }
     });
+  }
+
+  // For agents, check if they have tickets.message permission
+  if (user && user.userType === 'agent') {
+    if (!user.permissions || !user.permissions.includes('tickets.message')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to send messages' }
+      });
+    }
   }
 
   const message = {
@@ -1174,6 +1370,430 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     success: true,
     data: { message: messageWithSender }
   });
+});
+
+// ==========================================
+// USER MANAGEMENT ENDPOINTS
+// ==========================================
+
+// Store roles configuration
+let rolesConfig = [
+  { 
+    id: '1', 
+    name: 'Admin', 
+    description: 'Full system access',
+    permissions: {
+      'tickets.create': true,
+      'tickets.edit': true, 
+      'tickets.delete': true,
+      'tickets.message': true,
+      'users.access': true
+    }
+  },
+  { 
+    id: '2', 
+    name: 'Tier2', 
+    description: 'Senior support agent',
+    permissions: {
+      'tickets.create': true,
+      'tickets.edit': true,
+      'tickets.delete': false,
+      'tickets.message': true,
+      'users.access': true
+    }
+  },
+  { 
+    id: '3', 
+    name: 'Tier1', 
+    description: 'Standard support agent',
+    permissions: {
+      'tickets.create': true,
+      'tickets.edit': true,
+      'tickets.delete': false,
+      'tickets.message': true,
+      'users.access': false
+    }
+  },
+  { 
+    id: '4', 
+    name: 'Viewer', 
+    description: 'Read-only access',
+    permissions: {
+      'tickets.create': false,
+      'tickets.edit': false,
+      'tickets.delete': false,
+      'tickets.message': false,
+      'users.access': false
+    }
+  }
+];
+
+// Get all roles
+app.get('/api/roles', authenticateToken, (req, res) => {
+  console.log('GET /api/roles endpoint hit');
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    res.json(rolesConfig);
+  } catch (error) {
+    console.error('Error fetching roles:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Create new role
+app.post('/api/roles', authenticateToken, (req, res) => {
+  try {
+    // Check permission  
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { name, description, permissions } = req.body;
+    
+    if (!name || !permissions) {
+      return res.status(400).json({ message: 'Name and permissions are required' });
+    }
+
+    // Check if role name already exists
+    const existingRole = rolesConfig.find(r => r.name.toLowerCase() === name.toLowerCase());
+    if (existingRole) {
+      return res.status(409).json({ message: 'Role name already exists' });
+    }
+
+    const newRole = {
+      id: (rolesConfig.length + 1).toString(),
+      name,
+      description: description || '',
+      permissions
+    };
+
+    rolesConfig.push(newRole);
+    res.status(201).json(newRole);
+  } catch (error) {
+    console.error('Error creating role:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Update role
+app.put('/api/roles/:id', authenticateToken, (req, res) => {
+  console.log('PUT /api/roles/:id endpoint hit with id:', req.params.id);
+  console.log('Request body:', req.body);
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const { name, description, permissions } = req.body;
+
+    const roleIndex = rolesConfig.findIndex(r => r.id === id);
+    if (roleIndex === -1) {
+      return res.status(404).json({ message: 'Role not found' });
+    }
+
+    // Update role
+    if (name !== undefined) rolesConfig[roleIndex].name = name;
+    if (description !== undefined) rolesConfig[roleIndex].description = description;
+    if (permissions !== undefined) rolesConfig[roleIndex].permissions = permissions;
+
+    res.json(rolesConfig[roleIndex]);
+  } catch (error) {
+    console.error('Error updating role:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Delete role
+app.delete('/api/roles/:id', authenticateToken, (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { id } = req.params;
+
+    // Can't delete default roles
+    if (['1', '2', '3', '4'].includes(id)) {
+      return res.status(400).json({ message: 'Cannot delete default roles' });
+    }
+
+    const roleIndex = rolesConfig.findIndex(r => r.id === id);
+    if (roleIndex === -1) {
+      return res.status(404).json({ message: 'Role not found' });
+    }
+
+    // Check if any users have this role
+    const usersWithRole = users.filter(u => u.roleId === id);
+    if (usersWithRole.length > 0) {
+      return res.status(400).json({ message: 'Cannot delete role: users are assigned to it' });
+    }
+
+    rolesConfig.splice(roleIndex, 1);
+    res.json({ message: 'Role deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting role:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get all agents
+app.get('/api/agents', authenticateToken, (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const agents = users
+      .filter(user => user.userType === 'agent')
+      .map(user => ({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        roleName: user.roleName || 'Tier1',
+        roleId: user.roleId || '3',
+        isActive: user.isActive !== false,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin,
+        agentStatus: user.agentStatus || 'offline',
+        maxConcurrentTickets: user.maxConcurrentTickets || 5,
+        permissions: user.permissions || []
+      }));
+
+    console.log('🔍 AGENTS ENDPOINT - Returning agents with lastLogin values:');
+    agents.forEach(agent => {
+      console.log(`  - ${agent.email}: lastLogin = ${agent.lastLogin}`);
+    });
+
+    res.json(agents);
+  } catch (error) {
+    console.error('Error fetching agents:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Create new agent
+app.post('/api/agents', authenticateToken, async (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.create')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { email, firstName, lastName, roleId, password, isActive, maxConcurrentTickets } = req.body;
+
+    // Validation
+    if (!email || !firstName || !lastName || !roleId || !password) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // Check if user already exists
+    const existingUser = users.find(u => u.email === email);
+    if (existingUser) {
+      return res.status(409).json({ message: 'User with this email already exists' });
+    }
+
+    // Get role information from rolesConfig
+    const role = rolesConfig.find(r => r.id === roleId);
+    if (!role) {
+      return res.status(400).json({ message: 'Invalid role ID' });
+    }
+
+    // Convert permissions object to array for compatibility
+    const permissionArray = [];
+    Object.keys(role.permissions).forEach(perm => {
+      if (role.permissions[perm]) {
+        permissionArray.push(perm);
+      }
+    });
+
+    // Map new permissions to legacy format for compatibility
+    const legacyPermissions = [];
+    if (role.permissions['tickets.create']) legacyPermissions.push('tickets.create');
+    if (role.permissions['tickets.edit']) legacyPermissions.push('tickets.edit');
+    if (role.permissions['tickets.delete']) legacyPermissions.push('tickets.delete');
+    if (role.permissions['tickets.message']) legacyPermissions.push('tickets.message');
+    if (role.permissions['users.access']) {
+      legacyPermissions.push('users.access', 'users.create', 'users.edit', 'users.delete');
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create new agent
+    const newAgent = {
+      id: uuidv4(),
+      email,
+      firstName,
+      lastName,
+      password: hashedPassword,
+      userType: 'agent',
+      roleId,
+      roleName: role.name,
+      permissions: legacyPermissions,
+      isActive: isActive !== false,
+      agentStatus: 'offline',
+      maxConcurrentTickets: maxConcurrentTickets || 5,
+      createdAt: new Date().toISOString(),
+      mustChangePassword: false
+    };
+
+    users.push(newAgent);
+
+    // Return agent without password
+    const { password: _, ...agentResponse } = newAgent;
+    res.status(201).json(agentResponse);
+  } catch (error) {
+    console.error('Error creating agent:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Update agent
+app.put('/api/agents/:id', authenticateToken, (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.edit')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const { firstName, lastName, roleId, isActive, maxConcurrentTickets, agentStatus } = req.body;
+
+    const agentIndex = users.findIndex(u => u.id === id && u.userType === 'agent');
+    if (agentIndex === -1) {
+      return res.status(404).json({ message: 'Agent not found' });
+    }
+
+    const agent = users[agentIndex];
+
+    // Update role if provided
+    if (roleId) {
+      const role = rolesConfig.find(r => r.id === roleId);
+      if (!role) {
+        return res.status(400).json({ message: 'Invalid role ID' });
+      }
+
+      // Convert permissions for legacy compatibility
+      const legacyPermissions = [];
+      if (role.permissions['tickets.create']) legacyPermissions.push('tickets.create');
+      if (role.permissions['tickets.edit']) legacyPermissions.push('tickets.edit');
+      if (role.permissions['tickets.delete']) legacyPermissions.push('tickets.delete');
+      if (role.permissions['tickets.message']) legacyPermissions.push('tickets.message');
+      if (role.permissions['users.access']) {
+        legacyPermissions.push('users.access', 'users.create', 'users.edit', 'users.delete');
+      }
+
+      agent.roleId = roleId;
+      agent.roleName = role.name;
+      agent.permissions = legacyPermissions;
+    }
+
+    // Update other fields
+    if (firstName !== undefined) agent.firstName = firstName;
+    if (lastName !== undefined) agent.lastName = lastName;
+    if (isActive !== undefined) agent.isActive = isActive;
+    if (maxConcurrentTickets !== undefined) agent.maxConcurrentTickets = maxConcurrentTickets;
+    if (agentStatus !== undefined) agent.agentStatus = agentStatus;
+
+    agent.updatedAt = new Date().toISOString();
+
+    users[agentIndex] = agent;
+
+    // Return agent without password
+    const { password: _, ...agentResponse } = agent;
+    res.json(agentResponse);
+  } catch (error) {
+    console.error('Error updating agent:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Delete/Deactivate agent
+app.delete('/api/agents/:id', authenticateToken, (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.delete')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const { permanent } = req.query; // ?permanent=true for hard delete
+
+    const agentIndex = users.findIndex(u => u.id === id && u.userType === 'agent');
+    if (agentIndex === -1) {
+      return res.status(404).json({ message: 'Agent not found' });
+    }
+
+    if (permanent === 'true') {
+      // Hard delete - remove from array
+      users.splice(agentIndex, 1);
+      res.json({ message: 'Agent permanently deleted' });
+    } else {
+      // Soft delete - just deactivate
+      users[agentIndex].isActive = false;
+      users[agentIndex].agentStatus = 'offline';
+      users[agentIndex].updatedAt = new Date().toISOString();
+      res.json({ message: 'Agent deactivated' });
+    }
+  } catch (error) {
+    console.error('Error deleting agent:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Reset agent password
+app.post('/api/agents/:id/reset-password', authenticateToken, async (req, res) => {
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.edit')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const { newPassword, sendEmail } = req.body;
+
+    const agentIndex = users.findIndex(u => u.id === id && u.userType === 'agent');
+    if (agentIndex === -1) {
+      return res.status(404).json({ message: 'Agent not found' });
+    }
+
+    let password = newPassword;
+    if (!password) {
+      // Generate temporary password
+      password = 'temp' + Math.random().toString(36).slice(-8);
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    users[agentIndex].password = hashedPassword;
+    users[agentIndex].mustChangePassword = true;
+    users[agentIndex].passwordResetToken = null;
+    users[agentIndex].passwordResetExpires = null;
+    users[agentIndex].updatedAt = new Date().toISOString();
+
+    // In a real implementation, you would send an email here
+    if (sendEmail) {
+      console.log(`Password reset email would be sent to ${users[agentIndex].email} with temporary password: ${password}`);
+    }
+
+    res.json({ 
+      message: 'Password reset successfully',
+      temporaryPassword: !newPassword ? password : undefined
+    });
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 // Serve static demo page
@@ -1362,6 +1982,70 @@ io.on('connection', (socket) => {
     socket.join(`ticket_${data.ticketId}`);
     socket.emit('ticket_joined', { ticketId: data.ticketId, success: true });
     console.log(`📝 User ${socket.id} joined ticket ${data.ticketId}`);
+    console.log(`📝 Join data:`, data);
+    
+    // Track customer session for the ticket
+    const ticket = tickets.find(t => t.id === data.ticketId);
+    console.log(`📝 Found ticket:`, ticket ? `${ticket.id} (isAnonymous: ${ticket.isAnonymous})` : 'NOT FOUND');
+    
+    // Determine if this is a customer connection
+    // Priority: explicit isCustomer flag, then ticket existence check
+    const shouldTrackCustomer = data.isCustomer || (ticket && ticket.isAnonymous) || (!ticket && data.isCustomer !== false);
+    console.log(`📝 Should track customer: ${shouldTrackCustomer} (isCustomer: ${data.isCustomer}, ticketExists: ${!!ticket}, ticketIsAnonymous: ${ticket?.isAnonymous})`);
+    
+    if (shouldTrackCustomer) {
+      // Track socket to ticket mapping for cleanup on disconnect
+      socketToTicketMap.set(socket.id, data.ticketId);
+      
+      customerSessions.set(data.ticketId, {
+        customerId: ticket?.customerId || 'anonymous',
+        socketId: socket.id,
+        isOnline: true,
+        lastSeen: new Date().toISOString()
+      });
+      
+      console.log(`🟢 Customer for ticket ${data.ticketId} is now online - session created:`, customerSessions.get(data.ticketId));
+      
+      // Notify agents that customer is online
+      socket.to(`ticket_${data.ticketId}`).emit('customer_status_changed', {
+        ticketId: data.ticketId,
+        isOnline: true,
+        lastSeen: new Date().toISOString()
+      });
+      
+      console.log(`🟢 Notified agents about customer online status for ticket ${data.ticketId}`);
+    } else {
+      console.log(`ℹ️ Not tracking customer session for ticket ${data.ticketId} (user is likely an agent)`);
+    }
+  });
+
+  // Handle leaving ticket room
+  socket.on('leave_ticket', (data) => {
+    socket.leave(`ticket_${data.ticketId}`);
+    console.log(`📝 User ${socket.id} left ticket ${data.ticketId}`);
+    
+    // Update customer session status
+    const session = customerSessions.get(data.ticketId);
+    console.log(`📝 Found customer session for leave_ticket:`, session);
+    
+    if (session && session.socketId === socket.id) {
+      session.isOnline = false;
+      session.lastSeen = new Date().toISOString();
+      
+      // Remove socket to ticket mapping
+      socketToTicketMap.delete(socket.id);
+      
+      // Notify agents that customer went offline
+      socket.to(`ticket_${data.ticketId}`).emit('customer_status_changed', {
+        ticketId: data.ticketId,
+        isOnline: false,
+        lastSeen: new Date().toISOString()
+      });
+      
+      console.log(`🔴 Customer for ticket ${data.ticketId} is now offline - emitted customer_status_changed`);
+    } else {
+      console.log(`ℹ️ No customer session found for ticket ${data.ticketId} or socket mismatch`);
+    }
   });
 
   // Handle typing indicators
@@ -1381,6 +2065,37 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('👋 User disconnected:', socket.id);
+    
+    // Check if this socket was associated with a customer session
+    const ticketId = socketToTicketMap.get(socket.id);
+    console.log(`📝 Socket ${socket.id} was mapped to ticket:`, ticketId);
+    
+    if (ticketId) {
+      const session = customerSessions.get(ticketId);
+      console.log(`📝 Found customer session for disconnect:`, session);
+      
+      if (session && session.socketId === socket.id && session.isOnline) {
+        session.isOnline = false;
+        session.lastSeen = new Date().toISOString();
+        
+        // Notify agents that customer disconnected
+        // Use io.to() instead of socket.to() because socket is already disconnecting
+        io.to(`ticket_${ticketId}`).emit('customer_status_changed', {
+          ticketId: ticketId,
+          isOnline: false,
+          lastSeen: new Date().toISOString()
+        });
+        
+        console.log(`🔴 Customer for ticket ${ticketId} disconnected - emitted customer_status_changed`);
+      } else {
+        console.log(`ℹ️ Session not found, socket mismatch, or already offline for ticket ${ticketId}`);
+      }
+      
+      // Clean up socket mapping
+      socketToTicketMap.delete(socket.id);
+    } else {
+      console.log(`ℹ️ Socket ${socket.id} was not associated with any customer session`);
+    }
   });
 });
 

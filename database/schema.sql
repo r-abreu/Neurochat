@@ -29,7 +29,14 @@ CREATE TABLE Users (
     -- Indexes
     INDEX IX_Users_Email (email),
     INDEX IX_Users_UserType (user_type),
-    INDEX IX_Users_AgentStatus (agent_status)
+    INDEX IX_Users_AgentStatus (agent_status),
+    
+    -- New columns
+    role_id UNIQUEIDENTIFIER NULL,
+    CONSTRAINT FK_Users_Role FOREIGN KEY (role_id) REFERENCES Roles(role_id),
+    password_reset_token NVARCHAR(255) NULL,
+    password_reset_expires DATETIME2 NULL,
+    must_change_password BIT DEFAULT 0
 );
 
 -- ==========================================
@@ -208,58 +215,86 @@ INSERT INTO SystemSettings (setting_key, setting_value, setting_type, descriptio
 ('session_timeout_minutes', '30', 'integer', 'Session timeout in minutes');
 
 -- ==========================================
--- 8. STORED PROCEDURES
+-- 8. ROLES AND PERMISSIONS
 -- ==========================================
 
--- Get available agents for ticket assignment
-CREATE PROCEDURE GetAvailableAgents
-AS
-BEGIN
-    SELECT 
-        u.user_id,
-        u.first_name,
-        u.last_name,
-        u.email,
-        ISNULL(aw.active_tickets, 0) as active_tickets,
-        u.max_concurrent_tickets
-    FROM Users u
-    LEFT JOIN AgentWorkload aw ON u.user_id = aw.agent_id
-    WHERE u.user_type = 'agent' 
-      AND u.is_active = 1 
-      AND u.agent_status = 'online'
-      AND ISNULL(aw.active_tickets, 0) < u.max_concurrent_tickets
-    ORDER BY ISNULL(aw.active_tickets, 0) ASC;
-END;
+-- Roles table
+CREATE TABLE Roles (
+    role_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    role_name NVARCHAR(50) UNIQUE NOT NULL,
+    description NVARCHAR(255),
+    is_active BIT DEFAULT 1,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    
+    INDEX IX_Roles_Name (role_name)
+);
 
--- Update agent workload
-CREATE PROCEDURE UpdateAgentWorkload
-    @agent_id UNIQUEIDENTIFIER
-AS
-BEGIN
-    MERGE AgentWorkload AS target
-    USING (
-        SELECT 
-            @agent_id as agent_id,
-            COUNT(CASE WHEN t.status IN ('new', 'in_progress') THEN 1 END) as active_tickets,
-            COUNT(*) as total_tickets,
-            AVG(CASE 
-                WHEN t.resolved_at IS NOT NULL 
-                THEN DATEDIFF(MINUTE, t.created_at, t.resolved_at) 
-                ELSE NULL 
-            END) as avg_resolution_time
-        FROM Tickets t
-        WHERE t.agent_id = @agent_id
-    ) AS source ON target.agent_id = source.agent_id
-    WHEN MATCHED THEN
-        UPDATE SET 
-            active_tickets = source.active_tickets,
-            total_tickets_handled = source.total_tickets,
-            avg_resolution_time_minutes = ISNULL(source.avg_resolution_time, 0),
-            last_updated = GETUTCDATE()
-    WHEN NOT MATCHED THEN
-        INSERT (agent_id, active_tickets, total_tickets_handled, avg_resolution_time_minutes)
-        VALUES (source.agent_id, source.active_tickets, source.total_tickets, ISNULL(source.avg_resolution_time, 0));
-END;
+-- Insert default roles
+INSERT INTO Roles (role_name, description) VALUES
+('Admin', 'Full system access'),
+('Tier2', 'Senior support agent'),
+('Tier1', 'Standard support agent'),
+('Viewer', 'Read-only access');
+
+-- Permissions table
+CREATE TABLE Permissions (
+    permission_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    permission_name NVARCHAR(100) UNIQUE NOT NULL,
+    description NVARCHAR(255),
+    category NVARCHAR(50) NOT NULL, -- tickets, users, etc.
+    
+    INDEX IX_Permissions_Name (permission_name),
+    INDEX IX_Permissions_Category (category)
+);
+
+-- Insert default permissions
+INSERT INTO Permissions (permission_name, description, category) VALUES
+('tickets.create', 'Create new tickets', 'tickets'),
+('tickets.edit', 'Edit existing tickets', 'tickets'),
+('tickets.delete', 'Delete tickets', 'tickets'),
+('tickets.view', 'View tickets', 'tickets'),
+('users.access', 'Access user management', 'users'),
+('users.create', 'Create new users', 'users'),
+('users.edit', 'Edit existing users', 'users'),
+('users.delete', 'Delete users', 'users');
+
+-- Role-Permission mapping
+CREATE TABLE RolePermissions (
+    role_id UNIQUEIDENTIFIER NOT NULL,
+    permission_id UNIQUEIDENTIFIER NOT NULL,
+    
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES Roles(role_id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES Permissions(permission_id) ON DELETE CASCADE
+);
+
+-- Assign permissions to roles
+-- Admin gets all permissions
+INSERT INTO RolePermissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id 
+FROM Roles r, Permissions p 
+WHERE r.role_name = 'Admin';
+
+-- Tier2 gets ticket and user management permissions
+INSERT INTO RolePermissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id 
+FROM Roles r, Permissions p 
+WHERE r.role_name = 'Tier2' 
+AND p.permission_name IN ('tickets.create', 'tickets.edit', 'tickets.view', 'users.access', 'users.edit');
+
+-- Tier1 gets basic ticket permissions
+INSERT INTO RolePermissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id 
+FROM Roles r, Permissions p 
+WHERE r.role_name = 'Tier1' 
+AND p.permission_name IN ('tickets.create', 'tickets.edit', 'tickets.view');
+
+-- Viewer gets read-only access
+INSERT INTO RolePermissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id 
+FROM Roles r, Permissions p 
+WHERE r.role_name = 'Viewer' 
+AND p.permission_name IN ('tickets.view');
 
 -- ==========================================
 -- 9. TRIGGERS
