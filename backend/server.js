@@ -5,6 +5,9 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +22,9 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // In-memory storage (for demo - replace with real database)
 let users = [];
 let tickets = [];
@@ -29,6 +35,10 @@ let categories = [];
 // Customer session tracking
 let customerSessions = new Map(); // ticketId -> { customerId, socketId, isOnline, lastSeen }
 let socketToTicketMap = new Map(); // socketId -> ticketId (for disconnect cleanup)
+
+// Agent session tracking for presence indicators
+let agentSessions = new Map(); // agentId -> { socketId, isOnline, lastSeen, joinedAt }
+let socketToAgentMap = new Map(); // socketId -> agentId (for disconnect cleanup)
 
 // Add some demo messages for testing
 const addDemoMessages = () => {
@@ -1789,6 +1799,314 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   });
 });
 
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename with timestamp and UUID
+    const uniqueSuffix = Date.now() + '-' + uuidv4();
+    const extension = path.extname(file.originalname);
+    cb(null, uniqueSuffix + extension);
+  }
+});
+
+// File filter for allowed types
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    // Images
+    'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml',
+    // Documents
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    // Archives
+    'application/zip',
+    'application/x-zip-compressed',
+    'application/x-rar-compressed',
+    'application/x-7z-compressed'
+  ];
+  
+  const allowedExtensions = [
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.zip', '.rar', '.7z'
+  ];
+  
+  const fileExtension = path.extname(file.originalname).toLowerCase();
+  
+  if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+    cb(null, true);
+  } else {
+    cb(new Error('File type not allowed. Supported formats: images (jpg, png, gif, etc.), documents (pdf, doc, docx, xls, xlsx, csv), and archives (zip, rar, 7z)'), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  },
+  fileFilter: fileFilter
+});
+
+// File upload endpoint
+app.post('/api/tickets/:ticketId/upload', (req, res) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      console.log('❌ Multer error:', err.message);
+      return res.status(400).json({
+        success: false,
+        error: { code: 'UPLOAD_ERROR', message: err.message }
+      });
+    }
+    
+    handleFileUpload(req, res);
+  });
+});
+
+function handleFileUpload(req, res) {
+  console.log('\n📎 FILE UPLOAD REQUEST RECEIVED');
+  console.log('Ticket ID:', req.params.ticketId);
+  console.log('File:', req.file ? req.file.originalname : 'No file');
+  console.log('Authorization header:', req.headers.authorization ? 'Present' : 'Not present');
+  
+  try {
+    if (!req.file) {
+      console.log('❌ No file uploaded');
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'No file uploaded' }
+      });
+    }
+
+    const ticket = tickets.find(t => t.id === req.params.ticketId);
+    console.log('Found ticket:', ticket ? `${ticket.ticketNumber} (isAnonymous: ${ticket.isAnonymous})` : 'Not found');
+    
+    if (!ticket) {
+      console.log('❌ Ticket not found');
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+      });
+    }
+
+    // Try to authenticate if token is provided
+    let user = null;
+    if (req.headers.authorization) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        user = users.find(u => u.id === decoded.sub);
+        console.log('Authenticated user:', user ? `${user.firstName} ${user.lastName} (${user.userType})` : 'Not found');
+      } catch (error) {
+        console.log('Token invalid or expired, continuing as anonymous');
+      }
+    } else {
+      console.log('No authorization header, continuing as anonymous');
+    }
+
+    // For anonymous users, ensure they can only upload to their own ticket
+    console.log('Permission check: user =', !!user, ', ticket.isAnonymous =', ticket.isAnonymous);
+    if (!user && !ticket.isAnonymous) {
+      console.log('❌ Access denied: anonymous user trying to upload to non-anonymous ticket');
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Access denied' }
+      });
+    }
+
+    // Create file message
+    const fileMessage = {
+      id: uuidv4(),
+      ticketId: req.params.ticketId,
+      senderId: user ? user.id : null,
+      content: `📎 Uploaded file: ${req.file.originalname}`,
+      messageType: req.file.mimetype.startsWith('image/') ? 'image' : 'file',
+      createdAt: new Date().toISOString(),
+      isRead: false,
+      fileName: req.file.originalname,
+      filePath: `uploads/${req.file.filename}`,
+      fileSize: req.file.size,
+      fileUrl: `/uploads/${req.file.filename}`
+    };
+
+    messages.push(fileMessage);
+
+    // Log file upload
+    logAudit({
+      userId: user ? user.id : null,
+      userName: user ? `${user.firstName} ${user.lastName}` : ticket.customerName,
+      userType: user ? (user.id === ticket.customerId ? 'customer' : user.userType) : 'customer',
+      action: 'file_uploaded',
+      ticketNumber: ticket.ticketNumber,
+      targetType: 'file',
+      targetId: fileMessage.id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Uploaded file: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)}MB)`
+    });
+
+    const sender = user ? users.find(u => u.id === user.id) : null;
+    
+    const messageWithSender = {
+      ...fileMessage,
+      sender: sender ? {
+        id: sender.id,
+        firstName: sender.firstName,
+        lastName: sender.lastName,
+        userType: sender.id === ticket.customerId ? 'customer' : sender.userType
+      } : {
+        id: null,
+        firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
+        lastName: ticket.customerName.split(' ').slice(1).join(' ') || '',
+        userType: 'customer'
+      }
+    };
+
+    console.log('📎 Broadcasting file message to ticket room:', `ticket_${req.params.ticketId}`);
+    console.log('📎 File message data:', JSON.stringify(messageWithSender, null, 2));
+
+    // Broadcast file message to ticket room
+    io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
+      message: messageWithSender
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { 
+        message: messageWithSender,
+        file: {
+          originalName: req.file.originalname,
+          fileName: req.file.filename,
+          size: req.file.size,
+          url: `/uploads/${req.file.filename}`
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('File upload error:', error);
+    
+    // Delete the uploaded file if there was an error
+    if (req.file) {
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Error deleting file:', err);
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: { code: 'UPLOAD_ERROR', message: error.message || 'File upload failed' }
+    });
+  }
+}
+
+// File download endpoint
+app.get('/api/files/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, '../uploads', filename);
+  
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'File not found' }
+    });
+  }
+  
+  // Find the message that contains this file to get original filename
+  const fileMessage = messages.find(m => m.filePath === `uploads/${filename}`);
+  const originalName = fileMessage ? fileMessage.fileName : filename;
+  
+  res.download(filePath, originalName);
+});
+
+// Get all files for a ticket
+app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
+  console.log('\n📁 GET FILES REQUEST');
+  console.log('Ticket ID:', req.params.ticketId);
+  console.log('User:', req.user?.email);
+  console.log('Request headers:', {
+    authorization: req.headers.authorization ? 'Present' : 'Missing',
+    'content-type': req.headers['content-type']
+  });
+  console.log('All messages count:', messages.length);
+  console.log('Messages for this ticket:', messages.filter(m => m.ticketId === req.params.ticketId).length);
+  
+  try {
+    const ticket = tickets.find(t => t.id === req.params.ticketId);
+    
+    if (!ticket) {
+      console.log('❌ Ticket not found');
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+      });
+    }
+
+    // Get all file messages for this ticket
+    const fileMessages = messages.filter(m => 
+      m.ticketId === req.params.ticketId && 
+      (m.messageType === 'file' || m.messageType === 'image') &&
+      m.fileName && m.filePath
+    );
+
+    console.log(`📁 Found ${fileMessages.length} files for ticket ${req.params.ticketId}`);
+
+    // Transform file messages to file objects with additional metadata
+    const files = fileMessages.map(msg => {
+      const sender = users.find(u => u.id === msg.senderId);
+      
+      return {
+        id: msg.id,
+        fileName: msg.fileName,
+        originalName: msg.fileName,
+        fileSize: msg.fileSize,
+        fileUrl: msg.fileUrl,
+        filePath: msg.filePath,
+        uploadedAt: msg.createdAt,
+        messageType: msg.messageType,
+        sender: sender ? {
+          id: sender.id,
+          firstName: sender.firstName,
+          lastName: sender.lastName,
+          userType: sender.userType
+        } : {
+          id: null,
+          firstName: ticket.customerName?.split(' ')[0] || 'Customer',
+          lastName: ticket.customerName?.split(' ').slice(1).join(' ') || '',
+          userType: 'customer'
+        }
+      };
+    });
+
+    // Sort files by upload date (newest first)
+    files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
+    console.log('📁 Returning files:', files.map(f => `${f.fileName} (${f.messageType})`));
+
+    res.json({
+      success: true,
+      data: { files }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching files:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to fetch files' }
+    });
+  }
+});
+
 // ==========================================
 // USER MANAGEMENT ENDPOINTS
 // ==========================================
@@ -1974,20 +2292,29 @@ app.get('/api/agents', authenticateToken, (req, res) => {
 
     const agents = users
       .filter(user => user.userType === 'agent')
-      .map(user => ({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        roleName: user.roleName || 'Tier1',
-        roleId: user.roleId || '3',
-        isActive: user.isActive !== false,
-        createdAt: user.createdAt,
-        lastLogin: user.lastLogin,
-        agentStatus: user.agentStatus || 'offline',
-        maxConcurrentTickets: user.maxConcurrentTickets || 5,
-        permissions: user.permissions || []
-      }));
+      .map(user => {
+        // Check if agent is currently online via socket session
+        const session = agentSessions.get(user.id);
+        const isCurrentlyOnline = session && session.isOnline;
+        
+        return {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: `${user.firstName} ${user.lastName}`, // Add combined name for display
+          roleName: user.roleName || 'Tier1',
+          roleId: user.roleId || '3',
+          isActive: user.isActive !== false,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin,
+          agentStatus: user.agentStatus || 'offline',
+          isOnline: isCurrentlyOnline || false, // Add real-time online status
+          lastSeen: session ? session.lastSeen : user.lastLogin,
+          maxConcurrentTickets: user.maxConcurrentTickets || 5,
+          permissions: user.permissions || []
+        };
+      });
 
     console.log('🔍 AGENTS ENDPOINT - Returning agents with lastLogin values:');
     agents.forEach(agent => {
@@ -2718,6 +3045,58 @@ app.get('/', (req, res) => {
 // Socket.IO handling
 io.on('connection', (socket) => {
   console.log('👤 User connected:', socket.id);
+  console.log('🔧 BACKEND: New socket connection established, ID:', socket.id);
+  
+  // Handle agent dashboard connection
+  socket.on('agent_dashboard_join', (data) => {
+    console.log('🔧 BACKEND: Received agent_dashboard_join event:', data);
+    const { agentId, agentName } = data;
+    console.log(`👨‍💼 Agent ${agentName} (${agentId}) joined dashboard`);
+    
+    // Track agent session
+    agentSessions.set(agentId, {
+      socketId: socket.id,
+      isOnline: true,
+      lastSeen: new Date().toISOString(),
+      joinedAt: new Date().toISOString()
+    });
+    
+    socketToAgentMap.set(socket.id, agentId);
+    
+    console.log('🔧 BACKEND: Agent sessions after join:', Array.from(agentSessions.entries()));
+    console.log('🔧 BACKEND: Socket to agent map:', Array.from(socketToAgentMap.entries()));
+    
+    // Notify all connected clients about agent status change
+    console.log('🔧 BACKEND: Emitting agent_status_changed event to all clients');
+    io.emit('agent_status_changed', {
+      agentId,
+      isOnline: true,
+      lastSeen: new Date().toISOString()
+    });
+    
+    console.log(`🟢 Agent ${agentName} is now online and event broadcasted`);
+  });
+  
+  // Handle agent dashboard leave
+  socket.on('agent_dashboard_leave', (data) => {
+    const { agentId, agentName } = data;
+    console.log(`👨‍💼 Agent ${agentName} (${agentId}) left dashboard`);
+    
+    const session = agentSessions.get(agentId);
+    if (session && session.socketId === socket.id) {
+      session.isOnline = false;
+      session.lastSeen = new Date().toISOString();
+      
+      // Notify all connected clients about agent status change
+      io.emit('agent_status_changed', {
+        agentId,
+        isOnline: false,
+        lastSeen: new Date().toISOString()
+      });
+      
+      console.log(`🔴 Agent ${agentName} is now offline`);
+    }
+  });
 
   // Join ticket room
   socket.on('join_ticket', (data) => {
@@ -2836,6 +3215,30 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('👋 User disconnected:', socket.id);
+    
+    // Check if this socket was associated with an agent session
+    const agentId = socketToAgentMap.get(socket.id);
+    if (agentId) {
+      const agentSession = agentSessions.get(agentId);
+      console.log(`👨‍💼 Socket ${socket.id} was mapped to agent:`, agentId);
+      
+      if (agentSession && agentSession.socketId === socket.id && agentSession.isOnline) {
+        agentSession.isOnline = false;
+        agentSession.lastSeen = new Date().toISOString();
+        
+        // Notify all connected clients about agent going offline
+        io.emit('agent_status_changed', {
+          agentId,
+          isOnline: false,
+          lastSeen: new Date().toISOString()
+        });
+        
+        console.log(`🔴 Agent ${agentId} disconnected and marked offline`);
+      }
+      
+      // Clean up agent socket mapping
+      socketToAgentMap.delete(socket.id);
+    }
     
     // Check if this socket was associated with a customer session
     const ticketId = socketToTicketMap.get(socket.id);
