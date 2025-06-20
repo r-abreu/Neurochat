@@ -435,13 +435,16 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
+    console.log('🔐 Authentication failed: No token provided');
     return res.status(401).json({ success: false, error: { code: 'NO_TOKEN', message: 'Access token required' }});
   }
 
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
+      console.log('🔐 Authentication failed: Token validation error:', err.message);
       return res.status(403).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid token' }});
     }
+    console.log('🔐 Authentication successful for user:', decoded.sub, decoded.email);
     req.user = decoded;
     next();
   });
@@ -2226,32 +2229,44 @@ app.post('/api/agents/:id/reset-password', authenticateToken, async (req, res) =
 
 // Get current user profile
 app.get('/api/profile', authenticateToken, (req, res) => {
+  console.log('👤 PROFILE GET REQUEST RECEIVED');
+  console.log('  - userId:', req.user.sub);
+  
   try {
-    const user = users.find(u => u.id === req.user.id);
+    const user = users.find(u => u.id === req.user.sub);
     if (!user) {
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
+
+    console.log('✅ Found user profile:', user.email);
 
     // Return user profile without password
     const { password: _, ...userProfile } = user;
     res.json(userProfile);
   } catch (error) {
-    console.error('Error fetching profile:', error);
+    console.error('❌ Error fetching profile:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
 // Update user profile (name and avatar)
 app.put('/api/profile', authenticateToken, (req, res) => {
+  console.log('👤 PROFILE UPDATE REQUEST RECEIVED');
+  console.log('  - userId:', req.user.sub);
+  console.log('  - body:', req.body);
+  
   try {
     const { firstName, lastName, avatarUrl } = req.body;
     
-    const userIndex = users.findIndex(u => u.id === req.user.id);
+    const userIndex = users.findIndex(u => u.id === req.user.sub);
     if (userIndex === -1) {
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
     const user = users[userIndex];
+    console.log('✅ Found user:', user.email);
 
     // Update profile fields
     if (firstName !== undefined) user.firstName = firstName.trim();
@@ -2261,17 +2276,22 @@ app.put('/api/profile', authenticateToken, (req, res) => {
     user.updatedAt = new Date().toISOString();
     users[userIndex] = user;
 
+    console.log('✅ Profile updated successfully');
+
     // Return updated profile without password
     const { password: _, ...userProfile } = user;
     res.json(userProfile);
   } catch (error) {
-    console.error('Error updating profile:', error);
+    console.error('❌ Error updating profile:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
 // Change password
 app.put('/api/profile/password', authenticateToken, async (req, res) => {
+  console.log('🔐 PASSWORD CHANGE REQUEST RECEIVED');
+  console.log('  - userId:', req.user.sub);
+  
   try {
     const { currentPassword, newPassword } = req.body;
 
@@ -2284,12 +2304,14 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'New password must be at least 6 characters long' });
     }
 
-    const userIndex = users.findIndex(u => u.id === req.user.id);
+    const userIndex = users.findIndex(u => u.id === req.user.sub);
     if (userIndex === -1) {
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
     const user = users[userIndex];
+    console.log('✅ Found user for password change:', user.email);
 
     // Verify current password
     const isValidPassword = await bcrypt.compare(currentPassword, user.password);
