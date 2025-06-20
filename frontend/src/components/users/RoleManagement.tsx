@@ -13,6 +13,7 @@ interface Role {
     'tickets.message': boolean;
     'users.access': boolean;
     'audit.view': boolean;
+    'insights.view': boolean;
   };
 }
 
@@ -36,6 +37,7 @@ const RoleManagement: React.FC = () => {
       'tickets.message': false,
       'users.access': false,
       'audit.view': false,
+      'insights.view': false,
     }
   });
 
@@ -171,6 +173,7 @@ const RoleManagement: React.FC = () => {
         'tickets.message': false,
         'users.access': false,
         'audit.view': false,
+        'insights.view': false,
       }
     });
   };
@@ -187,6 +190,7 @@ const RoleManagement: React.FC = () => {
         'tickets.message': false,
         'users.access': false,
         'audit.view': false,
+        'insights.view': false,
       }
     });
   };
@@ -315,6 +319,21 @@ const RoleManagement: React.FC = () => {
                       />
                       <span className="text-sm">View Audit Trail</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['insights.view']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'insights.view': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">View Insights Dashboard</span>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -389,6 +408,9 @@ const RoleManagement: React.FC = () => {
                       )}
                       {role.permissions?.['audit.view'] && (
                         <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded ml-1">Audit</span>
+                      )}
+                      {role.permissions?.['insights.view'] && (
+                        <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded ml-1">Insights</span>
                       )}
                     </div>
                   </td>

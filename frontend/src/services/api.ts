@@ -800,6 +800,28 @@ class ApiService {
       throw error;
     }
   }
+
+  // Insights API - Get analytics data
+  async getInsights(filters?: {
+    timeRange?: 'daily' | 'monthly' | 'quarterly';
+    agentId?: string;
+    category?: string;
+  }): Promise<any> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    
+    const queryString = params.toString();
+    const url = `/insights${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await this.fetchWithAuth(url);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: any }>(response);
+    
+    return apiResponse.data;
+  }
 }
 
 export const apiService = new ApiService();

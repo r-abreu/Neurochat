@@ -26,14 +26,15 @@ const AppContent: React.FC = () => {
 
   // Route handling
   if (path === '/agent') {
-    if (!isAuthenticated || user?.role !== 'agent') {
+    // Check if user is authenticated and is an agent
+    if (!isAuthenticated || (user?.userType !== 'agent' && user?.role !== 'agent')) {
       return <AgentLogin />;
     }
     return <Dashboard />;
   }
 
   if (path === '/customer/login') {
-    if (!isAuthenticated || user?.role !== 'customer') {
+    if (!isAuthenticated || (user?.userType !== 'customer' && user?.role !== 'customer')) {
       return <CustomerLogin />;
     }
     return <Dashboard />;

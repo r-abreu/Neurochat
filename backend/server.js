@@ -151,7 +151,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '1',
     roleName: 'Admin',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 10,
@@ -168,7 +168,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '2',
     roleName: 'Tier2',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'users.access', 'users.edit', 'audit.view'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 8,
@@ -185,7 +185,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '3',
     roleName: 'Tier1',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'users.access'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 5,
@@ -271,7 +271,8 @@ const demoTickets = [
     customerCompany: null,
     customerAddress: null,
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
-    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    resolvedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
   },
   {
     id: uuidv4(),
@@ -290,7 +291,8 @@ const demoTickets = [
     customerCompany: null,
     customerAddress: null,
     createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
-    updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
+    updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), // 6 days ago
+    resolvedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
   },
   {
     id: uuidv4(),
@@ -1037,6 +1039,11 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   // Update the ticket
   Object.assign(ticket, updates);
   ticket.updatedAt = new Date().toISOString();
+  
+  // Add resolvedAt timestamp when ticket is resolved
+  if (updates.status === 'resolved' && ticket.status === 'resolved') {
+    ticket.resolvedAt = new Date().toISOString();
+  }
 
   console.log('🔧 TICKET AFTER UPDATE:');
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
@@ -1460,6 +1467,7 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
   // Update ticket status to resolved
   ticket.status = 'resolved';
   ticket.updatedAt = new Date().toISOString();
+  ticket.resolvedAt = new Date().toISOString();
 
   console.log(`🎫 Ticket ${req.params.ticketId} closed by customer`);
 
@@ -1603,6 +1611,7 @@ app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
   // Update ticket status to resolved
   ticket.status = 'resolved';
   ticket.updatedAt = new Date().toISOString();
+  ticket.resolvedAt = new Date().toISOString();
 
   // Create a system message with the resolution feedback
   const resolutionMessages = {
@@ -2195,7 +2204,8 @@ let rolesConfig = [
       'tickets.delete': true,
       'tickets.message': true,
       'users.access': true,
-      'audit.view': true
+      'audit.view': true,
+      'insights.view': true
     }
   },
   { 
@@ -2207,8 +2217,8 @@ let rolesConfig = [
       'tickets.edit': true,
       'tickets.delete': false,
       'tickets.message': true,
-      'users.access': true,
-      'audit.view': true
+      'users.access': false,
+      'audit.view': false
     }
   },
   { 
@@ -2449,6 +2459,8 @@ app.post('/api/agents', authenticateToken, async (req, res) => {
     if (role.permissions['users.access']) {
       legacyPermissions.push('users.access', 'users.create', 'users.edit', 'users.delete');
     }
+    if (role.permissions['audit.view']) legacyPermissions.push('audit.view');
+    if (role.permissions['insights.view']) legacyPermissions.push('insights.view');
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -2517,6 +2529,8 @@ app.put('/api/agents/:id', authenticateToken, (req, res) => {
       if (role.permissions['users.access']) {
         legacyPermissions.push('users.access', 'users.create', 'users.edit', 'users.delete');
       }
+      if (role.permissions['audit.view']) legacyPermissions.push('audit.view');
+      if (role.permissions['insights.view']) legacyPermissions.push('insights.view');
 
       agent.roleId = roleId;
       agent.roleName = role.name;
@@ -3358,6 +3372,412 @@ io.on('connection', (socket) => {
       console.log(`ℹ️ Socket ${socket.id} was not associated with any customer session`);
     }
   });
+});
+
+// ========================================
+// INSIGHTS/ANALYTICS ENDPOINTS
+// ========================================
+
+// Helper function to generate real insights data from actual system data
+function generateInsightsData(filters = {}) {
+  const { timeRange = 'monthly', agentId, category } = filters;
+  
+  // Filter tickets based on filters
+  let filteredTickets = tickets;
+  if (agentId) {
+    filteredTickets = filteredTickets.filter(t => t.agentId === agentId);
+  }
+  if (category) {
+    filteredTickets = filteredTickets.filter(t => t.categoryId === category);
+  }
+
+  // Generate ticket volume data based on actual ticket creation dates
+  const getTicketVolumeData = () => {
+    const now = new Date();
+    const data = [];
+    const ticketCounts = {};
+    
+    // Initialize time periods
+    if (timeRange === 'daily') {
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        ticketCounts[dateStr] = 0;
+      }
+    } else if (timeRange === 'monthly') {
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(now);
+        date.setMonth(date.getMonth() - i);
+        const dateStr = date.toISOString().slice(0, 7);
+        ticketCounts[dateStr] = 0;
+      }
+    } else { // quarterly
+      for (let i = 7; i >= 0; i--) {
+        const date = new Date(now);
+        date.setMonth(date.getMonth() - (i * 3));
+        const quarter = Math.floor(date.getMonth() / 3) + 1;
+        const dateStr = `${date.getFullYear()}-Q${quarter}`;
+        ticketCounts[dateStr] = 0;
+      }
+    }
+
+    // Count actual tickets by time period
+    filteredTickets.forEach(ticket => {
+      const createdDate = new Date(ticket.createdAt);
+      let periodKey;
+      
+      if (timeRange === 'daily') {
+        periodKey = createdDate.toISOString().split('T')[0];
+      } else if (timeRange === 'monthly') {
+        periodKey = createdDate.toISOString().slice(0, 7);
+      } else { // quarterly
+        const quarter = Math.floor(createdDate.getMonth() / 3) + 1;
+        periodKey = `${createdDate.getFullYear()}-Q${quarter}`;
+      }
+      
+      if (ticketCounts.hasOwnProperty(periodKey)) {
+        ticketCounts[periodKey]++;
+      }
+    });
+
+    // Convert to array format
+    Object.keys(ticketCounts).forEach(date => {
+      data.push({
+        date,
+        tickets: ticketCounts[date]
+      });
+    });
+    
+    return data.sort((a, b) => a.date.localeCompare(b.date));
+  };
+
+  // Generate geography data from audit logs (country field)
+  const geographyData = {};
+  auditLogs.forEach(log => {
+    if (log.country) {
+      geographyData[log.country] = (geographyData[log.country] || 0) + 1;
+    }
+  });
+  
+  const geographyArray = Object.entries(geographyData)
+    .map(([country, count]) => ({ country, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8); // Top 8 countries
+
+  // Generate top agents data from actual ticket assignments and resolutions
+  const agentStats = {};
+  users.filter(user => user.userType === 'agent').forEach(agent => {
+    agentStats[agent.id] = {
+      id: agent.id,
+      name: `${agent.firstName} ${agent.lastName}`,
+      ticketsResolved: 0,
+      totalResolutionTime: 0,
+      resolvedCount: 0,
+      totalActiveTime: 0
+    };
+  });
+
+  // Calculate actual resolution stats
+  filteredTickets.forEach(ticket => {
+    if (ticket.agentId && ticket.status === 'resolved' && ticket.resolvedAt) {
+      const agentId = ticket.agentId;
+      if (agentStats[agentId]) {
+        agentStats[agentId].ticketsResolved++;
+        agentStats[agentId].resolvedCount++;
+        
+        // Calculate resolution time in minutes
+        const resolutionTime = (new Date(ticket.resolvedAt) - new Date(ticket.createdAt)) / (1000 * 60);
+        agentStats[agentId].totalResolutionTime += resolutionTime;
+      }
+    }
+  });
+
+  // Calculate agent activity from audit logs with more realistic time calculation
+  const agentLoginSessions = {};
+  
+  // Group login sessions by agent and date
+  auditLogs
+    .filter(log => log.action === 'login_success' && log.userType === 'agent')
+    .forEach(log => {
+      if (!agentLoginSessions[log.userId]) {
+        agentLoginSessions[log.userId] = {};
+      }
+      
+      const loginDate = new Date(log.timestamp).toDateString();
+      if (!agentLoginSessions[log.userId][loginDate]) {
+        agentLoginSessions[log.userId][loginDate] = [];
+      }
+      
+      agentLoginSessions[log.userId][loginDate].push(new Date(log.timestamp));
+    });
+
+  // Calculate realistic work hours based on login patterns
+  Object.keys(agentLoginSessions).forEach(agentId => {
+    if (agentStats[agentId]) {
+      let totalHours = 0;
+      
+      Object.keys(agentLoginSessions[agentId]).forEach(date => {
+        const loginTimes = agentLoginSessions[agentId][date].sort((a, b) => a - b);
+        
+        if (loginTimes.length === 1) {
+          // Single login: estimate 6-8 hours based on time of day
+          const loginHour = loginTimes[0].getHours();
+          if (loginHour >= 8 && loginHour <= 10) {
+            totalHours += 8; // Full day
+          } else if (loginHour >= 11 && loginHour <= 14) {
+            totalHours += 6; // Partial day
+          } else {
+            totalHours += 4; // Short session
+          }
+        } else {
+          // Multiple logins: calculate span between first and last login
+          const firstLogin = loginTimes[0];
+          const lastLogin = loginTimes[loginTimes.length - 1];
+          const hoursDiff = (lastLogin - firstLogin) / (1000 * 60 * 60);
+          
+          // Cap at 10 hours max per day, minimum 2 hours
+          totalHours += Math.min(Math.max(hoursDiff + 1, 2), 10);
+        }
+      });
+      
+      agentStats[agentId].totalActiveTime = totalHours;
+    }
+  });
+
+  const topAgents = Object.values(agentStats)
+    .map(agent => ({
+      ...agent,
+      avgResolutionTime: agent.resolvedCount > 0 ? Math.round(agent.totalResolutionTime / agent.resolvedCount) : 0
+    }))
+    .sort((a, b) => b.ticketsResolved - a.ticketsResolved);
+
+  // Generate category data from actual tickets
+  const categoryStats = {};
+  categories.forEach(cat => {
+    categoryStats[cat.id] = {
+      name: cat.name,
+      value: 0,
+      color: cat.colorCode
+    };
+  });
+
+  filteredTickets.forEach(ticket => {
+    if (ticket.categoryId && categoryStats[ticket.categoryId]) {
+      categoryStats[ticket.categoryId].value++;
+    }
+  });
+
+  const categoryData = Object.values(categoryStats).filter(cat => cat.value > 0);
+
+  // Calculate real resolution metrics
+  const resolvedTickets = filteredTickets.filter(t => t.status === 'resolved' && t.resolvedAt);
+  const resolutionTimes = resolvedTickets.map(ticket => 
+    (new Date(ticket.resolvedAt) - new Date(ticket.createdAt)) / (1000 * 60) // minutes
+  );
+
+  const resolutionMetrics = {
+    avgResolutionTime: resolutionTimes.length > 0 ? Math.round(resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length) : 0,
+    minResolutionTime: resolutionTimes.length > 0 ? Math.round(Math.min(...resolutionTimes)) : 0,
+    maxResolutionTime: resolutionTimes.length > 0 ? Math.round(Math.max(...resolutionTimes)) : 0
+  };
+
+  // Generate agent activity data from login logs with realistic time calculation
+  const agentActivityData = users
+    .filter(user => user.userType === 'agent')
+    .map(agent => {
+      // Get all login sessions for this agent in the selected time range
+      const relevantLogs = auditLogs.filter(log => 
+        log.userId === agent.id && 
+        log.action === 'login_success'
+      );
+      
+      // Group by date and calculate daily hours
+      const dailyHours = {};
+      relevantLogs.forEach(log => {
+        const logDate = new Date(log.timestamp);
+        const dateStr = logDate.toDateString();
+        
+        if (!dailyHours[dateStr]) {
+          dailyHours[dateStr] = [];
+        }
+        dailyHours[dateStr].push(logDate);
+      });
+      
+      // Calculate total hours for recent activity
+      let totalRecentHours = 0;
+      const last7Days = 7;
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - last7Days);
+      
+      Object.keys(dailyHours).forEach(dateStr => {
+        const date = new Date(dateStr);
+        if (date >= cutoffDate) {
+          const loginTimes = dailyHours[dateStr].sort((a, b) => a - b);
+          
+          if (loginTimes.length === 1) {
+            // Single login: estimate based on time of day
+            const loginHour = loginTimes[0].getHours();
+            if (loginHour >= 8 && loginHour <= 10) {
+              totalRecentHours += 8; // Full day
+            } else if (loginHour >= 11 && loginHour <= 14) {
+              totalRecentHours += 6; // Partial day
+            } else {
+              totalRecentHours += 4; // Short session
+            }
+          } else {
+            // Multiple logins: calculate span
+            const firstLogin = loginTimes[0];
+            const lastLogin = loginTimes[loginTimes.length - 1];
+            const hoursDiff = (lastLogin - firstLogin) / (1000 * 60 * 60);
+            totalRecentHours += Math.min(Math.max(hoursDiff + 1, 2), 10);
+          }
+        }
+      });
+      
+      return {
+        agentId: agent.id,
+        name: `${agent.firstName} ${agent.lastName}`,
+        date: new Date().toISOString().split('T')[0],
+        hoursWorked: Math.round(totalRecentHours * 10) / 10, // Round to 1 decimal
+        avgDailyHours: agentStats[agent.id] ? Math.round((agentStats[agent.id].totalActiveTime / Math.max(Object.keys(dailyHours).length, 1)) * 10) / 10 : 0
+      };
+    });
+
+  // Generate unresolved tickets data
+  const unresolvedTicketsList = filteredTickets.filter(t => t.status !== 'resolved' && t.status !== 'closed');
+  const overdueTickets = unresolvedTicketsList.filter(ticket => {
+    const daysSinceCreated = (Date.now() - new Date(ticket.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+    return daysSinceCreated > 3; // Consider overdue after 3 days
+  });
+
+  const avgAge = unresolvedTicketsList.length > 0 ? 
+    Math.round(unresolvedTicketsList.reduce((sum, ticket) => {
+      return sum + (Date.now() - new Date(ticket.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+    }, 0) / unresolvedTicketsList.length) : 0;
+
+  const unresolvedTickets = {
+    count: unresolvedTicketsList.length,
+    overdueCount: overdueTickets.length,
+    avgAge,
+    tickets: unresolvedTicketsList
+      .slice(0, 5)
+      .map(ticket => ({
+        id: ticket.id,
+        title: ticket.title,
+        daysOpen: Math.floor((Date.now() - new Date(ticket.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+      }))
+  };
+
+  // Generate ticket flow data from actual ticket statuses
+  const statusCounts = {
+    'new': 0,
+    'in_progress': 0,
+    'resolved': 0,
+    'closed': 0
+  };
+
+  // Debug: Log all ticket statuses to understand the data
+  console.log('🔍 TICKET FLOW DEBUG: Analyzing', filteredTickets.length, 'tickets');
+  const statusDebug = {};
+  
+  filteredTickets.forEach(ticket => {
+    const status = ticket.status.toLowerCase().trim();
+    
+    // Count for debug
+    statusDebug[status] = (statusDebug[status] || 0) + 1;
+    
+    // Map statuses correctly
+    switch(status) {
+      case 'new':
+        statusCounts['new']++;
+        break;
+      case 'in_progress':
+      case 'in-progress':
+      case 'assigned':
+      case 'open':
+        statusCounts['in_progress']++;
+        break;
+      case 'resolved':
+      case 'completed':
+        statusCounts['resolved']++;
+        break;
+      case 'closed':
+      case 'cancelled':
+        statusCounts['closed']++;
+        break;
+      default:
+        console.log('⚠️ Unknown ticket status:', status);
+        // Default unknown statuses to 'new'
+        statusCounts['new']++;
+    }
+  });
+
+  console.log('🔍 TICKET FLOW DEBUG: Status breakdown:', statusDebug);
+  console.log('🔍 TICKET FLOW DEBUG: Final counts:', statusCounts);
+
+  const ticketFlowData = [
+    { stage: 'New', count: statusCounts['new'], color: '#3B82F6' },
+    { stage: 'In Progress', count: statusCounts['in_progress'], color: '#F59E0B' },
+    { stage: 'Resolved', count: statusCounts['resolved'], color: '#10B981' },
+    { stage: 'Closed', count: statusCounts['closed'], color: '#6B7280' }
+  ];
+
+  return {
+    ticketVolumeData: getTicketVolumeData(),
+    geographyData: geographyArray,
+    topAgents,
+    categoryData,
+    resolutionMetrics,
+    agentActivityData,
+    unresolvedTickets,
+    ticketFlowData
+  };
+}
+
+// Get insights/analytics data
+app.get('/api/insights', authenticateToken, (req, res) => {
+  try {
+    console.log('📊 INSIGHTS ENDPOINT CALLED by user:', req.user.sub);
+    
+    // Check if user has permission to view insights
+    const user = users.find(u => u.id === req.user.sub);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'User not found' }
+      });
+    }
+
+    // Check permissions
+    const hasInsightsPermission = user.permissions?.includes('insights.view');
+    if (!hasInsightsPermission) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Access denied. Insights permission required.' }
+      });
+    }
+
+    const filters = {
+      timeRange: req.query.timeRange || 'monthly',
+      agentId: req.query.agentId,
+      category: req.query.category
+    };
+
+    const insightsData = generateInsightsData(filters);
+
+    res.json({
+      success: true,
+      data: insightsData
+    });
+
+  } catch (error) {
+    console.error('Error getting insights:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Failed to get insights data', details: error.message }
+    });
+  }
 });
 
 const PORT = process.env.PORT || 3001;

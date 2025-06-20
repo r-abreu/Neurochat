@@ -6,13 +6,14 @@ import CreateTicket from '../tickets/CreateTicket';
 import TicketDetail from '../tickets/TicketDetail';
 import UserManagement from '../users/UserManagement';
 import AuditTrail from '../users/AuditTrail';
+import Insights from './Insights';
 import ThemeToggle from '../common/ThemeToggle';
 import { Ticket, User } from '../../types';
 import apiService from '../../services/api';
 import socketService from '../../services/socket';
 import soundService from '../../services/soundService';
 
-type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit';
+type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit' | 'insights';
 
 const Dashboard: React.FC = () => {
   const { user, logout, updateUser } = useAuth();
@@ -361,9 +362,32 @@ const Dashboard: React.FC = () => {
           />
         ) : null;
       case 'users':
-        return <UserManagement />;
+        // Check if user has permission to access user management
+        if (user?.role === 'agent' && user.permissions?.includes('users.access')) {
+          return <UserManagement />;
+        } else {
+          // Redirect to default view if no permission
+          setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
+          return null;
+        }
       case 'audit':
-        return <AuditTrail />;
+        // Check if user has permission to access audit trail
+        if (user?.role === 'agent' && user.permissions?.includes('audit.view')) {
+          return <AuditTrail />;
+        } else {
+          // Redirect to default view if no permission
+          setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
+          return null;
+        }
+      case 'insights':
+        // Check if user has permission to access insights
+        if (user?.role === 'agent' && user.permissions?.includes('insights.view')) {
+          return <Insights />;
+        } else {
+          // Redirect to default view if no permission
+          setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
+          return null;
+        }
       case 'tickets':
       case 'my-tickets':
       case 'my-open-tickets':
@@ -395,16 +419,28 @@ const Dashboard: React.FC = () => {
         <div className="fixed inset-0 flex z-40 md:hidden" role="dialog" aria-modal="true">
           <div className="fixed inset-0 bg-gray-600 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-75" onClick={() => setSidebarOpen(false)}></div>
           <div className="relative flex-1 flex flex-col max-w-xs w-full bg-white dark:bg-gray-800">
-            <Sidebar 
-              user={user}
-              currentView={currentView}
-              onViewChange={(view: string) => setCurrentView(view as ViewType)}
-              onCreateTicket={handleTicketCreate}
-              onLogout={logout}
-              onProfileUpdate={handleProfileUpdate}
-              isMobile={true}
-              onClose={() => setSidebarOpen(false)}
-            />
+                    <Sidebar 
+          user={user}
+          currentView={currentView}
+          onViewChange={(view: string) => {
+            // Check permissions before allowing view change
+            if (view === 'users' && !(user?.role === 'agent' && user.permissions?.includes('users.access'))) {
+              return; // Don't allow view change if no permission
+            }
+            if (view === 'audit' && !(user?.role === 'agent' && user.permissions?.includes('audit.view'))) {
+              return; // Don't allow view change if no permission
+            }
+            if (view === 'insights' && !(user?.role === 'agent' && user.permissions?.includes('insights.view'))) {
+              return; // Don't allow view change if no permission
+            }
+            setCurrentView(view as ViewType);
+          }}
+          onCreateTicket={handleTicketCreate}
+          onLogout={logout}
+          onProfileUpdate={handleProfileUpdate}
+          isMobile={true}
+          onClose={() => setSidebarOpen(false)}
+        />
           </div>
         </div>
       )}
@@ -414,7 +450,19 @@ const Dashboard: React.FC = () => {
         <Sidebar 
           user={user}
           currentView={currentView}
-          onViewChange={(view: string) => setCurrentView(view as ViewType)}
+          onViewChange={(view: string) => {
+            // Check permissions before allowing view change
+            if (view === 'users' && !(user?.role === 'agent' && user.permissions?.includes('users.access'))) {
+              return; // Don't allow view change if no permission
+            }
+            if (view === 'audit' && !(user?.role === 'agent' && user.permissions?.includes('audit.view'))) {
+              return; // Don't allow view change if no permission
+            }
+            if (view === 'insights' && !(user?.role === 'agent' && user.permissions?.includes('insights.view'))) {
+              return; // Don't allow view change if no permission
+            }
+            setCurrentView(view as ViewType);
+          }}
           onCreateTicket={handleTicketCreate}
           onLogout={logout}
           onProfileUpdate={handleProfileUpdate}

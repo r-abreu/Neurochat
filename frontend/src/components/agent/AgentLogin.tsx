@@ -141,7 +141,7 @@ const AgentLogin: React.FC = () => {
                 disabled={loading}
                 className="w-full inline-flex justify-center py-2 px-4 border border-purple-300 dark:border-purple-600 rounded-md shadow-sm bg-purple-50 dark:bg-purple-900/20 text-sm font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/30 disabled:opacity-50"
               >
-                Login as Tier2 (User Management)
+                Login as Tier2 Agent
               </button>
               <button
                 onClick={() => handleDemoLogin('agent@demo.com')}
