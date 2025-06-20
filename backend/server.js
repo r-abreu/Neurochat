@@ -925,7 +925,7 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
     targetId: ticket.id,
     ipAddress: getClientIP(req),
     userAgent: req.headers['user-agent'],
-    details: `Agent claimed ticket and changed status to in_progress`
+    details: `${req.user.firstName} ${req.user.lastName} (${req.user.roleName || 'Unknown Role'}) claimed ticket and changed status to in_progress`
   });
 
   // Notify customer of assignment
@@ -1029,10 +1029,60 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
   console.log(`🎫 Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
   
-  // Log ticket update
-  const changes = Object.keys(updates).map(key => 
-    `${key}: "${originalValues[key]}" → "${updates[key]}"`
-  ).join(', ');
+  // Log ticket update with human-readable values
+  const changes = Object.keys(updates).map(key => {
+    let originalValue = originalValues[key];
+    let newValue = updates[key];
+    
+    // Convert agent IDs to human-readable names for audit trail
+    if (key === 'agentId') {
+      if (originalValue) {
+        const originalAgent = users.find(u => u.id === originalValue);
+        originalValue = originalAgent ? `${originalAgent.firstName} ${originalAgent.lastName} (${originalAgent.roleName || 'Unknown Role'})` : originalValue;
+      } else {
+        originalValue = 'Unassigned';
+      }
+      
+      if (newValue) {
+        const newAgent = users.find(u => u.id === newValue);
+        newValue = newAgent ? `${newAgent.firstName} ${newAgent.lastName} (${newAgent.roleName || 'Unknown Role'})` : newValue;
+      } else {
+        newValue = 'Unassigned';
+      }
+    }
+    
+    // Convert customer IDs to human-readable names for audit trail
+    if (key === 'customerId') {
+      if (originalValue) {
+        const originalCustomer = users.find(u => u.id === originalValue);
+        originalValue = originalCustomer ? `${originalCustomer.firstName} ${originalCustomer.lastName}` : originalValue;
+      } else {
+        originalValue = 'Anonymous Customer';
+      }
+      
+      if (newValue) {
+        const newCustomer = users.find(u => u.id === newValue);
+        newValue = newCustomer ? `${newCustomer.firstName} ${newCustomer.lastName}` : newValue;
+      } else {
+        newValue = 'Anonymous Customer';
+      }
+    }
+    
+    // Convert category IDs to human-readable names
+    if (key === 'categoryId') {
+      if (originalValue) {
+        const originalCategory = categories.find(c => c.id === originalValue);
+        originalValue = originalCategory ? originalCategory.name : originalValue;
+      }
+      
+      if (newValue) {
+        const newCategory = categories.find(c => c.id === newValue);
+        newValue = newCategory ? newCategory.name : newValue;
+      }
+    }
+    
+    return `${key}: "${originalValue}" → "${newValue}"`;
+  }).join(', ');
   
   logAudit({
     userId: req.user.sub,
@@ -1121,6 +1171,9 @@ app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
   const ticket = tickets[ticketIndex];
   
   // Log ticket deletion before removing it
+  const assignedAgent = ticket.agentId ? users.find(u => u.id === ticket.agentId) : null;
+  const assignedTo = assignedAgent ? `${assignedAgent.firstName} ${assignedAgent.lastName} (${assignedAgent.roleName || 'Unknown Role'})` : 'Unassigned';
+  
   logAudit({
     userId: req.user.sub,
     userName: `${req.user.firstName} ${req.user.lastName}`,
@@ -1131,7 +1184,7 @@ app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
     targetId: ticket.id,
     ipAddress: getClientIP(req),
     userAgent: req.headers['user-agent'],
-    details: `Deleted ticket: ${ticket.title} (Status: ${ticket.status})`
+    details: `Deleted ticket: "${ticket.title}" (Status: ${ticket.status}, Assigned to: ${assignedTo})`
   });
   
   // Remove the ticket from the array
@@ -1938,7 +1991,12 @@ app.get('/api/agents', authenticateToken, (req, res) => {
       console.log(`  - ${agent.email}: lastLogin = ${agent.lastLogin}`);
     });
 
-    res.json(agents);
+    res.json({
+      success: true,
+      data: {
+        agents: agents
+      }
+    });
   } catch (error) {
     console.error('Error fetching agents:', error);
     res.status(500).json({ message: 'Internal server error' });
