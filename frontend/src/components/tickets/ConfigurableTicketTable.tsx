@@ -18,6 +18,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Ticket } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
+import { exportTicketsToExcel, generateExportFilename } from '../../utils/excelExport';
 
 interface Column {
   id: string;
@@ -55,6 +56,13 @@ interface ConfigurableTicketTableProps {
   setReassignTicketId: (id: string | null) => void;
   reassigning: boolean;
   deletingTicketId: string | null;
+  // Export functionality props
+  exportFilters?: {
+    searchTerm?: string;
+    statusFilter?: string;
+    priorityFilter?: string;
+    currentView?: string;
+  };
 }
 
 const STORAGE_KEY = 'agent-ticket-table-preferences';
@@ -155,12 +163,13 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
   const { user } = useAuth();
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [showExportSuccess, setShowExportSuccess] = useState(false);
 
   // Initialize columns with default configuration
   const createDefaultColumns = (): Column[] => [
     {
       id: 'urgency',
-      label: 'Urgency',
+      label: 'Ticket time duration',
       width: 80,
       visible: true,
       resizable: true,
@@ -305,6 +314,121 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
         </div>
       ),
     },
+    // New hidden columns as requested
+    {
+      id: 'customerCountry',
+      label: 'Country',
+      width: 100,
+      visible: false, // Hidden by default
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.customerCountry || 'Not provided'}
+        </div>
+      ),
+    },
+    {
+      id: 'customerStreetAddress',
+      label: 'Address',
+      width: 150,
+      visible: false, // Hidden by default
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.customerStreetAddress || ticket.customerAddress || 'Not provided'}
+        </div>
+      ),
+    },
+    {
+      id: 'customerCity',
+      label: 'City',
+      width: 100,
+      visible: false, // Hidden by default
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.customerCity || 'Not provided'}
+        </div>
+      ),
+    },
+    {
+      id: 'customerState',
+      label: 'State',
+      width: 100,
+      visible: false, // Hidden by default
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.customerState || 'Not provided'}
+        </div>
+      ),
+    },
+    {
+      id: 'customerEmail',
+      label: 'Email',
+      width: 150,
+      visible: false, // Hidden by default
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.customerEmail || 'Not provided'}
+        </div>
+      ),
+    },
+    {
+      id: 'customerPhone',
+      label: 'Telephone',
+      width: 120,
+      visible: false, // Hidden by default
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.customerPhone || 'Not provided'}
+        </div>
+      ),
+    },
+    {
+      id: 'customerType',
+      label: 'Customer Type',
+      width: 120,
+      visible: false, // Hidden by default
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            ticket.customerType === 'VIP' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+            ticket.customerType === 'Distributor' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+          }`}>
+            {ticket.customerType || 'Standard'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'deviceModel',
+      label: 'Device Model',
+      width: 100,
+      visible: true,
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.deviceModel || 'Not specified'}
+        </div>
+      ),
+    },
+    {
+      id: 'deviceSerialNumber',
+      label: 'Device Serial #',
+      width: 120,
+      visible: true,
+      resizable: true,
+      render: (ticket) => (
+        <div className="text-sm text-gray-900 dark:text-white truncate">
+          {ticket.deviceSerialNumber || 'Not provided'}
+        </div>
+      ),
+    },
     {
       id: 'actions',
       label: 'Actions',
@@ -423,10 +547,27 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       if (saved) {
         const parsed = JSON.parse(saved);
         const defaultColumns = createDefaultColumns();
+        
+        // Ensure device columns are always visible by default
+        const updatedVisibility = {
+          ...parsed.columnVisibility,
+          deviceModel: true,
+          deviceSerialNumber: true,
+        };
+        
+        // Ensure device columns are in the column order
+        let updatedColumnOrder = parsed.columnOrder || defaultColumns.map(c => c.id);
+        if (!updatedColumnOrder.includes('deviceModel')) {
+          updatedColumnOrder.push('deviceModel');
+        }
+        if (!updatedColumnOrder.includes('deviceSerialNumber')) {
+          updatedColumnOrder.push('deviceSerialNumber');
+        }
+        
         return {
-          columnOrder: parsed.columnOrder || defaultColumns.map(c => c.id),
+          columnOrder: updatedColumnOrder,
           columnWidths: parsed.columnWidths || {},
-          columnVisibility: parsed.columnVisibility || {},
+          columnVisibility: updatedVisibility,
         };
       }
     } catch (error) {
@@ -436,7 +577,10 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
     return {
       columnOrder: defaultColumns.map(c => c.id),
       columnWidths: {},
-      columnVisibility: {},
+      columnVisibility: {
+        deviceModel: true,
+        deviceSerialNumber: true,
+      },
     };
   };
 
@@ -528,14 +672,71 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
     savePreferences(defaultPreferences);
   };
 
+  const handleExportToExcel = () => {
+    try {
+      const filename = generateExportFilename(props.exportFilters);
+      
+      exportTicketsToExcel({
+        tickets: props.tickets,
+        visibleColumns: visibleColumns.map(col => ({
+          id: col.id,
+          label: col.label,
+          visible: col.visible
+        })),
+        filename,
+        sheetName: 'Tickets',
+        filters: props.exportFilters,
+        getLastCustomerMessage: props.getLastCustomerMessage,
+        getLastAgentMessage: props.getLastAgentMessage,
+        formatRelativeTime: props.formatRelativeTime
+      });
+
+      // Show success notification
+      setShowExportSuccess(true);
+      setTimeout(() => setShowExportSuccess(false), 3000);
+      console.log('Export completed successfully');
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Failed to export tickets to Excel. Please try again.');
+    }
+  };
+
   return (
     <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+      {/* Export Success Notification */}
+      {showExportSuccess && (
+        <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-400 p-4 mb-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-green-700 dark:text-green-200">
+                Excel export completed successfully! Check your downloads folder.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Column Settings Button */}
       <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex justify-between items-center">
         <span className="text-sm text-gray-500 dark:text-gray-400">
           {visibleColumns.length} of {configuredColumns.length} columns visible
         </span>
         <div className="flex space-x-2">
+          <button
+            onClick={handleExportToExcel}
+            className="text-xs px-2 py-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200 border border-green-300 dark:border-green-600 rounded flex items-center space-x-1"
+            title="Export visible columns to Excel"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Export Excel</span>
+          </button>
           <button
             onClick={resetToDefault}
             className="text-xs px-2 py-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded"
