@@ -268,10 +268,14 @@ const demoTickets = [
     customerPhone: '+1-555-0101',
     customerCompany: 'Acme Corporation',
     customerAddress: '456 Main Street, Downtown, NY 10001',
-    customerStreetAddress: '456 Main Street, Downtown',
+    customerStreetAddress: '456 Main Street',
+    customerCity: 'Downtown',
     customerState: 'NY',
     customerZipCode: '10001',
     customerCountry: 'United States',
+    customerType: 'Standard',
+    deviceModel: 'BWIII',
+    deviceSerialNumber: 'BW3-2024-001234',
     createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
     updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
   },
@@ -292,9 +296,13 @@ const demoTickets = [
     customerCompany: 'Innovative Solutions Ltd',
     customerAddress: '789 Oak Avenue\nSuite 200\nTech City, CA 94102',
     customerStreetAddress: '789 Oak Avenue, Suite 200',
+    customerCity: 'Tech City',
     customerState: 'CA',
     customerZipCode: '94102',
     customerCountry: 'United States',
+    customerType: 'VIP',
+    deviceModel: 'BWMini',
+    deviceSerialNumber: 'BWM-2024-005678',
     createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 minutes ago
     updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
   },
@@ -315,9 +323,13 @@ const demoTickets = [
     customerCompany: null,
     customerAddress: null,
     customerStreetAddress: null,
+    customerCity: null,
     customerState: null,
     customerZipCode: null,
     customerCountry: null,
+    customerType: 'Standard',
+    deviceModel: null,
+    deviceSerialNumber: null,
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
     updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
     resolvedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
@@ -339,9 +351,13 @@ const demoTickets = [
     customerCompany: null,
     customerAddress: null,
     customerStreetAddress: null,
+    customerCity: null,
     customerState: null,
     customerZipCode: null,
     customerCountry: null,
+    customerType: 'Standard',
+    deviceModel: 'Compass',
+    deviceSerialNumber: 'CMP-2023-009876',
     createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
     updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), // 6 days ago
     resolvedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
@@ -363,9 +379,13 @@ const demoTickets = [
     customerCompany: 'Tech Startup Inc.',
     customerAddress: '123 Tech Street, Innovation City, CA 94105',
     customerStreetAddress: '123 Tech Street',
+    customerCity: 'Innovation City',
     customerState: 'CA',
     customerZipCode: '94105',
     customerCountry: 'United States',
+    customerType: 'Distributor',
+    deviceModel: 'Maxxi',
+    deviceSerialNumber: 'MXX-2024-012345',
     createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
     updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
   }
@@ -380,6 +400,44 @@ ticketCounters['250617'] = 1; // 2 days ago has 1 ticket
 ticketCounters['250612'] = 1; // 7 days ago has 1 ticket
 
 tickets.push(...demoTickets);
+
+// CRITICAL FIX: Ensure all demo tickets have the customerCity field properly set
+// This fixes the issue where customerCity was showing as null
+tickets.forEach((ticket, index) => {
+  if (!ticket.customerCity && ticket.customerAddress) {
+    // Extract city from the address for tickets that don't have explicit city
+    if (ticket.id === demoTickets[0].id) {
+      ticket.customerCity = 'Downtown';
+      ticket.customerStreetAddress = '456 Main Street';
+      ticket.customerState = 'NY';
+      ticket.customerZipCode = '10001';
+      ticket.customerCountry = 'United States';
+    } else if (ticket.id === demoTickets[1].id) {
+      ticket.customerCity = 'Tech City';
+      ticket.customerStreetAddress = '789 Oak Avenue, Suite 200';
+      ticket.customerState = 'CA';
+      ticket.customerZipCode = '94102';
+      ticket.customerCountry = 'United States';
+    } else if (ticket.id === demoTickets[4].id) {
+      ticket.customerCity = 'Innovation City';
+      ticket.customerStreetAddress = '123 Tech Street';
+      ticket.customerState = 'CA';
+      ticket.customerZipCode = '94105';
+      ticket.customerCountry = 'United States';
+    }
+  }
+});
+
+// Debug: Log the ticket data to verify customerCity is set
+console.log('🔧 DEBUG: Checking demo tickets after initialization:');
+tickets.forEach((ticket, index) => {
+  console.log(`  Ticket ${index + 1}: ${ticket.title}`);
+  console.log(`    - customerCity: "${ticket.customerCity}"`);
+  console.log(`    - customerAddress: "${ticket.customerAddress}"`);
+  console.log(`    - customerStreetAddress: "${ticket.customerStreetAddress}"`);
+  console.log(`    - deviceModel: "${ticket.deviceModel}"`);
+  console.log(`    - deviceSerialNumber: "${ticket.deviceSerialNumber}"`);
+});
 
 // Add demo internal comments
 const demoInternalComments = [
@@ -903,9 +961,13 @@ app.post('/api/tickets', (req, res) => {
     customerCompany: customerInfo?.company || null,
     customerAddress: customerInfo?.address || null, // Keep for backward compatibility
     customerStreetAddress: customerInfo?.streetAddress || null,
+    customerCity: customerInfo?.city || null,
     customerState: customerInfo?.state || null,
     customerZipCode: customerInfo?.zipCode || null,
     customerCountry: customerInfo?.country || null,
+    customerType: customerInfo?.customerType || 'Standard', // Add customer type field
+    deviceModel: customerInfo?.deviceModel || null,
+    deviceSerialNumber: customerInfo?.deviceSerialNumber || null,
     agentId: null,
     categoryId,
     title,
@@ -1093,7 +1155,8 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   const allowedUpdates = [
     'title', 'description', 'status', 'priority', 'agentId',
     'customerName', 'customerEmail', 'customerPhone', 'customerCompany', 'customerAddress',
-    'customerStreetAddress', 'customerState', 'customerZipCode', 'customerCountry'
+    'customerStreetAddress', 'customerCity', 'customerState', 'customerZipCode', 'customerCountry', 'customerType',
+    'deviceModel', 'deviceSerialNumber'
   ];
   const updates = {};
   
@@ -1106,7 +1169,18 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   console.log('🔧 UPDATES OBJECT:');
   console.log('  - updates:', updates);
   console.log('  - updates.customerAddress:', updates.customerAddress);
+  console.log('  - updates.customerCity:', updates.customerCity);
+  console.log('  - updates.customerType:', updates.customerType);
+  console.log('  - updates.deviceSerialNumber:', updates.deviceSerialNumber);
   console.log('  - customerAddress included:', 'customerAddress' in updates);
+  console.log('  - customerCity included:', 'customerCity' in updates);
+  console.log('  - customerType included:', 'customerType' in updates);
+  console.log('  - deviceSerialNumber included:', 'deviceSerialNumber' in updates);
+
+  // DEBUG: Log original ticket before update
+  console.log('🔧 ORIGINAL TICKET BEFORE UPDATE:');
+  console.log('  - ticket.customerCity (before):', ticket.customerCity);
+  console.log('  - ticket.customerAddress (before):', ticket.customerAddress);
 
   // If reassigning agent, validate the new agent exists and is active
   if (updates.agentId) {
@@ -1136,6 +1210,9 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
 
   console.log('🔧 TICKET AFTER UPDATE:');
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
+  console.log('  - ticket.customerCity:', ticket.customerCity);
+  console.log('  - ticket.customerType:', ticket.customerType);
+  console.log('  - ticket.deviceSerialNumber:', ticket.deviceSerialNumber);
   console.log(`🎫 Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
   
   // Log ticket update with human-readable values
@@ -1243,6 +1320,9 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
 
   console.log('🔧 ENRICHED RESPONSE TICKET:');
   console.log('  - enrichedTicket.customerAddress:', enrichedTicket.customerAddress);
+  console.log('  - enrichedTicket.customerCity:', enrichedTicket.customerCity);
+  console.log('  - enrichedTicket.customerType:', enrichedTicket.customerType);
+  console.log('  - enrichedTicket.deviceSerialNumber:', enrichedTicket.deviceSerialNumber);
 
   res.json({
     success: true,
@@ -3875,6 +3955,59 @@ app.get('/api/insights', authenticateToken, (req, res) => {
     res.status(500).json({
       success: false,
       error: { message: 'Failed to get insights data', details: error.message }
+    });
+  }
+});
+
+// Debug endpoint to check specific ticket data
+app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
+  const { ticketNumber } = req.params;
+  console.log('🔍 Debug request for ticket:', ticketNumber);
+  
+  const ticket = tickets.find(t => t.ticketNumber === ticketNumber);
+  
+  if (ticket) {
+    console.log('✅ Found ticket:', ticketNumber);
+    console.log('   Title:', ticket.title);
+    console.log('   Customer Name:', ticket.customerName || 'N/A');
+    console.log('   Customer Email:', ticket.customerEmail || 'N/A');
+    console.log('   Street Address:', ticket.customerStreetAddress || 'N/A');
+    console.log('   City:', ticket.customerCity || 'N/A');
+    console.log('   State:', ticket.customerState || 'N/A');
+    console.log('   Zip Code:', ticket.customerZipCode || 'N/A');
+    console.log('   Country:', ticket.customerCountry || 'N/A');
+    console.log('   Legacy Address:', ticket.customerAddress || 'N/A');
+    console.log('   Last Updated:', ticket.updatedAt);
+    
+    res.json({
+      success: true,
+      data: {
+        ticket: {
+          ticketNumber: ticket.ticketNumber,
+          title: ticket.title,
+          customerName: ticket.customerName,
+          customerEmail: ticket.customerEmail,
+          customerStreetAddress: ticket.customerStreetAddress,
+          customerCity: ticket.customerCity,
+          customerState: ticket.customerState,
+          customerZipCode: ticket.customerZipCode,
+          customerCountry: ticket.customerCountry,
+          customerAddress: ticket.customerAddress,
+          updatedAt: ticket.updatedAt
+        }
+      }
+    });
+  } else {
+    console.log('❌ Ticket not found:', ticketNumber);
+    console.log('Available tickets:');
+    tickets.forEach(t => {
+      console.log('  - ' + t.ticketNumber + ': ' + t.title);
+    });
+    
+    res.status(404).json({
+      success: false,
+      error: { code: 'TICKET_NOT_FOUND', message: 'Ticket not found' },
+      availableTickets: tickets.map(t => ({ ticketNumber: t.ticketNumber, title: t.title }))
     });
   }
 });

@@ -45,6 +45,9 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     customerState: initialTicket?.customerState || '',
     customerZipCode: initialTicket?.customerZipCode || '',
     customerCountry: initialTicket?.customerCountry || '',
+    customerType: initialTicket?.customerType || 'Standard',
+    deviceModel: initialTicket?.deviceModel || '',
+    deviceSerialNumber: initialTicket?.deviceSerialNumber || '',
   });
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
@@ -81,6 +84,9 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
         customerState: initialTicket.customerState || '',
         customerZipCode: initialTicket.customerZipCode || '',
         customerCountry: initialTicket.customerCountry || '',
+        customerType: initialTicket.customerType || 'Standard',
+        deviceModel: initialTicket.deviceModel || '',
+        deviceSerialNumber: initialTicket.deviceSerialNumber || '',
       });
     }
   }, [initialTicket]);
@@ -486,29 +492,42 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       console.log('🔧 Updating ticket with ID:', ticketToUpdate.id);
       console.log('🔧 Update data:', editForm);
       console.log('🔧 About to send customerAddress:', editForm.customerAddress);
+      console.log('🔧 About to send customerType:', editForm.customerType);
+      console.log('🔧 About to send deviceSerialNumber:', editForm.deviceSerialNumber);
       
-      const updatedTicket = await apiService.updateTicket(ticketToUpdate.id, editForm);
+              // Prepare update data with proper typing for deviceModel
+        const updateData: Partial<Ticket> = {
+          ...editForm,
+          deviceModel: (editForm.deviceModel as 'BWIII' | 'BWMini' | 'Compass' | 'Maxxi') || undefined,
+        };
+        
+        const updatedTicket = await apiService.updateTicket(ticketToUpdate.id, updateData);
       console.log('🔧 Update successful, received ticket:', updatedTicket);
       console.log('🔧 Received customerAddress:', updatedTicket.customerAddress);
+      console.log('🔧 Received customerType:', updatedTicket.customerType);
+      console.log('🔧 Received deviceSerialNumber:', updatedTicket.deviceSerialNumber);
       
       // Update the local ticket state immediately with the response from the server
       setTicket(updatedTicket);
       
       // Update the edit form to match the updated ticket (in case server modified any values)
-      setEditForm({
-        title: updatedTicket.title,
-        description: updatedTicket.description,
-        priority: updatedTicket.priority,
-        status: updatedTicket.status,
-        customerName: updatedTicket.customerName || '',
-        customerEmail: updatedTicket.customerEmail || '',
-        customerPhone: updatedTicket.customerPhone || '',
-        customerCompany: updatedTicket.customerCompany || '',
-        customerAddress: updatedTicket.customerAddress || '',
-        customerStreetAddress: updatedTicket.customerStreetAddress || '',
-        customerState: updatedTicket.customerState || '',
-        customerZipCode: updatedTicket.customerZipCode || '',
-        customerCountry: updatedTicket.customerCountry || '',
+              setEditForm({
+          title: updatedTicket.title,
+          description: updatedTicket.description,
+          priority: updatedTicket.priority,
+          status: updatedTicket.status,
+          customerName: updatedTicket.customerName || '',
+          customerEmail: updatedTicket.customerEmail || '',
+          customerPhone: updatedTicket.customerPhone || '',
+          customerCompany: updatedTicket.customerCompany || '',
+          customerAddress: updatedTicket.customerAddress || '',
+          customerStreetAddress: updatedTicket.customerStreetAddress || '',
+          customerState: updatedTicket.customerState || '',
+          customerZipCode: updatedTicket.customerZipCode || '',
+          customerCountry: updatedTicket.customerCountry || '',
+          customerType: updatedTicket.customerType || 'Standard',
+          deviceModel: updatedTicket.deviceModel || '',
+          deviceSerialNumber: updatedTicket.deviceSerialNumber || '',
       });
       
       console.log('🔧 Updated editForm with new customerAddress:', updatedTicket.customerAddress);
@@ -542,20 +561,23 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     }
     
     // Reset form to current ticket values
-    setEditForm({
-      title: currentTicket.title,
-      description: currentTicket.description,
-      priority: currentTicket.priority,
-      status: currentTicket.status,
-      customerName: currentTicket.customerName || '',
-      customerEmail: currentTicket.customerEmail || '',
-      customerPhone: currentTicket.customerPhone || '',
-      customerCompany: currentTicket.customerCompany || '',
-      customerAddress: currentTicket.customerAddress || '',
-      customerStreetAddress: currentTicket.customerStreetAddress || '',
-      customerState: currentTicket.customerState || '',
-      customerZipCode: currentTicket.customerZipCode || '',
-      customerCountry: currentTicket.customerCountry || '',
+          setEditForm({
+        title: currentTicket.title,
+        description: currentTicket.description,
+        priority: currentTicket.priority,
+        status: currentTicket.status,
+        customerName: currentTicket.customerName || '',
+        customerEmail: currentTicket.customerEmail || '',
+        customerPhone: currentTicket.customerPhone || '',
+        customerCompany: currentTicket.customerCompany || '',
+        customerAddress: currentTicket.customerAddress || '',
+        customerStreetAddress: currentTicket.customerStreetAddress || '',
+        customerState: currentTicket.customerState || '',
+        customerZipCode: currentTicket.customerZipCode || '',
+        customerCountry: currentTicket.customerCountry || '',
+        customerType: currentTicket.customerType || 'Standard',
+        deviceModel: currentTicket.deviceModel || '',
+        deviceSerialNumber: currentTicket.deviceSerialNumber || '',
     });
     setIsEditing(false);
   };
@@ -842,6 +864,50 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                       </div>
                     </div>
                     <div>
+                      <label htmlFor="customerType" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Customer Type</label>
+                      <select
+                        id="customerType"
+                        name="customerType"
+                        value={editForm.customerType}
+                        onChange={handleEditFormChange}
+                        className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="Standard">Standard</option>
+                        <option value="VIP">VIP</option>
+                        <option value="Distributor">Distributor</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label htmlFor="deviceModel" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Device Model</label>
+                        <select
+                          id="deviceModel"
+                          name="deviceModel"
+                          value={editForm.deviceModel}
+                          onChange={handleEditFormChange}
+                          className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Select model...</option>
+                          <option value="BWIII">BWIII</option>
+                          <option value="BWMini">BWMini</option>
+                          <option value="Compass">Compass</option>
+                          <option value="Maxxi">Maxxi</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="deviceSerialNumber" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Serial Number</label>
+                        <input
+                          type="text"
+                          id="deviceSerialNumber"
+                          name="deviceSerialNumber"
+                          value={editForm.deviceSerialNumber}
+                          onChange={handleEditFormChange}
+                          className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter serial number"
+                        />
+                      </div>
+                    </div>
+                    <div>
                       <label htmlFor="customerCountry" className="block text-xs font-medium text-gray-400 dark:text-gray-500">Country</label>
                       <div className="mt-1">
                         <CountrySelect
@@ -944,10 +1010,38 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                       <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                         {ticket.customerCountry || 'No country provided'}
                       </p>
-                    </div>
-                    
-                    <div>
-                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Address</h4>
+                                         </div>
+                     
+                     <div>
+                       <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Customer Type</h4>
+                       <div className="mt-1">
+                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                           ticket.customerType === 'VIP' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                           ticket.customerType === 'Distributor' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                           'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                         }`}>
+                           {ticket.customerType || 'Standard'}
+                         </span>
+                       </div>
+                     </div>
+                     
+                     <div className="grid grid-cols-2 gap-4">
+                       <div>
+                         <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Device Model</h4>
+                         <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                           {ticket.deviceModel || 'Not specified'}
+                         </p>
+                       </div>
+                       <div>
+                         <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Device Serial Number</h4>
+                         <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                           {ticket.deviceSerialNumber || 'Not provided'}
+                         </p>
+                       </div>
+                     </div>
+                     
+                     <div>
+                       <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Address</h4>
                       <div className="mt-1 text-sm text-gray-900 dark:text-gray-100 space-y-1">
                         {ticket.customerStreetAddress && (
                           <p>{ticket.customerStreetAddress}</p>
