@@ -209,9 +209,13 @@ class ApiService {
         customerCompany: ticket.customerCompany,
         customerAddress: ticket.customerAddress,
         customerStreetAddress: ticket.customerStreetAddress,
+        customerCity: ticket.customerCity,
         customerState: ticket.customerState,
         customerZipCode: ticket.customerZipCode,
         customerCountry: ticket.customerCountry,
+        customerType: ticket.customerType || 'Standard',
+        deviceModel: ticket.deviceModel,
+        deviceSerialNumber: ticket.deviceSerialNumber,
         agentId: ticket.agentId,
         createdAt: ticket.createdAt,
         updatedAt: ticket.updatedAt,
@@ -334,9 +338,13 @@ class ApiService {
       customerCompany: apiResponse.data.ticket.customerCompany || undefined,
       customerAddress: apiResponse.data.ticket.customerAddress || undefined,
       customerStreetAddress: (apiResponse.data.ticket as any).customerStreetAddress || undefined,
+      customerCity: (apiResponse.data.ticket as any).customerCity || undefined,
       customerState: (apiResponse.data.ticket as any).customerState || undefined,
       customerZipCode: (apiResponse.data.ticket as any).customerZipCode || undefined,
       customerCountry: (apiResponse.data.ticket as any).customerCountry || undefined,
+      customerType: (apiResponse.data.ticket as any).customerType || 'Standard',
+      deviceModel: (apiResponse.data.ticket as any).deviceModel || undefined,
+      deviceSerialNumber: (apiResponse.data.ticket as any).deviceSerialNumber || undefined,
       agentId: apiResponse.data.ticket.agentId || undefined,
       createdAt: apiResponse.data.ticket.createdAt,
       updatedAt: apiResponse.data.ticket.updatedAt,
@@ -361,7 +369,9 @@ class ApiService {
     console.log('  - ticketId:', id);
     console.log('  - updates:', updates);
     console.log('  - updates.customerAddress:', updates.customerAddress);
+    console.log('  - updates.customerCity:', updates.customerCity);
     console.log('  - customerAddress included:', 'customerAddress' in updates);
+    console.log('  - customerCity included:', 'customerCity' in updates);
     
     const response = await this.fetchWithAuth(`/tickets/${id}`, {
       method: 'PUT',
@@ -391,9 +401,13 @@ class ApiService {
       customerCompany: apiResponse.data.ticket.customerCompany,
       customerAddress: apiResponse.data.ticket.customerAddress,
       customerStreetAddress: (apiResponse.data.ticket as any).customerStreetAddress,
+      customerCity: (apiResponse.data.ticket as any).customerCity,
       customerState: (apiResponse.data.ticket as any).customerState,
       customerZipCode: (apiResponse.data.ticket as any).customerZipCode,
       customerCountry: (apiResponse.data.ticket as any).customerCountry,
+      customerType: (apiResponse.data.ticket as any).customerType || 'Standard', // Add customerType with default
+      deviceModel: (apiResponse.data.ticket as any).deviceModel,
+      deviceSerialNumber: (apiResponse.data.ticket as any).deviceSerialNumber,
       agentId: apiResponse.data.ticket.agentId,
       createdAt: apiResponse.data.ticket.createdAt,
       updatedAt: apiResponse.data.ticket.updatedAt,
@@ -704,6 +718,141 @@ class ApiService {
     return apiResponse.data.settings;
   }
 
+  // Dropdown Options Management APIs
+  async getDropdownOptions(): Promise<{
+    categories: Category[];
+    deviceModels: any[];
+    customerTypes: any[];
+  }> {
+    try {
+      // Try the combined endpoint first (requires Admin role)
+      const response = await this.fetchWithAuth('/dropdown-options');
+      const data = await this.handleResponse<{ 
+        success: boolean; 
+        data: {
+          categories: Category[];
+          deviceModels: any[];
+          customerTypes: any[];
+        }
+      }>(response);
+      return data.data;
+    } catch (error) {
+      console.log('Combined dropdown-options endpoint failed, falling back to individual endpoints:', (error as Error).message);
+      
+      // Fallback: Get data from individual endpoints
+      try {
+        const [categoriesData, deviceModelsData, customerTypesData] = await Promise.all([
+          this.getCategories(),
+          this.getDeviceModelsDirect(),
+          this.getCustomerTypesDirect()
+        ]);
+        
+        return {
+          categories: categoriesData,
+          deviceModels: deviceModelsData,
+          customerTypes: customerTypesData
+        };
+      } catch (fallbackError) {
+        console.error('All dropdown options endpoints failed:', fallbackError);
+        throw new Error(`Failed to load dropdown options: ${(fallbackError as Error).message}`);
+      }
+    }
+  }
+
+  // Device Models APIs
+  async getDeviceModels(): Promise<any[]> {
+    return this.getDeviceModelsDirect();
+  }
+
+  private async getDeviceModelsDirect(): Promise<any[]> {
+    const response = await this.fetchWithAuth('/device-models');
+    const data = await this.handleResponse<{ success: boolean; data: { deviceModels: any[] } }>(response);
+    return data.data.deviceModels;
+  }
+
+  async createDeviceModel(modelData: { 
+    name: string; 
+    description?: string; 
+    isActive?: boolean; 
+    displayOrder?: number 
+  }): Promise<any> {
+    const response = await this.fetchWithAuth('/device-models', {
+      method: 'POST',
+      body: JSON.stringify(modelData),
+    });
+    const data = await this.handleResponse<{ success: boolean; data: { deviceModel: any } }>(response);
+    return data.data.deviceModel;
+  }
+
+  async updateDeviceModel(id: string, modelData: { 
+    name?: string; 
+    description?: string; 
+    isActive?: boolean; 
+    displayOrder?: number 
+  }): Promise<any> {
+    const response = await this.fetchWithAuth(`/device-models/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(modelData),
+    });
+    const data = await this.handleResponse<{ success: boolean; data: { deviceModel: any } }>(response);
+    return data.data.deviceModel;
+  }
+
+  async deleteDeviceModel(id: string): Promise<void> {
+    const response = await this.fetchWithAuth(`/device-models/${id}`, {
+      method: 'DELETE',
+    });
+    await this.handleResponse<{ success: boolean; message: string }>(response);
+  }
+
+  // Customer Types APIs
+  async getCustomerTypes(): Promise<any[]> {
+    return this.getCustomerTypesDirect();
+  }
+
+  private async getCustomerTypesDirect(): Promise<any[]> {
+    const response = await this.fetchWithAuth('/customer-types');
+    const data = await this.handleResponse<{ success: boolean; data: { customerTypes: any[] } }>(response);
+    return data.data.customerTypes;
+  }
+
+  async createCustomerType(typeData: { 
+    name: string; 
+    description?: string; 
+    colorCode?: string; 
+    isActive?: boolean; 
+    displayOrder?: number 
+  }): Promise<any> {
+    const response = await this.fetchWithAuth('/customer-types', {
+      method: 'POST',
+      body: JSON.stringify(typeData),
+    });
+    const data = await this.handleResponse<{ success: boolean; data: { customerType: any } }>(response);
+    return data.data.customerType;
+  }
+
+  async updateCustomerType(id: string, typeData: { 
+    name?: string; 
+    description?: string; 
+    colorCode?: string; 
+    isActive?: boolean; 
+    displayOrder?: number 
+  }): Promise<any> {
+    const response = await this.fetchWithAuth(`/customer-types/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(typeData),
+    });
+    const data = await this.handleResponse<{ success: boolean; data: { customerType: any } }>(response);
+    return data.data.customerType;
+  }
+
+  async deleteCustomerType(id: string): Promise<void> {
+    const response = await this.fetchWithAuth(`/customer-types/${id}`, {
+      method: 'DELETE',
+    });
+    await this.handleResponse<{ success: boolean; message: string }>(response);
+  }
+
   // User APIs (for agents)
   async getUsers(): Promise<User[]> {
     const response = await this.fetchWithAuth('/users');
@@ -874,6 +1023,8 @@ class ApiService {
   // Insights API - Get analytics data
   async getInsights(filters?: {
     timeRange?: 'daily' | 'monthly' | 'quarterly';
+    startDate?: string;
+    endDate?: string;
     agentId?: string;
     category?: string;
   }): Promise<any> {

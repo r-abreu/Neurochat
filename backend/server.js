@@ -128,6 +128,21 @@ categories = [
   { id: uuidv4(), name: 'General', description: 'General support', colorCode: '#6c757d' }
 ];
 
+// Initialize device models
+let deviceModels = [
+  { id: uuidv4(), name: 'BWIII', description: 'BrainWave III Device', isActive: true, displayOrder: 1 },
+  { id: uuidv4(), name: 'BWMini', description: 'BrainWave Mini Device', isActive: true, displayOrder: 2 },
+  { id: uuidv4(), name: 'Compass', description: 'Compass Navigation Device', isActive: true, displayOrder: 3 },
+  { id: uuidv4(), name: 'Maxxi', description: 'Maxxi Advanced Device', isActive: true, displayOrder: 4 }
+];
+
+// Initialize customer types
+let customerTypes = [
+  { id: uuidv4(), name: 'Standard', description: 'Standard support level customer', colorCode: '#6c757d', isActive: true, displayOrder: 1 },
+  { id: uuidv4(), name: 'VIP', description: 'VIP customer with priority support', colorCode: '#ffc107', isActive: true, displayOrder: 2 },
+  { id: uuidv4(), name: 'Distributor', description: 'Product distributor with special support', colorCode: '#6f42c1', isActive: true, displayOrder: 3 }
+];
+
 // Demo messages will be initialized after tickets are created
 const demoUsers = [
   {
@@ -674,6 +689,22 @@ app.get('/api/categories', (req, res) => {
   res.json({
     success: true,
     data: { categories }
+  });
+});
+
+// Get device models
+app.get('/api/device-models', (req, res) => {
+  res.json({
+    success: true,
+    data: { deviceModels }
+  });
+});
+
+// Get customer types
+app.get('/api/customer-types', (req, res) => {
+  res.json({
+    success: true,
+    data: { customerTypes }
   });
 });
 
@@ -3549,10 +3580,38 @@ io.on('connection', (socket) => {
 
 // Helper function to generate real insights data from actual system data
 function generateInsightsData(filters = {}) {
-  const { timeRange = 'monthly', agentId, category } = filters;
+  const { timeRange = 'monthly', startDate, endDate, agentId, category } = filters;
   
   // Filter tickets based on filters
   let filteredTickets = tickets;
+  
+  // Filter by date range if provided
+  if (startDate || endDate) {
+    console.log('📊 INSIGHTS: Filtering by date range - startDate:', startDate, 'endDate:', endDate);
+    console.log('📊 INSIGHTS: Total tickets before date filter:', filteredTickets.length);
+    
+    filteredTickets = filteredTickets.filter(ticket => {
+      const ticketDate = new Date(ticket.createdAt);
+      let includeTicket = true;
+      
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        includeTicket = includeTicket && ticketDate >= start;
+      }
+      
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        includeTicket = includeTicket && ticketDate <= end;
+      }
+      
+      return includeTicket;
+    });
+    
+    console.log('📊 INSIGHTS: Total tickets after date filter:', filteredTickets.length);
+  }
+  
   if (agentId) {
     filteredTickets = filteredTickets.filter(t => t.agentId === agentId);
   }
@@ -3562,32 +3621,94 @@ function generateInsightsData(filters = {}) {
 
   // Generate ticket volume data based on actual ticket creation dates
   const getTicketVolumeData = () => {
-    const now = new Date();
     const data = [];
     const ticketCounts = {};
     
-    // Initialize time periods
-    if (timeRange === 'daily') {
-      for (let i = 29; i >= 0; i--) {
-        const date = new Date(now);
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        ticketCounts[dateStr] = 0;
+    // Determine date range for chart data
+    let chartStartDate, chartEndDate, granularity;
+    
+    if (startDate && endDate) {
+      chartStartDate = new Date(startDate);
+      chartEndDate = new Date(endDate);
+      
+      // Determine granularity based on date range span
+      const daysDiff = Math.ceil((chartEndDate - chartStartDate) / (1000 * 60 * 60 * 24));
+      
+      if (daysDiff <= 31) {
+        granularity = 'daily';
+      } else if (daysDiff <= 186) { // ~6 months
+        granularity = 'weekly';
+      } else if (daysDiff <= 730) { // ~2 years
+        granularity = 'monthly';
+      } else {
+        granularity = 'quarterly';
       }
-    } else if (timeRange === 'monthly') {
-      for (let i = 11; i >= 0; i--) {
-        const date = new Date(now);
-        date.setMonth(date.getMonth() - i);
-        const dateStr = date.toISOString().slice(0, 7);
+    } else {
+      // Fallback to old logic if no date range specified
+      const now = new Date();
+      if (timeRange === 'daily') {
+        chartStartDate = new Date(now);
+        chartStartDate.setDate(chartStartDate.getDate() - 29);
+        chartEndDate = now;
+        granularity = 'daily';
+      } else if (timeRange === 'monthly') {
+        chartStartDate = new Date(now);
+        chartStartDate.setMonth(chartStartDate.getMonth() - 11);
+        chartEndDate = now;
+        granularity = 'monthly';
+      } else { // quarterly
+        chartStartDate = new Date(now);
+        chartStartDate.setMonth(chartStartDate.getMonth() - 21); // 7 quarters back
+        chartEndDate = now;
+        granularity = 'quarterly';
+      }
+    }
+    
+    // Initialize time periods based on granularity
+    if (granularity === 'daily') {
+      const current = new Date(chartStartDate);
+      while (current <= chartEndDate) {
+        const dateStr = current.toISOString().split('T')[0];
         ticketCounts[dateStr] = 0;
+        current.setDate(current.getDate() + 1);
+      }
+    } else if (granularity === 'weekly') {
+      const current = new Date(chartStartDate);
+      // Start from beginning of week
+      current.setDate(current.getDate() - current.getDay());
+      while (current <= chartEndDate) {
+        const weekStart = new Date(current);
+        const weekEnd = new Date(current);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        const dateStr = `${weekStart.toISOString().split('T')[0]} to ${weekEnd.toISOString().split('T')[0]}`;
+        ticketCounts[dateStr] = 0;
+        current.setDate(current.getDate() + 7);
+      }
+    } else if (granularity === 'monthly') {
+      const current = new Date(chartStartDate.getFullYear(), chartStartDate.getMonth(), 1);
+      while (current <= chartEndDate) {
+        const dateStr = current.toISOString().slice(0, 7);
+        ticketCounts[dateStr] = 0;
+        current.setMonth(current.getMonth() + 1);
       }
     } else { // quarterly
-      for (let i = 7; i >= 0; i--) {
-        const date = new Date(now);
-        date.setMonth(date.getMonth() - (i * 3));
-        const quarter = Math.floor(date.getMonth() / 3) + 1;
-        const dateStr = `${date.getFullYear()}-Q${quarter}`;
+      const startQuarter = Math.floor(chartStartDate.getMonth() / 3);
+      const startYear = chartStartDate.getFullYear();
+      const endQuarter = Math.floor(chartEndDate.getMonth() / 3);
+      const endYear = chartEndDate.getFullYear();
+      
+      let currentYear = startYear;
+      let currentQuarter = startQuarter;
+      
+      while (currentYear < endYear || (currentYear === endYear && currentQuarter <= endQuarter)) {
+        const dateStr = `${currentYear}-Q${currentQuarter + 1}`;
         ticketCounts[dateStr] = 0;
+        
+        currentQuarter++;
+        if (currentQuarter > 3) {
+          currentQuarter = 0;
+          currentYear++;
+        }
       }
     }
 
@@ -3596,9 +3717,16 @@ function generateInsightsData(filters = {}) {
       const createdDate = new Date(ticket.createdAt);
       let periodKey;
       
-      if (timeRange === 'daily') {
+      if (granularity === 'daily') {
         periodKey = createdDate.toISOString().split('T')[0];
-      } else if (timeRange === 'monthly') {
+      } else if (granularity === 'weekly') {
+        // Find which week this ticket belongs to
+        const ticketDate = new Date(createdDate);
+        ticketDate.setDate(ticketDate.getDate() - ticketDate.getDay()); // Start of week
+        const weekEnd = new Date(ticketDate);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        periodKey = `${ticketDate.toISOString().split('T')[0]} to ${weekEnd.toISOString().split('T')[0]}`;
+      } else if (granularity === 'monthly') {
         periodKey = createdDate.toISOString().slice(0, 7);
       } else { // quarterly
         const quarter = Math.floor(createdDate.getMonth() / 3) + 1;
@@ -3902,11 +4030,45 @@ function generateInsightsData(filters = {}) {
     { stage: 'Closed', count: statusCounts['closed'], color: '#6B7280' }
   ];
 
+  // Generate device model data from actual tickets
+  const deviceModelStats = {};
+  
+  // Ensure we have device models available
+  if (!deviceModels || deviceModels.length === 0) {
+    console.warn('No device models found, initializing defaults');
+    deviceModels = [
+      { name: 'BWIII', description: 'BrainWave III Device', isActive: true },
+      { name: 'BWMini', description: 'BrainWave Mini Device', isActive: true },
+      { name: 'Compass', description: 'Compass Navigation Device', isActive: true },
+      { name: 'Maxxi', description: 'Maxxi Advanced Device', isActive: true }
+    ];
+  }
+  
+  deviceModels.forEach(model => {
+    deviceModelStats[model.name] = {
+      name: model.name,
+      value: 0,
+      color: null // Will be assigned from COLORS array in frontend
+    };
+  });
+
+  // Count tickets by device model
+  filteredTickets.forEach(ticket => {
+    if (ticket.deviceModel && deviceModelStats[ticket.deviceModel]) {
+      deviceModelStats[ticket.deviceModel].value++;
+    }
+  });
+
+  const deviceModelData = Object.values(deviceModelStats).filter(model => model.value > 0);
+  
+
+
   return {
     ticketVolumeData: getTicketVolumeData(),
     geographyData: geographyArray,
     topAgents,
     categoryData,
+    deviceModelData,
     resolutionMetrics,
     agentActivityData,
     unresolvedTickets,
@@ -3939,9 +4101,13 @@ app.get('/api/insights', authenticateToken, (req, res) => {
 
     const filters = {
       timeRange: req.query.timeRange || 'monthly',
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
       agentId: req.query.agentId,
       category: req.query.category
     };
+
+    console.log('📊 INSIGHTS: Received filters:', filters);
 
     const insightsData = generateInsightsData(filters);
 
@@ -3958,6 +4124,7 @@ app.get('/api/insights', authenticateToken, (req, res) => {
     });
   }
 });
+
 
 // Debug endpoint to check specific ticket data
 app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
@@ -4324,6 +4491,410 @@ app.delete('/api/categories/:id', authenticateToken, (req, res) => {
     });
   } catch (error) {
     console.error('Error deleting category:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// ==========================================
+// DROPDOWN OPTIONS ENDPOINTS (Admin only)
+// ==========================================
+
+// Get all dropdown options (Categories, Device Models, Customer Types)
+app.get('/api/dropdown-options', authenticateToken, (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        categories: categories.map(c => ({ ...c, type: 'category' })),
+        deviceModels: deviceModels.map(d => ({ ...d, type: 'deviceModel' })),
+        customerTypes: customerTypes.map(c => ({ ...c, type: 'customerType' }))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dropdown options:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// DEVICE MODELS ENDPOINTS
+
+// Create device model
+app.post('/api/device-models', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { name, description, isActive = true, displayOrder = 0 } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_FIELDS', message: 'Device model name is required' }
+      });
+    }
+
+    // Check if name already exists
+    const existing = deviceModels.find(d => d.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'MODEL_EXISTS', message: 'Device model name already exists' }
+      });
+    }
+
+    const newModel = {
+      id: uuidv4(),
+      name,
+      description: description || '',
+      isActive,
+      displayOrder
+    };
+
+    deviceModels.push(newModel);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'device_model_created',
+      targetType: 'device_model',
+      targetId: newModel.id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Created device model: ${name}`
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { deviceModel: newModel }
+    });
+  } catch (error) {
+    console.error('Error creating device model:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Update device model
+app.put('/api/device-models/:id', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { id } = req.params;
+    const { name, description, isActive, displayOrder } = req.body;
+
+    const modelIndex = deviceModels.findIndex(d => d.id === id);
+    if (modelIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'MODEL_NOT_FOUND', message: 'Device model not found' }
+      });
+    }
+
+    // Check if new name conflicts with existing models (excluding current)
+    if (name) {
+      const existing = deviceModels.find(d => d.id !== id && d.name.toLowerCase() === name.toLowerCase());
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'MODEL_EXISTS', message: 'Device model name already exists' }
+        });
+      }
+    }
+
+    // Update model
+    if (name !== undefined) deviceModels[modelIndex].name = name;
+    if (description !== undefined) deviceModels[modelIndex].description = description;
+    if (isActive !== undefined) deviceModels[modelIndex].isActive = isActive;
+    if (displayOrder !== undefined) deviceModels[modelIndex].displayOrder = displayOrder;
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'device_model_updated',
+      targetType: 'device_model',
+      targetId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Updated device model: ${deviceModels[modelIndex].name}`
+    });
+
+    res.json({
+      success: true,
+      data: { deviceModel: deviceModels[modelIndex] }
+    });
+  } catch (error) {
+    console.error('Error updating device model:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Delete device model
+app.delete('/api/device-models/:id', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { id } = req.params;
+
+    const modelIndex = deviceModels.findIndex(d => d.id === id);
+    if (modelIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'MODEL_NOT_FOUND', message: 'Device model not found' }
+      });
+    }
+
+    // Check if any tickets use this device model
+    const ticketsWithModel = tickets.filter(t => t.deviceModel === deviceModels[modelIndex].name);
+    if (ticketsWithModel.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MODEL_IN_USE', message: 'Cannot delete device model: tickets are using it' }
+      });
+    }
+
+    const deletedModel = deviceModels[modelIndex];
+    deviceModels.splice(modelIndex, 1);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'device_model_deleted',
+      targetType: 'device_model',
+      targetId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Deleted device model: ${deletedModel.name}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Device model deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting device model:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// CUSTOMER TYPES ENDPOINTS
+
+// Create customer type
+app.post('/api/customer-types', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { name, description, colorCode = '#6c757d', isActive = true, displayOrder = 0 } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_FIELDS', message: 'Customer type name is required' }
+      });
+    }
+
+    // Check if name already exists
+    const existing = customerTypes.find(c => c.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'TYPE_EXISTS', message: 'Customer type name already exists' }
+      });
+    }
+
+    const newType = {
+      id: uuidv4(),
+      name,
+      description: description || '',
+      colorCode,
+      isActive,
+      displayOrder
+    };
+
+    customerTypes.push(newType);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'customer_type_created',
+      targetType: 'customer_type',
+      targetId: newType.id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Created customer type: ${name}`
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { customerType: newType }
+    });
+  } catch (error) {
+    console.error('Error creating customer type:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Update customer type
+app.put('/api/customer-types/:id', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { id } = req.params;
+    const { name, description, colorCode, isActive, displayOrder } = req.body;
+
+    const typeIndex = customerTypes.findIndex(c => c.id === id);
+    if (typeIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'TYPE_NOT_FOUND', message: 'Customer type not found' }
+      });
+    }
+
+    // Check if new name conflicts with existing types (excluding current)
+    if (name) {
+      const existing = customerTypes.find(c => c.id !== id && c.name.toLowerCase() === name.toLowerCase());
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'TYPE_EXISTS', message: 'Customer type name already exists' }
+        });
+      }
+    }
+
+    // Update type
+    if (name !== undefined) customerTypes[typeIndex].name = name;
+    if (description !== undefined) customerTypes[typeIndex].description = description;
+    if (colorCode !== undefined) customerTypes[typeIndex].colorCode = colorCode;
+    if (isActive !== undefined) customerTypes[typeIndex].isActive = isActive;
+    if (displayOrder !== undefined) customerTypes[typeIndex].displayOrder = displayOrder;
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'customer_type_updated',
+      targetType: 'customer_type',
+      targetId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Updated customer type: ${customerTypes[typeIndex].name}`
+    });
+
+    res.json({
+      success: true,
+      data: { customerType: customerTypes[typeIndex] }
+    });
+  } catch (error) {
+    console.error('Error updating customer type:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Delete customer type
+app.delete('/api/customer-types/:id', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { id } = req.params;
+
+    const typeIndex = customerTypes.findIndex(c => c.id === id);
+    if (typeIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'TYPE_NOT_FOUND', message: 'Customer type not found' }
+      });
+    }
+
+    // Check if any tickets use this customer type
+    const ticketsWithType = tickets.filter(t => t.customerType === customerTypes[typeIndex].name);
+    if (ticketsWithType.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'TYPE_IN_USE', message: 'Cannot delete customer type: tickets are using it' }
+      });
+    }
+
+    const deletedType = customerTypes[typeIndex];
+    customerTypes.splice(typeIndex, 1);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'customer_type_deleted',
+      targetType: 'customer_type',
+      targetId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Deleted customer type: ${deletedType.name}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Customer type deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting customer type:', error);
     res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }

@@ -3,7 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell
 } from 'recharts';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isValid } from 'date-fns';
 import apiService from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -18,6 +18,7 @@ interface InsightsData {
     totalActiveTime: number;
   }>;
   categoryData: Array<{ name: string; value: number; color: string }>;
+  deviceModelData: Array<{ name: string; value: number; color: string | null }>;
   resolutionMetrics: {
     avgResolutionTime: number;
     minResolutionTime: number;
@@ -39,7 +40,12 @@ interface InsightsData {
   ticketFlowData: Array<{ stage: string; count: number; color: string }>;
 }
 
-type TimeRange = 'daily' | 'monthly' | 'quarterly';
+type DateRangeOption = 'last_7_days' | 'last_30_days' | 'last_week' | 'last_month' | 'last_3_months' | 'last_6_months' | 'custom';
+
+interface DateRange {
+  startDate: Date | null;
+  endDate: Date | null;
+}
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
@@ -47,25 +53,89 @@ const Insights: React.FC = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
+  const [dateRangeOption, setDateRangeOption] = useState<DateRangeOption>('last_30_days');
+  const [customDateRange, setCustomDateRange] = useState<DateRange>({ startDate: null, endDate: null });
   const [selectedAgent, setSelectedAgent] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [data, setData] = useState<InsightsData | null>(null);
 
+  // Calculate date range based on selected option
+  const getDateRange = (): DateRange => {
+    const now = new Date();
+    
+    switch (dateRangeOption) {
+      case 'last_7_days':
+        return {
+          startDate: subDays(now, 7),
+          endDate: now
+        };
+      case 'last_30_days':
+        return {
+          startDate: subDays(now, 30),
+          endDate: now
+        };
+      case 'last_week':
+        const lastWeekStart = startOfWeek(subWeeks(now, 1));
+        const lastWeekEnd = endOfWeek(subWeeks(now, 1));
+        return {
+          startDate: lastWeekStart,
+          endDate: lastWeekEnd
+        };
+      case 'last_month':
+        const lastMonthStart = startOfMonth(subMonths(now, 1));
+        const lastMonthEnd = endOfMonth(subMonths(now, 1));
+        return {
+          startDate: lastMonthStart,
+          endDate: lastMonthEnd
+        };
+      case 'last_3_months':
+        return {
+          startDate: subMonths(now, 3),
+          endDate: now
+        };
+      case 'last_6_months':
+        return {
+          startDate: subMonths(now, 6),
+          endDate: now
+        };
+      case 'custom':
+        return customDateRange;
+      default:
+        return {
+          startDate: subDays(now, 30),
+          endDate: now
+        };
+    }
+  };
+
   useEffect(() => {
     loadInsightsData();
-  }, [timeRange, selectedAgent, selectedCategory]);
+  }, [dateRangeOption, customDateRange, selectedAgent, selectedCategory]);
 
   const loadInsightsData = async () => {
     try {
       setLoading(true);
       setError(null);
       
+      const dateRange = getDateRange();
+      
+      // Skip loading if custom date range is incomplete
+      if (dateRangeOption === 'custom' && (!dateRange.startDate || !dateRange.endDate)) {
+        setLoading(false);
+        return;
+      }
+      
+      console.log('🔍 INSIGHTS: Loading insights data with date range:', dateRange);
+      
       const insights = await apiService.getInsights({
-        timeRange,
+        startDate: dateRange.startDate ? format(dateRange.startDate, 'yyyy-MM-dd') : undefined,
+        endDate: dateRange.endDate ? format(dateRange.endDate, 'yyyy-MM-dd') : undefined,
         agentId: selectedAgent === 'all' ? undefined : selectedAgent,
         category: selectedCategory === 'all' ? undefined : selectedCategory
       });
+      
+      console.log('🔍 INSIGHTS: Received insights data:', insights);
+      console.log('🔍 INSIGHTS: Device model data:', insights.deviceModelData);
       
       setData(insights);
     } catch (err) {
@@ -84,6 +154,33 @@ const Insights: React.FC = () => {
 
   const formatDuration = (hours: number): string => {
     return `${hours.toFixed(1)}h`;
+  };
+
+  const handleDateRangeChange = (option: DateRangeOption) => {
+    setDateRangeOption(option);
+    if (option !== 'custom') {
+      setCustomDateRange({ startDate: null, endDate: null });
+    }
+  };
+
+  const handleCustomDateChange = (field: 'startDate' | 'endDate', dateString: string) => {
+    const date = dateString ? new Date(dateString) : null;
+    setCustomDateRange(prev => ({
+      ...prev,
+      [field]: date && isValid(date) ? date : null
+    }));
+  };
+
+  const formatDateForInput = (date: Date | null): string => {
+    if (!date || !isValid(date)) return '';
+    return format(date, 'yyyy-MM-dd');
+  };
+
+  const getDateRangeLabel = (): string => {
+    const range = getDateRange();
+    if (!range.startDate || !range.endDate) return 'Select date range';
+    
+    return `${format(range.startDate, 'MMM dd, yyyy')} - ${format(range.endDate, 'MMM dd, yyyy')}`;
   };
 
   if (loading) {
@@ -114,6 +211,83 @@ const Insights: React.FC = () => {
     );
   }
 
+  if (!data && dateRangeOption === 'custom' && (!customDateRange.startDate || !customDateRange.endDate)) {
+    return (
+      <div className="space-y-6">
+        {/* Header with Date Range Selection */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics Dashboard</h1>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Comprehensive insights into ticket metrics and agent performance
+              </p>
+            </div>
+          </div>
+
+          {/* Date Range Selection */}
+          <div className="mt-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Date Range
+              </label>
+              <select
+                value={dateRangeOption}
+                onChange={(e) => handleDateRangeChange(e.target.value as DateRangeOption)}
+                className="block w-full sm:w-auto rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="last_7_days">Last 7 Days</option>
+                <option value="last_30_days">Last 30 Days</option>
+                <option value="last_week">Last Week</option>
+                <option value="last_month">Last Month</option>
+                <option value="last_3_months">Last 3 Months</option>
+                <option value="last_6_months">Last 6 Months</option>
+                <option value="custom">Custom Range</option>
+              </select>
+            </div>
+
+            {dateRangeOption === 'custom' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={formatDateForInput(customDateRange.startDate)}
+                    onChange={(e) => handleCustomDateChange('startDate', e.target.value)}
+                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={formatDateForInput(customDateRange.endDate)}
+                    onChange={(e) => handleCustomDateChange('endDate', e.target.value)}
+                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {dateRangeOption !== 'custom' && (
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                <span className="font-medium">Selected Range:</span> {getDateRangeLabel()}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+          Please select both start and end dates for custom range
+        </div>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="text-center text-gray-500 dark:text-gray-400 py-8">
@@ -122,9 +296,31 @@ const Insights: React.FC = () => {
     );
   }
 
+  // Ensure all data properties have default values
+  const safeData = {
+    ticketVolumeData: data.ticketVolumeData || [],
+    geographyData: data.geographyData || [],
+    topAgents: data.topAgents || [],
+    categoryData: data.categoryData || [],
+    deviceModelData: data.deviceModelData || [],
+    resolutionMetrics: data.resolutionMetrics || {
+      avgResolutionTime: 0,
+      minResolutionTime: 0,
+      maxResolutionTime: 0
+    },
+    agentActivityData: data.agentActivityData || [],
+    unresolvedTickets: data.unresolvedTickets || {
+      count: 0,
+      overdueCount: 0,
+      avgAge: 0,
+      tickets: []
+    },
+    ticketFlowData: data.ticketFlowData || []
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Enhanced Date Range Selection */}
       <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -133,40 +329,95 @@ const Insights: React.FC = () => {
               Comprehensive insights into ticket metrics and agent performance
             </p>
           </div>
-          
-          {/* Filters */}
-          <div className="mt-4 sm:mt-0 flex flex-col sm:flex-row gap-3">
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value as TimeRange)}
-              className="block w-full sm:w-auto rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            >
-              <option value="daily">Daily View</option>
-              <option value="monthly">Monthly View</option>
-              <option value="quarterly">Quarterly View</option>
-            </select>
-            
-            <select
-              value={selectedAgent}
-              onChange={(e) => setSelectedAgent(e.target.value)}
-              className="block w-full sm:w-auto rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            >
-              <option value="all">All Agents</option>
-              {data.topAgents.map(agent => (
-                <option key={agent.id} value={agent.id}>{agent.name}</option>
-              ))}
-            </select>
-            
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="block w-full sm:w-auto rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            >
-              <option value="all">All Categories</option>
-              {data.categoryData.map(category => (
-                <option key={category.name} value={category.name}>{category.name}</option>
-              ))}
-            </select>
+        </div>
+
+        {/* Enhanced Date Range and Filters */}
+        <div className="mt-6 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Date Range Selection */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Date Range
+                </label>
+                <select
+                  value={dateRangeOption}
+                  onChange={(e) => handleDateRangeChange(e.target.value as DateRangeOption)}
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                >
+                  <option value="last_7_days">Last 7 Days</option>
+                  <option value="last_30_days">Last 30 Days</option>
+                  <option value="last_week">Last Week</option>
+                  <option value="last_month">Last Month</option>
+                  <option value="last_3_months">Last 3 Months</option>
+                  <option value="last_6_months">Last 6 Months</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+              </div>
+
+              {dateRangeOption === 'custom' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formatDateForInput(customDateRange.startDate)}
+                      onChange={(e) => handleCustomDateChange('startDate', e.target.value)}
+                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formatDateForInput(customDateRange.endDate)}
+                      onChange={(e) => handleCustomDateChange('endDate', e.target.value)}
+                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                <span className="font-medium">Selected Range:</span> {getDateRangeLabel()}
+              </div>
+            </div>
+
+            {/* Other Filters */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filters
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <select
+                    value={selectedAgent}
+                    onChange={(e) => setSelectedAgent(e.target.value)}
+                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="all">All Agents</option>
+                    {safeData.topAgents.map(agent => (
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
+                    ))}
+                  </select>
+                  
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="all">All Categories</option>
+                    {safeData.categoryData.map(category => (
+                      <option key={category.name} value={category.name}>{category.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -187,7 +438,7 @@ const Insights: React.FC = () => {
                     Total Tickets
                   </dt>
                   <dd className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    {data.ticketVolumeData.reduce((sum, item) => sum + item.tickets, 0)}
+                    {safeData.ticketVolumeData.reduce((sum, item) => sum + item.tickets, 0)}
                   </dd>
                 </dl>
               </div>
@@ -209,7 +460,7 @@ const Insights: React.FC = () => {
                     Avg Resolution Time
                   </dt>
                   <dd className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    {formatTime(data.resolutionMetrics.avgResolutionTime)}
+                    {formatTime(safeData.resolutionMetrics.avgResolutionTime)}
                   </dd>
                 </dl>
               </div>
@@ -231,7 +482,7 @@ const Insights: React.FC = () => {
                     Unresolved Tickets
                   </dt>
                   <dd className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    {data.unresolvedTickets.count}
+                    {safeData.unresolvedTickets.count}
                   </dd>
                 </dl>
               </div>
@@ -253,7 +504,7 @@ const Insights: React.FC = () => {
                     Active Agents
                   </dt>
                   <dd className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    {data.topAgents.length}
+                    {safeData.topAgents.length}
                   </dd>
                 </dl>
               </div>
@@ -262,49 +513,49 @@ const Insights: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Ticket Volume Trends */}
-        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-              Ticket Volume Trends
-            </h3>
-            <div className="text-sm text-gray-500 dark:text-gray-400 capitalize">
-              {timeRange} View
-            </div>
-          </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data.ticketVolumeData}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis 
-                  dataKey="date" 
-                  className="text-xs fill-gray-600 dark:fill-gray-400"
-                />
-                <YAxis className="text-xs fill-gray-600 dark:fill-gray-400" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'rgb(31 41 55)', 
-                    border: 'none', 
-                    borderRadius: '8px',
-                    color: 'white'
-                  }}
-                />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="tickets" 
-                  stroke="#3B82F6" 
-                  strokeWidth={2}
-                  dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
-                  activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2, fill: '#3B82F6' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+      {/* Ticket Volume Trends */}
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+            Ticket Volume Trends
+          </h3>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            {getDateRangeLabel()}
           </div>
         </div>
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={safeData.ticketVolumeData}>
+              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+              <XAxis 
+                dataKey="date" 
+                className="text-xs fill-gray-600 dark:fill-gray-400"
+              />
+              <YAxis className="text-xs fill-gray-600 dark:fill-gray-400" />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: 'rgb(31 41 55)', 
+                  border: 'none', 
+                  borderRadius: '8px',
+                  color: 'white'
+                }}
+              />
+              <Legend />
+              <Line 
+                type="monotone" 
+                dataKey="tickets" 
+                stroke="#3B82F6" 
+                strokeWidth={2}
+                dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
+                activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2, fill: '#3B82F6' }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
 
+      {/* Distribution Charts Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {/* Category Distribution */}
         <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
@@ -314,7 +565,7 @@ const Insights: React.FC = () => {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={data.categoryData}
+                  data={safeData.categoryData}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
@@ -323,13 +574,68 @@ const Insights: React.FC = () => {
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {data.categoryData.map((entry, index) => (
+                  {safeData.categoryData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Device Model Distribution */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+            Device Model Distribution
+          </h3>
+          <div className="h-80">
+            {(() => {
+              console.log('🔍 DEVICE MODEL CHART: safeData.deviceModelData:', safeData.deviceModelData);
+              console.log('🔍 DEVICE MODEL CHART: length check:', safeData.deviceModelData && safeData.deviceModelData.length > 0);
+              return safeData.deviceModelData && safeData.deviceModelData.length > 0;
+            })() ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={safeData.deviceModelData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {safeData.deviceModelData.map((entry, index) => (
+                      <Cell key={`device-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'rgb(31 41 55)', 
+                      border: 'none', 
+                      borderRadius: '8px',
+                      color: 'white'
+                    }}
+                    formatter={(value, name, props) => {
+                      const total = safeData.deviceModelData.reduce((sum, item) => sum + item.value, 0);
+                      const percentage = total > 0 ? ((value as number / total) * 100).toFixed(1) : '0.0';
+                      return [`${value} tickets (${percentage}%)`, 'Count'];
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center text-gray-500 dark:text-gray-400">
+                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <p className="mt-2 text-sm">No device model data available</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -346,8 +652,8 @@ const Insights: React.FC = () => {
               <PieChart>
                 <Pie
                   data={(() => {
-                    const total = data.geographyData.reduce((sum, item) => sum + item.count, 0);
-                    return data.geographyData.map((item, index) => ({
+                    const total = safeData.geographyData.reduce((sum, item) => sum + item.count, 0);
+                    return safeData.geographyData.map((item, index) => ({
                       ...item,
                       percentage: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0.0'
                     }));
@@ -360,7 +666,7 @@ const Insights: React.FC = () => {
                   fill="#8884d8"
                   dataKey="count"
                 >
-                  {data.geographyData.map((entry, index) => (
+                  {safeData.geographyData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
@@ -372,7 +678,7 @@ const Insights: React.FC = () => {
                     color: 'white'
                   }}
                   formatter={(value, name, props) => {
-                    const total = data.geographyData.reduce((sum, item) => sum + item.count, 0);
+                    const total = safeData.geographyData.reduce((sum, item) => sum + item.count, 0);
                     const percentage = total > 0 ? ((value as number / total) * 100).toFixed(1) : '0.0';
                     return [`${value} tickets (${percentage}%)`, 'Count'];
                   }}
@@ -388,7 +694,7 @@ const Insights: React.FC = () => {
             Top Performing Agents
           </h3>
           <div className="space-y-4">
-            {data.topAgents.slice(0, 5).map((agent, index) => (
+            {safeData.topAgents.slice(0, 5).map((agent, index) => (
               <div key={agent.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                 <div className="flex items-center space-x-3">
                   <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-medium ${
@@ -428,7 +734,7 @@ const Insights: React.FC = () => {
           </h3>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.agentActivityData}>
+              <BarChart data={safeData.agentActivityData}>
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                 <XAxis 
                   dataKey="name" 
@@ -462,19 +768,19 @@ const Insights: React.FC = () => {
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
                 <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                  {formatTime(data.resolutionMetrics.minResolutionTime)}
+                  {formatTime(safeData.resolutionMetrics.minResolutionTime)}
                 </p>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Fastest</p>
               </div>
               <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                 <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                  {formatTime(data.resolutionMetrics.avgResolutionTime)}
+                  {formatTime(safeData.resolutionMetrics.avgResolutionTime)}
                 </p>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Average</p>
               </div>
               <div className="text-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
                 <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                  {formatTime(data.resolutionMetrics.maxResolutionTime)}
+                  {formatTime(safeData.resolutionMetrics.maxResolutionTime)}
                 </p>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Slowest</p>
               </div>
@@ -488,13 +794,13 @@ const Insights: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
                   <p className="text-xl font-bold text-orange-600 dark:text-orange-400">
-                    {data.unresolvedTickets.overdueCount}
+                    {safeData.unresolvedTickets.overdueCount}
                   </p>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Overdue</p>
                 </div>
                 <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
                   <p className="text-xl font-bold text-purple-600 dark:text-purple-400">
-                    {data.unresolvedTickets.avgAge}d
+                    {safeData.unresolvedTickets.avgAge}d
                   </p>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Avg Age</p>
                 </div>
@@ -503,8 +809,6 @@ const Insights: React.FC = () => {
           </div>
         </div>
       </div>
-
-
     </div>
   );
 };
