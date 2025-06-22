@@ -38,9 +38,13 @@ export interface Ticket {
   customerCompany?: string;
   customerAddress?: string; // Keep for backward compatibility
   customerStreetAddress?: string;
+  customerCity?: string;
   customerState?: string;
   customerZipCode?: string;
   customerCountry?: string;
+  customerType?: 'Standard' | 'VIP' | 'Distributor'; // New field
+  deviceModel?: 'BWIII' | 'BWMini' | 'Compass' | 'Maxxi'; // New device field
+  deviceSerialNumber?: string; // New device field
   agentId?: string;
   createdAt: string;
   updatedAt: string;

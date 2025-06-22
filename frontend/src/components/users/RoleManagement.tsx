@@ -14,6 +14,7 @@ interface Role {
     'users.access': boolean;
     'audit.view': boolean;
     'insights.view': boolean;
+    'customers.view': boolean;
   };
 }
 
@@ -38,6 +39,7 @@ const RoleManagement: React.FC = () => {
       'users.access': false,
       'audit.view': false,
       'insights.view': false,
+      'customers.view': false,
     }
   });
 
@@ -174,6 +176,7 @@ const RoleManagement: React.FC = () => {
         'users.access': false,
         'audit.view': false,
         'insights.view': false,
+        'customers.view': false,
       }
     });
   };
@@ -183,14 +186,15 @@ const RoleManagement: React.FC = () => {
     setFormData({
       name: role.name,
       description: role.description,
-      permissions: role.permissions ? { ...role.permissions } : {
-        'tickets.create': false,
-        'tickets.edit': false,
-        'tickets.delete': false,
-        'tickets.message': false,
-        'users.access': false,
-        'audit.view': false,
-        'insights.view': false,
+      permissions: {
+        'tickets.create': role.permissions?.['tickets.create'] || false,
+        'tickets.edit': role.permissions?.['tickets.edit'] || false,
+        'tickets.delete': role.permissions?.['tickets.delete'] || false,
+        'tickets.message': role.permissions?.['tickets.message'] || false,
+        'users.access': role.permissions?.['users.access'] || false,
+        'audit.view': role.permissions?.['audit.view'] || false,
+        'insights.view': role.permissions?.['insights.view'] || false,
+        'customers.view': role.permissions?.['customers.view'] || false,
       }
     });
   };
@@ -334,6 +338,21 @@ const RoleManagement: React.FC = () => {
                       />
                       <span className="text-sm">View Insights Dashboard</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['customers.view']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'customers.view': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">View Customer Management</span>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -411,6 +430,9 @@ const RoleManagement: React.FC = () => {
                       )}
                       {role.permissions?.['insights.view'] && (
                         <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded ml-1">Insights</span>
+                      )}
+                      {role.permissions?.['customers.view'] && (
+                        <span className="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded ml-1">Customers</span>
                       )}
                     </div>
                   </td>

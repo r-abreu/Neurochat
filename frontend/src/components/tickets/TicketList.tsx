@@ -858,6 +858,12 @@ const TicketList: React.FC<TicketListProps> = ({
           setReassignTicketId={setReassignTicketId}
           reassigning={reassigning}
           deletingTicketId={deletingTicketId}
+          exportFilters={{
+            searchTerm,
+            statusFilter,
+            priorityFilter,
+            currentView
+          }}
         />
       )}
     </div>

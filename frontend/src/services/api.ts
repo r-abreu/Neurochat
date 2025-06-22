@@ -1043,6 +1043,54 @@ class ApiService {
     
     return apiResponse.data;
   }
+
+  // Customer APIs
+  async getCustomers(filters?: {
+    search?: string;
+    country?: string;
+    customerType?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    
+    const queryString = params.toString();
+    const url = `/customers${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await this.fetchWithAuth(url);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { customers: any[] } }>(response);
+    
+    return apiResponse.data.customers;
+  }
+
+  async getCustomer(identifier: string): Promise<any> {
+    const response = await this.fetchWithAuth(`/customers/${identifier}`);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { customer: any } }>(response);
+    
+    return apiResponse.data.customer;
+  }
+
+  async updateCustomer(identifier: string, updates: any): Promise<any> {
+    const response = await this.fetchWithAuth(`/customers/${identifier}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { customer: any } }>(response);
+    
+    return apiResponse.data.customer;
+  }
+
+  async deleteCustomer(identifier: string): Promise<void> {
+    const response = await this.fetchWithAuth(`/customers/${identifier}`, {
+      method: 'DELETE',
+    });
+    await this.handleResponse<{ success: boolean; message: string }>(response);
+  }
 }
 
 export const apiService = new ApiService();

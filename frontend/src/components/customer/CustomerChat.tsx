@@ -263,13 +263,25 @@ const CustomerChat: React.FC = () => {
 
   const loadCategories = async () => {
     try {
-      const fetchedCategories = await apiService.getCategories();
-      setCategories(fetchedCategories);
-      if (fetchedCategories.length > 0) {
-        setSelectedCategory(fetchedCategories[0].id);
+      // Use the dropdown options API to get categories configured in system settings
+      const dropdownOptions = await apiService.getDropdownOptions();
+      const activeCategories = dropdownOptions.categories.filter(cat => (cat as any).isActive !== false);
+      setCategories(activeCategories);
+      if (activeCategories.length > 0) {
+        setSelectedCategory(activeCategories[0].id);
       }
     } catch (error) {
-      console.error('Error loading categories:', error);
+      console.error('Error loading categories from dropdown options:', error);
+      // Fallback to original method if dropdown options fail
+      try {
+        const fetchedCategories = await apiService.getCategories();
+        setCategories(fetchedCategories);
+        if (fetchedCategories.length > 0) {
+          setSelectedCategory(fetchedCategories[0].id);
+        }
+      } catch (fallbackError) {
+        console.error('Error loading categories (fallback):', fallbackError);
+      }
     }
   };
 

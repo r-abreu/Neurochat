@@ -7,13 +7,14 @@ import TicketDetail from '../tickets/TicketDetail';
 import UserManagement from '../users/UserManagement';
 import AuditTrail from '../users/AuditTrail';
 import Insights from './Insights';
+import CustomerManagement from '../customers/CustomerManagement';
 import ThemeToggle from '../common/ThemeToggle';
 import { Ticket, User } from '../../types';
 import apiService from '../../services/api';
 import socketService from '../../services/socket';
 import soundService from '../../services/soundService';
 
-type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit' | 'insights';
+type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit' | 'insights' | 'customers';
 
 const Dashboard: React.FC = () => {
   const { user, logout, updateUser } = useAuth();
@@ -388,6 +389,21 @@ const Dashboard: React.FC = () => {
           setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
           return null;
         }
+      case 'customers':
+        // Check if user has permission to access customer management
+        if (user?.role === 'agent' && user.permissions?.includes('customers.view')) {
+          return <CustomerManagement onTicketSelect={(ticketId: string) => {
+            // Find the ticket by ID and select it
+            const ticket = tickets.find(t => t.id === ticketId);
+            if (ticket) {
+              handleTicketSelect(ticket);
+            }
+          }} />;
+        } else {
+          // Redirect to default view if no permission
+          setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
+          return null;
+        }
       case 'tickets':
       case 'my-tickets':
       case 'my-open-tickets':
@@ -433,6 +449,9 @@ const Dashboard: React.FC = () => {
             if (view === 'insights' && !(user?.role === 'agent' && user.permissions?.includes('insights.view'))) {
               return; // Don't allow view change if no permission
             }
+            if (view === 'customers' && !(user?.role === 'agent' && user.permissions?.includes('customers.view'))) {
+              return; // Don't allow view change if no permission
+            }
             setCurrentView(view as ViewType);
           }}
           onCreateTicket={handleTicketCreate}
@@ -459,6 +478,9 @@ const Dashboard: React.FC = () => {
               return; // Don't allow view change if no permission
             }
             if (view === 'insights' && !(user?.role === 'agent' && user.permissions?.includes('insights.view'))) {
+              return; // Don't allow view change if no permission
+            }
+            if (view === 'customers' && !(user?.role === 'agent' && user.permissions?.includes('customers.view'))) {
               return; // Don't allow view change if no permission
             }
             setCurrentView(view as ViewType);

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Category, Ticket } from '../../types';
 import apiService from '../../services/api';
 import CountrySelect from '../common/CountrySelect';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface CreateTicketProps {
   onBack: () => void;
@@ -19,12 +20,17 @@ interface TicketFormData {
   customerCompany: string;
   customerAddress: string; // Keep for backward compatibility
   customerStreetAddress: string;
+  customerCity: string;
   customerState: string;
   customerZipCode: string;
   customerCountry: string;
+  customerType: string;
+  deviceModel: string;
+  deviceSerialNumber: string;
 }
 
 const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) => {
+  const { user } = useAuth();
   const [formData, setFormData] = useState<TicketFormData>({
     title: '',
     description: '',
@@ -36,28 +42,74 @@ const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) 
     customerCompany: '',
     customerAddress: '', // Keep for backward compatibility
     customerStreetAddress: '',
+    customerCity: '',
     customerState: '',
     customerZipCode: '',
     customerCountry: '',
+    customerType: '',
+    deviceModel: '',
+    deviceSerialNumber: '',
   });
   const [categories, setCategories] = useState<Category[]>([]);
+  const [customerTypes, setCustomerTypes] = useState<any[]>([]);
+  const [deviceModels, setDeviceModels] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [emailError, setEmailError] = useState('');
 
   useEffect(() => {
     loadCategories();
+    loadDropdownOptions();
   }, []);
 
   const loadCategories = async () => {
     try {
-      const fetchedCategories = await apiService.getCategories();
-      setCategories(fetchedCategories);
-      if (fetchedCategories.length > 0) {
-        setFormData(prev => ({ ...prev, category: fetchedCategories[0].id }));
+      // Use the dropdown options API to get categories configured in system settings
+      const dropdownOptions = await apiService.getDropdownOptions();
+      const activeCategories = dropdownOptions.categories.filter(cat => (cat as any).isActive !== false);
+      setCategories(activeCategories);
+      if (activeCategories.length > 0) {
+        setFormData(prev => ({ ...prev, category: activeCategories[0].id }));
       }
     } catch (error) {
-      console.error('Error loading categories:', error);
+      console.error('Error loading categories from dropdown options:', error);
+      // Fallback to original method if dropdown options fail
+      try {
+        const fetchedCategories = await apiService.getCategories();
+        setCategories(fetchedCategories);
+        if (fetchedCategories.length > 0) {
+          setFormData(prev => ({ ...prev, category: fetchedCategories[0].id }));
+        }
+      } catch (fallbackError) {
+        console.error('Error loading categories (fallback):', fallbackError);
+      }
+    }
+  };
+
+  const loadDropdownOptions = async () => {
+    try {
+      const dropdownOptions = await apiService.getDropdownOptions();
+      
+      // Load customer types and device models from dropdown options
+      const activeCustomerTypes = dropdownOptions.customerTypes.filter(type => type.isActive !== false);
+      const activeDeviceModels = dropdownOptions.deviceModels.filter(model => model.isActive !== false);
+      
+      setCustomerTypes(activeCustomerTypes);
+      setDeviceModels(activeDeviceModels);
+    } catch (error) {
+      console.error('Error loading dropdown options:', error);
+      // Set default fallback options if API fails
+      setCustomerTypes([
+        { id: 'standard', name: 'Standard' },
+        { id: 'vip', name: 'VIP' },
+        { id: 'distributor', name: 'Distributor' }
+      ]);
+      setDeviceModels([
+        { id: 'bwiii', name: 'BWIII' },
+        { id: 'bwmini', name: 'BWMini' },
+        { id: 'compass', name: 'Compass' },
+        { id: 'maxxi', name: 'Maxxi' }
+      ]);
     }
   };
 
@@ -115,9 +167,13 @@ const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) 
           company: formData.customerCompany,
           address: formData.customerAddress, // Keep for backward compatibility
           streetAddress: formData.customerStreetAddress,
+          city: formData.customerCity,
           state: formData.customerState,
           zipCode: formData.customerZipCode,
-          country: formData.customerCountry
+          country: formData.customerCountry,
+          customerType: formData.customerType,
+          deviceModel: formData.deviceModel,
+          deviceSerialNumber: formData.deviceSerialNumber
         }
       };
       
@@ -272,6 +328,84 @@ const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) 
                 />
               </div>
 
+              <div>
+                <label htmlFor="customerType" className="block text-sm font-medium text-gray-700 mb-2">
+                  Customer Type
+                </label>
+                <select
+                  id="customerType"
+                  name="customerType"
+                  value={formData.customerType}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                >
+                  <option value="">Select customer type...</option>
+                  {customerTypes.map((type) => (
+                    <option key={type.id} value={type.name}>
+                      {type.name}
+                    </option>
+                  ))}
+                  {/* Fallback options if no dropdown options are loaded */}
+                  {customerTypes.length === 0 && (
+                    <>
+                      <option value="Standard">Standard</option>
+                      <option value="VIP">VIP</option>
+                      <option value="Distributor">Distributor</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+            </div>
+
+            {/* Device Information */}
+            <div className="mt-6 border-t border-gray-200 pt-6">
+              <h4 className="text-lg font-medium text-gray-900 mb-4">Device Information</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="deviceModel" className="block text-sm font-medium text-gray-700 mb-2">
+                    Device Model
+                  </label>
+                  <select
+                    id="deviceModel"
+                    name="deviceModel"
+                    value={formData.deviceModel}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                  >
+                    <option value="">Select device model...</option>
+                    {deviceModels.map((model) => (
+                      <option key={model.id} value={model.name}>
+                        {model.name}
+                      </option>
+                    ))}
+                    {/* Fallback options if no dropdown options are loaded */}
+                    {deviceModels.length === 0 && (
+                      <>
+                        <option value="BWIII">BWIII</option>
+                        <option value="BWMini">BWMini</option>
+                        <option value="Compass">Compass</option>
+                        <option value="Maxxi">Maxxi</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="deviceSerialNumber" className="block text-sm font-medium text-gray-700 mb-2">
+                    Device Serial Number
+                  </label>
+                  <input
+                    type="text"
+                    id="deviceSerialNumber"
+                    name="deviceSerialNumber"
+                    value={formData.deviceSerialNumber}
+                    onChange={handleChange}
+                    placeholder="Enter serial number"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Address Fields */}
@@ -291,7 +425,22 @@ const CreateTicket: React.FC<CreateTicketProps> = ({ onBack, onTicketCreated }) 
                 />
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label htmlFor="customerCity" className="block text-sm font-medium text-gray-700 mb-2">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    id="customerCity"
+                    name="customerCity"
+                    value={formData.customerCity}
+                    onChange={handleChange}
+                    placeholder="Los Angeles"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                  />
+                </div>
+                
                 <div>
                   <label htmlFor="customerState" className="block text-sm font-medium text-gray-700 mb-2">
                     State/Province

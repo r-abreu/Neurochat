@@ -84,6 +84,16 @@ CREATE TABLE Tickets (
     customer_phone NVARCHAR(50) NULL,
     customer_company NVARCHAR(200) NULL,
     customer_address NVARCHAR(500) NULL,
+    customer_street_address NVARCHAR(500) NULL,
+    customer_city NVARCHAR(100) NULL,
+    customer_state NVARCHAR(100) NULL,
+    customer_zip_code NVARCHAR(20) NULL,
+    customer_country NVARCHAR(100) NULL,
+    customer_type NVARCHAR(20) DEFAULT 'Standard' CHECK (customer_type IN ('Standard', 'VIP', 'Distributor')),
+    
+    -- Device information fields
+    device_model NVARCHAR(20) CHECK (device_model IN ('BWIII', 'BWMini', 'Compass', 'Maxxi')),
+    device_serial_number NVARCHAR(100) NULL,
     
     created_at DATETIME2 DEFAULT GETUTCDATE(),
     updated_at DATETIME2 DEFAULT GETUTCDATE(),
@@ -108,7 +118,13 @@ CREATE TABLE Tickets (
     INDEX IX_Tickets_Priority (priority),
     INDEX IX_Tickets_CategoryId (category_id),
     INDEX IX_Tickets_CreatedAt (created_at),
-    INDEX IX_Tickets_Status_Priority (status, priority)
+    INDEX IX_Tickets_Status_Priority (status, priority),
+    INDEX IX_Tickets_CustomerCountry (customer_country),
+    INDEX IX_Tickets_CustomerState (customer_state),
+    INDEX IX_Tickets_CustomerCity (customer_city),
+    INDEX IX_Tickets_CustomerType (customer_type),
+    INDEX IX_Tickets_DeviceModel (device_model),
+    INDEX IX_Tickets_DeviceSerialNumber (device_serial_number)
 );
 
 -- ==========================================
@@ -257,7 +273,12 @@ INSERT INTO Permissions (permission_name, description, category) VALUES
 ('users.create', 'Create new users', 'users'),
 ('users.edit', 'Edit existing users', 'users'),
 ('users.delete', 'Delete users', 'users'),
-('audit.view', 'View audit trail logs', 'audit');
+('audit.view', 'View audit trail logs', 'audit'),
+('customers.view', 'View customer management', 'customers'),
+('customers.create', 'Create new customers', 'customers'),
+('customers.edit', 'Edit existing customers', 'customers'),
+('customers.delete', 'Delete customers', 'customers'),
+('insights.view', 'View insights and analytics', 'insights');
 
 -- Role-Permission mapping
 CREATE TABLE RolePermissions (
@@ -276,12 +297,12 @@ SELECT r.role_id, p.permission_id
 FROM Roles r, Permissions p 
 WHERE r.role_name = 'Admin';
 
--- Tier2 gets ticket and user management permissions
+-- Tier2 gets ticket, user, and customer management permissions
 INSERT INTO RolePermissions (role_id, permission_id)
 SELECT r.role_id, p.permission_id 
 FROM Roles r, Permissions p 
 WHERE r.role_name = 'Tier2' 
-AND p.permission_name IN ('tickets.create', 'tickets.edit', 'tickets.view', 'users.access', 'users.edit');
+AND p.permission_name IN ('tickets.create', 'tickets.edit', 'tickets.view', 'users.access', 'users.edit', 'customers.view', 'customers.edit', 'insights.view');
 
 -- Tier1 gets basic ticket permissions
 INSERT INTO RolePermissions (role_id, permission_id)

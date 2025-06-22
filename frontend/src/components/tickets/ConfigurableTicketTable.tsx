@@ -548,11 +548,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
         const parsed = JSON.parse(saved);
         const defaultColumns = createDefaultColumns();
         
-        // Ensure device columns are always visible by default
+        // Use saved column visibility preferences
         const updatedVisibility = {
           ...parsed.columnVisibility,
-          deviceModel: true,
-          deviceSerialNumber: true,
         };
         
         // Ensure device columns are in the column order
@@ -577,10 +575,7 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
     return {
       columnOrder: defaultColumns.map(c => c.id),
       columnWidths: {},
-      columnVisibility: {
-        deviceModel: true,
-        deviceSerialNumber: true,
-      },
+      columnVisibility: {},
     };
   };
 

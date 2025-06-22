@@ -9,6 +9,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Import email services
+const { sendChatFallbackEmail, sendAgentNotificationEmail, getEmailLogs, getEmailStats } = require('./services/emailService');
+const { startEmailReceiver, stopEmailReceiver, setTickets, setMessages, processIncomingEmail } = require('./services/emailReceiver');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -166,7 +170,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '1',
     roleName: 'Admin',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 10,
@@ -2074,6 +2078,40 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     message: messageWithSender
   });
 
+  // Email fallback: Send email if customer is offline and message is from agent
+  const isAgentMessage = messageWithSender.sender?.userType === 'agent';
+  const customerSession = customerSessions.get(req.params.ticketId);
+  const isCustomerOffline = !customerSession || !customerSession.isOnline;
+
+  if (isAgentMessage && isCustomerOffline && ticket.customerEmail && ticket.emailFallbackEnabled !== false) {
+    console.log('📧 Customer is offline, sending email fallback...');
+    console.log('📧 Customer session:', customerSession);
+    console.log('📧 Customer email:', ticket.customerEmail);
+    
+    // Send email fallback asynchronously
+    sendChatFallbackEmail(
+      ticket.customerEmail,
+      ticket.ticketNumber || req.params.ticketId,
+      content,
+      ticket
+    ).then(result => {
+      if (result.success) {
+        console.log('✅ Email fallback sent successfully:', result.emailId);
+      } else {
+        console.error('❌ Email fallback failed:', result.error);
+      }
+    }).catch(error => {
+      console.error('❌ Email fallback error:', error);
+    });
+  } else if (isAgentMessage) {
+    console.log('📧 Email fallback skipped:', {
+      isAgentMessage,
+      isCustomerOffline,
+      hasCustomerEmail: !!ticket.customerEmail,
+      emailFallbackEnabled: ticket.emailFallbackEnabled !== false
+    });
+  }
+
   res.status(201).json({
     success: true,
     data: { message: messageWithSender }
@@ -2389,6 +2427,486 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
 });
 
 // ==========================================
+// CUSTOMER MANAGEMENT ENDPOINTS
+// ==========================================
+
+// Get all customers (derived from tickets)
+app.get('/api/customers', authenticateToken, (req, res) => {
+  console.log('\n👥 GET CUSTOMERS REQUEST');
+  console.log('User:', req.user?.email, 'Permissions:', req.user?.permissions);
+  
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('customers.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to view customers' }
+      });
+    }
+
+    // Extract query parameters for filtering and search
+    const { search, country, customerType, sortBy = 'name', sortOrder = 'asc' } = req.query;
+
+    // Create customer map based on emails from tickets
+    const customerMap = new Map();
+    
+    tickets.forEach(ticket => {
+      const email = ticket.customerEmail;
+      if (!email) return;
+
+      if (!customerMap.has(email)) {
+        // Get user data if customer is registered
+        const registeredUser = users.find(u => u.email === email && u.userType === 'customer');
+        
+        customerMap.set(email, {
+          id: registeredUser?.id || email, // Use user ID if registered, otherwise email
+          name: ticket.customerName || (registeredUser ? `${registeredUser.firstName} ${registeredUser.lastName}` : ''),
+          firstName: registeredUser?.firstName || ticket.customerName?.split(' ')[0] || '',
+          lastName: registeredUser?.lastName || ticket.customerName?.split(' ').slice(1).join(' ') || '',
+          email: email,
+          phone: ticket.customerPhone || '',
+          company: ticket.customerCompany || '',
+          country: ticket.customerCountry || '',
+          streetAddress: ticket.customerStreetAddress || '',
+          city: ticket.customerCity || '',
+          state: ticket.customerState || '',
+          zipCode: ticket.customerZipCode || '',
+          customerType: ticket.customerType || 'Standard',
+          deviceModel: new Set(), // Will collect unique devices
+          deviceSerialNumbers: new Set(), // Will collect unique serial numbers
+          tickets: [],
+          ticketCount: 0,
+          lastTicketDate: null,
+          isRegistered: !!registeredUser,
+          createdAt: registeredUser?.createdAt || null
+        });
+      }
+
+      const customer = customerMap.get(email);
+      
+      // Add ticket to customer
+      customer.tickets.push({
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        title: ticket.title,
+        status: ticket.status,
+        priority: ticket.priority,
+        category: categories.find(c => c.id === ticket.categoryId)?.name || '',
+        createdAt: ticket.createdAt,
+        updatedAt: ticket.updatedAt
+      });
+      
+      // Update customer fields with latest ticket data
+      if (ticket.customerName && !customer.name) customer.name = ticket.customerName;
+      if (ticket.customerPhone && !customer.phone) customer.phone = ticket.customerPhone;
+      if (ticket.customerCompany && !customer.company) customer.company = ticket.customerCompany;
+      if (ticket.customerCountry && !customer.country) customer.country = ticket.customerCountry;
+      if (ticket.customerStreetAddress && !customer.streetAddress) customer.streetAddress = ticket.customerStreetAddress;
+      if (ticket.customerCity && !customer.city) customer.city = ticket.customerCity;
+      if (ticket.customerState && !customer.state) customer.state = ticket.customerState;
+      if (ticket.customerZipCode && !customer.zipCode) customer.zipCode = ticket.customerZipCode;
+      if (ticket.customerType && (!customer.customerType || customer.customerType === 'Standard')) customer.customerType = ticket.customerType;
+      
+      // Collect device information
+      if (ticket.deviceModel) customer.deviceModel.add(ticket.deviceModel);
+      if (ticket.deviceSerialNumber) customer.deviceSerialNumbers.add(ticket.deviceSerialNumber);
+      
+      // Update ticket count and last ticket date
+      customer.ticketCount++;
+      if (!customer.lastTicketDate || new Date(ticket.createdAt) > new Date(customer.lastTicketDate)) {
+        customer.lastTicketDate = ticket.createdAt;
+      }
+    });
+
+    // Convert to array and process device collections
+    let customers = Array.from(customerMap.values()).map(customer => ({
+      ...customer,
+      deviceModels: Array.from(customer.deviceModel),
+      deviceSerialNumbers: Array.from(customer.deviceSerialNumbers),
+      // Remove the Set objects
+      deviceModel: undefined,
+      tickets: customer.tickets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    }));
+
+    // Apply filters
+    if (search) {
+      const searchLower = search.toLowerCase();
+      customers = customers.filter(customer => 
+        customer.name.toLowerCase().includes(searchLower) ||
+        customer.email.toLowerCase().includes(searchLower) ||
+        customer.phone.toLowerCase().includes(searchLower) ||
+        customer.company.toLowerCase().includes(searchLower)
+      );
+    }
+
+    if (country) {
+      customers = customers.filter(customer => customer.country === country);
+    }
+
+    if (customerType) {
+      customers = customers.filter(customer => customer.customerType === customerType);
+    }
+
+    // Apply sorting
+    customers.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name || '';
+          bValue = b.name || '';
+          break;
+        case 'email':
+          aValue = a.email || '';
+          bValue = b.email || '';
+          break;
+        case 'ticketCount':
+          aValue = a.ticketCount;
+          bValue = b.ticketCount;
+          break;
+        case 'lastTicketDate':
+          aValue = new Date(a.lastTicketDate || 0);
+          bValue = new Date(b.lastTicketDate || 0);
+          break;
+        case 'country':
+          aValue = a.country || '';
+          bValue = b.country || '';
+          break;
+        default:
+          aValue = a.name || '';
+          bValue = b.name || '';
+      }
+
+      if (typeof aValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+      }
+
+      if (sortOrder === 'desc') {
+        return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+      } else {
+        return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+      }
+    });
+
+    console.log(`✅ Returning ${customers.length} customers`);
+
+    res.json({
+      success: true,
+      data: {
+        customers,
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          totalItems: customers.length,
+          itemsPerPage: customers.length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching customers:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to fetch customers' }
+    });
+  }
+});
+
+// Get single customer by ID/email
+app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
+  console.log('\n👤 GET SINGLE CUSTOMER REQUEST');
+  console.log('Identifier:', req.params.identifier);
+  
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('customers.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to view customers' }
+      });
+    }
+
+    const { identifier } = req.params;
+    
+    // Find customer by ID or email
+    let customerTickets = tickets.filter(ticket => 
+      ticket.customerId === identifier || ticket.customerEmail === identifier
+    );
+
+    if (customerTickets.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
+    const firstTicket = customerTickets[0];
+    const registeredUser = users.find(u => u.email === firstTicket.customerEmail && u.userType === 'customer');
+    
+    // Build customer object
+    const customer = {
+      id: registeredUser?.id || firstTicket.customerEmail,
+      name: firstTicket.customerName || (registeredUser ? `${registeredUser.firstName} ${registeredUser.lastName}` : ''),
+      firstName: registeredUser?.firstName || firstTicket.customerName?.split(' ')[0] || '',
+      lastName: registeredUser?.lastName || firstTicket.customerName?.split(' ').slice(1).join(' ') || '',
+      email: firstTicket.customerEmail,
+      phone: firstTicket.customerPhone || '',
+      company: firstTicket.customerCompany || '',
+      country: firstTicket.customerCountry || '',
+      streetAddress: firstTicket.customerStreetAddress || '',
+      city: firstTicket.customerCity || '',
+      state: firstTicket.customerState || '',
+      zipCode: firstTicket.customerZipCode || '',
+      customerType: firstTicket.customerType || 'Standard',
+      isRegistered: !!registeredUser,
+      createdAt: registeredUser?.createdAt || null,
+      deviceModels: [...new Set(customerTickets.map(t => t.deviceModel).filter(Boolean))],
+      deviceSerialNumbers: [...new Set(customerTickets.map(t => t.deviceSerialNumber).filter(Boolean))],
+      ticketCount: customerTickets.length,
+      lastTicketDate: customerTickets.reduce((latest, ticket) => {
+        return !latest || new Date(ticket.createdAt) > new Date(latest) ? ticket.createdAt : latest;
+      }, null)
+    };
+
+    // Enrich tickets with related data
+    const enrichedTickets = customerTickets.map(ticket => {
+      const agent = ticket.agentId ? users.find(u => u.id === ticket.agentId) : null;
+      const category = categories.find(c => c.id === ticket.categoryId);
+      const ticketMessages = messages.filter(m => m.ticketId === ticket.id);
+      
+      return {
+        ...ticket,
+        agent: agent ? {
+          id: agent.id,
+          firstName: agent.firstName,
+          lastName: agent.lastName,
+          email: agent.email
+        } : null,
+        category,
+        messageCount: ticketMessages.length,
+        lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt
+      };
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    console.log(`✅ Returning customer ${customer.email} with ${enrichedTickets.length} tickets`);
+
+    res.json({
+      success: true,
+      data: {
+        customer: {
+          ...customer,
+          tickets: enrichedTickets
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching customer:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to fetch customer' }
+    });
+  }
+});
+
+// Update customer
+app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
+  console.log('\n👤 UPDATE CUSTOMER REQUEST');
+  console.log('Identifier:', req.params.identifier);
+  console.log('Body:', req.body);
+  
+  try {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('customers.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to update customers' }
+      });
+    }
+
+    const { identifier } = req.params;
+    const updates = req.body;
+    
+    // Find all tickets for this customer
+    let customerTickets = tickets.filter(ticket => 
+      ticket.customerId === identifier || ticket.customerEmail === identifier
+    );
+
+    if (customerTickets.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
+    // Update each ticket with the new customer information
+    customerTickets.forEach(ticket => {
+      if (updates.name && updates.name !== ticket.customerName) ticket.customerName = updates.name;
+      if (updates.phone && updates.phone !== ticket.customerPhone) ticket.customerPhone = updates.phone;
+      if (updates.company && updates.company !== ticket.customerCompany) ticket.customerCompany = updates.company;
+      if (updates.country && updates.country !== ticket.customerCountry) ticket.customerCountry = updates.country;
+      if (updates.streetAddress && updates.streetAddress !== ticket.customerStreetAddress) ticket.customerStreetAddress = updates.streetAddress;
+      if (updates.city && updates.city !== ticket.customerCity) ticket.customerCity = updates.city;
+      if (updates.state && updates.state !== ticket.customerState) ticket.customerState = updates.state;
+      if (updates.zipCode && updates.zipCode !== ticket.customerZipCode) ticket.customerZipCode = updates.zipCode;
+      if (updates.customerType && updates.customerType !== ticket.customerType) ticket.customerType = updates.customerType;
+      
+      ticket.updatedAt = new Date().toISOString();
+    });
+
+    // Update registered user if exists
+    const registeredUser = users.find(u => u.email === customerTickets[0].customerEmail && u.userType === 'customer');
+    if (registeredUser && updates.name) {
+      const nameParts = updates.name.split(' ');
+      registeredUser.firstName = nameParts[0] || '';
+      registeredUser.lastName = nameParts.slice(1).join(' ') || '';
+    }
+
+    // Log audit trail
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'customer_updated',
+      targetType: 'customer',
+      targetId: identifier,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Updated customer information for ${customerTickets[0].customerEmail}`
+    });
+
+    // Return updated customer data
+    const firstTicket = customerTickets[0];
+    const customer = {
+      id: registeredUser?.id || firstTicket.customerEmail,
+      name: firstTicket.customerName || (registeredUser ? `${registeredUser.firstName} ${registeredUser.lastName}` : ''),
+      firstName: registeredUser?.firstName || firstTicket.customerName?.split(' ')[0] || '',
+      lastName: registeredUser?.lastName || firstTicket.customerName?.split(' ').slice(1).join(' ') || '',
+      email: firstTicket.customerEmail,
+      phone: firstTicket.customerPhone || '',
+      company: firstTicket.customerCompany || '',
+      country: firstTicket.customerCountry || '',
+      streetAddress: firstTicket.customerStreetAddress || '',
+      city: firstTicket.customerCity || '',
+      state: firstTicket.customerState || '',
+      zipCode: firstTicket.customerZipCode || '',
+      customerType: firstTicket.customerType || 'Standard',
+      isRegistered: !!registeredUser,
+      createdAt: registeredUser?.createdAt || null,
+      deviceModels: [...new Set(customerTickets.map(t => t.deviceModel).filter(Boolean))],
+      deviceSerialNumbers: [...new Set(customerTickets.map(t => t.deviceSerialNumber).filter(Boolean))],
+      ticketCount: customerTickets.length,
+      lastTicketDate: customerTickets.reduce((latest, ticket) => {
+        return !latest || new Date(ticket.createdAt) > new Date(latest) ? ticket.createdAt : latest;
+      }, null)
+    };
+
+    console.log(`✅ Updated customer ${customer.email}`);
+
+    res.json({
+      success: true,
+      data: { customer }
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating customer:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to update customer' }
+    });
+  }
+});
+
+// Delete customer
+app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
+  console.log('\n👤 DELETE CUSTOMER REQUEST');
+  console.log('Identifier:', req.params.identifier);
+  
+  try {
+    // Check permission - only admins can delete customers
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required to delete customers' }
+      });
+    }
+
+    const { identifier } = req.params;
+    
+    // Find all tickets for this customer
+    let customerTickets = tickets.filter(ticket => 
+      ticket.customerId === identifier || ticket.customerEmail === identifier
+    );
+
+    if (customerTickets.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
+    const customerEmail = customerTickets[0].customerEmail;
+
+    // Check if customer has unresolved tickets
+    const unresolvedTickets = customerTickets.filter(ticket => ticket.status !== 'resolved');
+    if (unresolvedTickets.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: { 
+          code: 'CUSTOMER_HAS_OPEN_TICKETS', 
+          message: `Cannot delete customer: ${unresolvedTickets.length} unresolved ticket(s) exist. Please resolve all tickets first.`
+        }
+      });
+    }
+
+    // Remove all customer tickets
+    tickets = tickets.filter(ticket => 
+      ticket.customerId !== identifier && ticket.customerEmail !== customerEmail
+    );
+
+    // Remove customer messages
+    messages = messages.filter(message => {
+      const messageTicket = tickets.find(t => t.id === message.ticketId);
+      return messageTicket !== undefined;
+    });
+
+    // Remove registered user if exists
+    const userIndex = users.findIndex(u => u.email === customerEmail && u.userType === 'customer');
+    if (userIndex !== -1) {
+      users.splice(userIndex, 1);
+    }
+
+    // Log audit trail
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'customer_deleted',
+      targetType: 'customer',
+      targetId: identifier,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      details: `Deleted customer and all associated data for ${customerEmail}`
+    });
+
+    console.log(`✅ Deleted customer ${customerEmail} and all associated data`);
+
+    res.json({
+      success: true,
+      message: 'Customer and all associated data deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting customer:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to delete customer' }
+    });
+  }
+});
+
+// ==========================================
 // USER MANAGEMENT ENDPOINTS
 // ==========================================
 
@@ -2405,7 +2923,8 @@ let rolesConfig = [
       'tickets.message': true,
       'users.access': true,
       'audit.view': true,
-      'insights.view': true
+      'insights.view': true,
+      'customers.view': true
     }
   },
   { 
@@ -2418,7 +2937,8 @@ let rolesConfig = [
       'tickets.delete': false,
       'tickets.message': true,
       'users.access': false,
-      'audit.view': false
+      'audit.view': false,
+      'customers.view': true
     }
   },
   { 
@@ -2431,7 +2951,8 @@ let rolesConfig = [
       'tickets.delete': false,
       'tickets.message': true,
       'users.access': false,
-      'audit.view': false
+      'audit.view': false,
+      'customers.view': false
     }
   },
   { 
@@ -2444,7 +2965,8 @@ let rolesConfig = [
       'tickets.delete': false,
       'tickets.message': false,
       'users.access': false,
-      'audit.view': false
+      'audit.view': false,
+      'customers.view': false
     }
   }
 ];
@@ -2661,6 +3183,7 @@ app.post('/api/agents', authenticateToken, async (req, res) => {
     }
     if (role.permissions['audit.view']) legacyPermissions.push('audit.view');
     if (role.permissions['insights.view']) legacyPermissions.push('insights.view');
+    if (role.permissions['customers.view']) legacyPermissions.push('customers.view');
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -2731,6 +3254,7 @@ app.put('/api/agents/:id', authenticateToken, (req, res) => {
       }
       if (role.permissions['audit.view']) legacyPermissions.push('audit.view');
       if (role.permissions['insights.view']) legacyPermissions.push('insights.view');
+      if (role.permissions['customers.view']) legacyPermissions.push('customers.view');
 
       agent.roleId = roleId;
       agent.roleName = role.name;
@@ -4184,6 +4708,10 @@ server.listen(PORT, () => {
   console.log('🚀 NeuroChat Server running on http://localhost:' + PORT);
   console.log('📡 Socket.IO server ready for real-time connections');
   console.log('👤 Demo accounts ready: customer@demo.com / agent@demo.com (password: demo123)');
+  
+  // Initialize email system after server starts
+  console.log('');
+  initializeEmailService();
 }); 
 
 // ==========================================
@@ -4900,4 +5428,273 @@ app.delete('/api/customer-types/:id', authenticateToken, (req, res) => {
       error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
     });
   }
+});
+
+// ==========================================
+// EMAIL SYSTEM API ENDPOINTS
+// ==========================================
+
+// Get email logs with filtering
+app.get('/api/email-logs', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('audit.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Audit view permission required' }
+      });
+    }
+
+    const { ticket_id, type, status, limit = 50, offset = 0 } = req.query;
+    
+    const filters = {};
+    if (ticket_id) filters.ticket_id = ticket_id;
+    if (type) filters.type = type;
+    if (status) filters.status = status;
+
+    let logs = getEmailLogs(filters);
+    
+    // Pagination
+    const totalCount = logs.length;
+    logs = logs.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'email_logs_viewed',
+      targetType: 'email_logs',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Viewed email logs with filters: ${JSON.stringify(filters)}`
+    });
+
+    res.json({
+      success: true,
+      data: {
+        logs,
+        pagination: {
+          total: totalCount,
+          limit: parseInt(limit),
+          offset: parseInt(offset),
+          hasMore: totalCount > parseInt(offset) + parseInt(limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching email logs:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Get email statistics
+app.get('/api/email-stats', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('insights.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Insights view permission required' }
+      });
+    }
+
+    const stats = getEmailStats();
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'email_stats_viewed',
+      targetType: 'email_stats',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: 'Viewed email system statistics'
+    });
+
+    res.json({
+      success: true,
+      data: { stats }
+    });
+  } catch (error) {
+    console.error('Error fetching email stats:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Manual email send endpoint (for testing)
+app.post('/api/tickets/:ticketId/send-email', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('tickets.message')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Ticket messaging permission required' }
+      });
+    }
+
+    const { ticketId } = req.params;
+    const { message } = req.body;
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Message content is required' }
+      });
+    }
+
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+      });
+    }
+
+    if (!ticket.customerEmail) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Customer email not available' }
+      });
+    }
+
+    // Send email fallback
+    sendChatFallbackEmail(
+      ticket.customerEmail,
+      ticket.ticketNumber || ticketId,
+      message.trim(),
+      ticket
+    ).then(result => {
+      if (result.success) {
+        logAudit({
+          userId: req.user.id,
+          userName: `${req.user.firstName} ${req.user.lastName}`,
+          userType: req.user.userType,
+          action: 'manual_email_sent',
+          ticketNumber: ticket.ticketNumber,
+          targetType: 'email',
+          targetId: result.logId,
+          ipAddress: getClientIP(req),
+          userAgent: req.headers['user-agent'],
+          details: `Manually sent email to customer: ${ticket.customerEmail}`
+        });
+
+        res.json({
+          success: true,
+          data: {
+            emailId: result.emailId,
+            logId: result.logId,
+            message: 'Email sent successfully'
+          }
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: { code: 'EMAIL_SEND_FAILED', message: result.error }
+        });
+      }
+    }).catch(error => {
+      console.error('Error in manual email send:', error);
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to send email' }
+      });
+    });
+
+  } catch (error) {
+    console.error('Error in manual email endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Endpoint to process email replies (for webhook integration)
+app.post('/api/email/process-reply', (req, res) => {
+  try {
+    const { subject, body, from, messageId } = req.body;
+
+    if (!subject || !body || !from) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Subject, body, and from fields are required' }
+      });
+    }
+
+    // Process the incoming email
+    processIncomingEmail(body, subject, from, messageId)
+      .then(result => {
+        res.json({
+          success: true,
+          data: result
+        });
+      })
+      .catch(error => {
+        console.error('Error processing email reply:', error);
+        res.status(500).json({
+          success: false,
+          error: { code: 'PROCESSING_ERROR', message: error.message }
+        });
+      });
+
+  } catch (error) {
+    console.error('Error in email processing endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// ==========================================
+// EMAIL RECEIVER SERVICE INITIALIZATION
+// ==========================================
+
+let emailReceiver = null;
+
+// Initialize email receiver service
+function initializeEmailService() {
+  console.log('🚀 Initializing email system...');
+  
+  // Set up the email receiver with current tickets and messages
+  setTickets(tickets);
+  setMessages(messages);
+  
+  // Start the email receiver service
+  try {
+    emailReceiver = startEmailReceiver();
+    if (emailReceiver) {
+      console.log('✅ Email receiver service started successfully');
+    } else {
+      console.log('⚠️ Email receiver service could not start (missing configuration)');
+    }
+  } catch (error) {
+    console.error('❌ Failed to start email receiver service:', error);
+  }
+}
+
+// Graceful shutdown handler
+process.on('SIGINT', () => {
+  console.log('\n🛑 Shutting down server...');
+  
+  if (emailReceiver) {
+    console.log('🛑 Stopping email receiver service...');
+    stopEmailReceiver(emailReceiver);
+  }
+  
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Received SIGTERM, shutting down server...');
+  
+  if (emailReceiver) {
+    console.log('🛑 Stopping email receiver service...');
+    stopEmailReceiver(emailReceiver);
+  }
+  
+  process.exit(0);
 });

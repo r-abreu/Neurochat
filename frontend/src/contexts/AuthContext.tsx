@@ -78,12 +78,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (email: string, password: string): Promise<void> => {
     dispatch({ type: 'SET_LOADING', payload: true });
+    console.log('AuthContext: Starting login for', email);
+    
     try {
       const { user, token } = await apiService.login(email, password);
+      console.log('AuthContext: Login successful, received user:', user);
+      console.log('AuthContext: User role:', user.role, 'userType:', user.userType);
+      
       dispatch({ type: 'SET_USER', payload: { user, token } });
+      console.log('AuthContext: User state updated');
+      
       // Connect socket after successful login
       socketService.connect(token);
+      console.log('AuthContext: Socket connected');
     } catch (error) {
+      console.error('AuthContext: Login failed:', error);
       dispatch({ type: 'SET_LOADING', payload: false });
       throw error;
     }

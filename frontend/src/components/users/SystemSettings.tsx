@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiService } from '../../services/api';
+import DropdownOptionsManager from './DropdownOptionsManager';
 
 interface SystemConfig {
   maxFileSize: number;
@@ -326,6 +327,9 @@ const SystemSettings: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Dropdown Options Management */}
+        <DropdownOptionsManager />
 
         {/* Save Button */}
         <div className="flex justify-end">

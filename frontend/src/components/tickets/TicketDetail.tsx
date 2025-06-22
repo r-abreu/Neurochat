@@ -51,6 +51,8 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
   });
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+  const [customerTypes, setCustomerTypes] = useState<any[]>([]);
+  const [deviceModels, setDeviceModels] = useState<any[]>([]);
   const [customerStatus, setCustomerStatus] = useState<{
     isOnline: boolean;
     lastSeen: string | null;
@@ -98,6 +100,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     loadMessages();
     loadAgents();
     loadCategories();
+    loadDropdownOptions();
     if (user?.role === 'agent' || user?.userType === 'agent') {
       loadInternalComments();
       loadCustomerStatus();
@@ -249,6 +252,33 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       setCategories(fetchedCategories);
     } catch (error) {
       console.error('❌ Error loading categories:', error);
+    }
+  };
+
+  const loadDropdownOptions = async () => {
+    try {
+      const dropdownOptions = await apiService.getDropdownOptions();
+      
+      // Load customer types and device models from dropdown options
+      const activeCustomerTypes = dropdownOptions.customerTypes.filter(type => type.isActive !== false);
+      const activeDeviceModels = dropdownOptions.deviceModels.filter(model => model.isActive !== false);
+      
+      setCustomerTypes(activeCustomerTypes);
+      setDeviceModels(activeDeviceModels);
+    } catch (error) {
+      console.error('Error loading dropdown options:', error);
+      // Set default fallback options if API fails
+      setCustomerTypes([
+        { id: 'standard', name: 'Standard' },
+        { id: 'vip', name: 'VIP' },
+        { id: 'distributor', name: 'Distributor' }
+      ]);
+      setDeviceModels([
+        { id: 'bwiii', name: 'BWIII' },
+        { id: 'bwmini', name: 'BWMini' },
+        { id: 'compass', name: 'Compass' },
+        { id: 'maxxi', name: 'Maxxi' }
+      ]);
     }
   };
 
@@ -872,9 +902,20 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                         onChange={handleEditFormChange}
                         className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        <option value="Standard">Standard</option>
-                        <option value="VIP">VIP</option>
-                        <option value="Distributor">Distributor</option>
+                        <option value="">Select customer type...</option>
+                        {customerTypes.map((type) => (
+                          <option key={type.id} value={type.name}>
+                            {type.name}
+                          </option>
+                        ))}
+                        {/* Fallback options if no dropdown options are loaded */}
+                        {customerTypes.length === 0 && (
+                          <>
+                            <option value="Standard">Standard</option>
+                            <option value="VIP">VIP</option>
+                            <option value="Distributor">Distributor</option>
+                          </>
+                        )}
                       </select>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -888,10 +929,20 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                           className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="">Select model...</option>
-                          <option value="BWIII">BWIII</option>
-                          <option value="BWMini">BWMini</option>
-                          <option value="Compass">Compass</option>
-                          <option value="Maxxi">Maxxi</option>
+                          {deviceModels.map((model) => (
+                            <option key={model.id} value={model.name}>
+                              {model.name}
+                            </option>
+                          ))}
+                          {/* Fallback options if no dropdown options are loaded */}
+                          {deviceModels.length === 0 && (
+                            <>
+                              <option value="BWIII">BWIII</option>
+                              <option value="BWMini">BWMini</option>
+                              <option value="Compass">Compass</option>
+                              <option value="Maxxi">Maxxi</option>
+                            </>
+                          )}
                         </select>
                       </div>
                       <div>
