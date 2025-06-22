@@ -1071,7 +1071,6 @@ class ApiService {
   async getCustomer(identifier: string): Promise<any> {
     const response = await this.fetchWithAuth(`/customers/${identifier}`);
     const apiResponse = await this.handleResponse<{ success: boolean; data: { customer: any } }>(response);
-    
     return apiResponse.data.customer;
   }
 
@@ -1081,15 +1080,118 @@ class ApiService {
       body: JSON.stringify(updates),
     });
     const apiResponse = await this.handleResponse<{ success: boolean; data: { customer: any } }>(response);
-    
     return apiResponse.data.customer;
   }
 
   async deleteCustomer(identifier: string): Promise<void> {
-    const response = await this.fetchWithAuth(`/customers/${identifier}`, {
+    await this.fetchWithAuth(`/customers/${identifier}`, {
       method: 'DELETE',
     });
-    await this.handleResponse<{ success: boolean; message: string }>(response);
+  }
+
+  // Device APIs
+  async getDevices(filters?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    model?: string;
+    status?: string;
+    customerId?: string;
+  }): Promise<{ devices: any[]; pagination: any }> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, value.toString());
+        }
+      });
+    }
+    
+    const queryString = params.toString();
+    const url = `/devices${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await this.fetchWithAuth(url);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { devices: any[]; pagination: any } }>(response);
+    
+    return apiResponse.data;
+  }
+
+  async getDevice(id: string): Promise<any> {
+    const response = await this.fetchWithAuth(`/devices/${id}`);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { device: any } }>(response);
+    return apiResponse.data.device;
+  }
+
+  async createDevice(deviceData: {
+    customerId: string;
+    model: string;
+    serialNumber: string;
+    warrantyExpires?: string;
+    invoiceNumber?: string;
+    invoiceDate?: string;
+    comments?: string;
+  }): Promise<any> {
+    const response = await this.fetchWithAuth('/devices', {
+      method: 'POST',
+      body: JSON.stringify(deviceData),
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { device: any } }>(response);
+    return apiResponse.data.device;
+  }
+
+  async updateDevice(id: string, updates: {
+    warrantyExpires?: string;
+    invoiceNumber?: string;
+    invoiceDate?: string;
+    comments?: string;
+  }): Promise<any> {
+    const response = await this.fetchWithAuth(`/devices/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { device: any } }>(response);
+    return apiResponse.data.device;
+  }
+
+  async deleteDevice(id: string): Promise<void> {
+    await this.fetchWithAuth(`/devices/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getDeviceStats(): Promise<any> {
+    const response = await this.fetchWithAuth('/devices/stats');
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { stats: any } }>(response);
+    return apiResponse.data.stats;
+  }
+
+  // Generic HTTP methods for convenience
+  async get(url: string): Promise<any> {
+    const response = await this.fetchWithAuth(url);
+    return this.handleResponse<any>(response);
+  }
+
+  async post(url: string, data?: any): Promise<any> {
+    const response = await this.fetchWithAuth(url, {
+      method: 'POST',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+    return this.handleResponse<any>(response);
+  }
+
+  async put(url: string, data?: any): Promise<any> {
+    const response = await this.fetchWithAuth(url, {
+      method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+    return this.handleResponse<any>(response);
+  }
+
+  async delete(url: string): Promise<any> {
+    const response = await this.fetchWithAuth(url, {
+      method: 'DELETE',
+    });
+    return this.handleResponse<any>(response);
   }
 }
 

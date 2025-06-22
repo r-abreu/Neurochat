@@ -215,4 +215,41 @@ export const generateExportFilename = (filters?: {
   }
 
   return filename + '.xlsx';
+};
+
+// Generic export function for any data
+export const exportToExcel = (data: any[], filename: string = 'export.xlsx', sheetName: string = 'Data'): void => {
+  try {
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data);
+
+    // Set column widths for better readability
+    const columnWidths = Object.keys(data[0] || {}).map(() => ({ width: 20 }));
+    ws['!cols'] = columnWidths;
+
+    // Add metadata sheet with export information
+    const metadataSheet = XLSX.utils.aoa_to_sheet([
+      ['Export Information'],
+      ['Generated at:', new Date().toLocaleString()],
+      ['Total records:', data.length],
+      [''],
+      ['Data exported from NeuroVirtual Support Platform'],
+    ]);
+
+    // Set metadata sheet column widths
+    metadataSheet['!cols'] = [{ width: 20 }, { width: 30 }];
+
+    // Add sheets to workbook
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.utils.book_append_sheet(wb, metadataSheet, 'Export Info');
+
+    // Generate and download the file
+    XLSX.writeFile(wb, filename);
+
+    console.log(`Excel file exported: ${filename}`);
+  } catch (error) {
+    console.error('Error exporting to Excel:', error);
+    throw new Error('Failed to export data to Excel. Please try again.');
+  }
 }; 

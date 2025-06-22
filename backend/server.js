@@ -170,7 +170,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '1',
     roleName: 'Admin',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 10,
@@ -232,6 +232,22 @@ const demoUsers = [
 ];
 
 users.push(...demoUsers);
+
+// Sync all users with their role permissions
+const syncAllUserPermissions = () => {
+  users.forEach(user => {
+    if (user.roleId) {
+      const role = rolesConfig.find(r => r.id === user.roleId);
+      if (role) {
+        const rolePermissions = Object.keys(role.permissions).filter(key => role.permissions[key]);
+        user.permissions = rolePermissions;
+        console.log(`🔄 Synced permissions for user ${user.email} with role ${role.name}:`, rolePermissions);
+      }
+    }
+  });
+};
+
+// Call sync function after users are initialized - moved after rolesConfig declaration
 
 // Create demo tickets
 // Helper function to parse address into components
@@ -488,8 +504,57 @@ const demoInternalComments = [
 
 internalComments.push(...demoInternalComments);
 
+// Initialize demo devices first
+const initializeDemoDevices = () => {
+  const demoDevices = [
+    {
+      id: uuidv4(),
+      customerId: demoUsers[0].id, // customer@demo.com
+      model: 'BWIII',
+      serialNumber: 'BW3-2024-001234',
+      warrantyExpires: '2025-12-31',
+      invoiceNumber: 'INV-2024-5678',
+      invoiceDate: '2024-01-15',
+      comments: 'Initial device purchase - standard warranty',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      customerId: demoUsers[0].id, // customer@demo.com
+      model: 'BWMini',
+      serialNumber: 'BWM-2024-005678',
+      warrantyExpires: '2025-06-30',
+      invoiceNumber: 'INV-2024-9012',
+      invoiceDate: '2024-02-20',
+      comments: 'Replacement device under warranty',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      customerId: demoUsers[0].id, // customer@demo.com
+      model: 'Compass',
+      serialNumber: 'CMP-2024-003456',
+      warrantyExpires: '2025-08-15',
+      invoiceNumber: 'INV-2024-3456',
+      invoiceDate: '2024-03-10',
+      comments: 'Compass device for navigation projects',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  ];
+  
+  devices.push(...demoDevices);
+  console.log('🔧 Added demo devices:', demoDevices.length);
+};
+
+// Initialize devices array before using it
+let devices = [];
+
 // Initialize demo messages now that tickets are created
 addDemoMessages();
+initializeDemoDevices();
 
 // Initialize audit logs array early
 let auditLogs = [];
@@ -1019,6 +1084,11 @@ app.post('/api/tickets', (req, res) => {
   tickets.push(ticket);
   console.log('Total tickets now:', tickets.length);
   
+  // Auto-create device if ticket has device information
+  if (ticket.deviceSerialNumber && ticket.deviceModel) {
+    autoCreateDeviceFromTicket(ticket);
+  }
+  
   // Log ticket creation
   logAudit({
     userId: user ? user.id : null,
@@ -1241,6 +1311,11 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   // Add resolvedAt timestamp when ticket is resolved
   if (updates.status === 'resolved' && ticket.status === 'resolved') {
     ticket.resolvedAt = new Date().toISOString();
+  }
+  
+  // Auto-create device if ticket was updated with device information
+  if ((updates.deviceSerialNumber || updates.deviceModel) && ticket.deviceSerialNumber && ticket.deviceModel) {
+    autoCreateDeviceFromTicket(ticket);
   }
 
   console.log('🔧 TICKET AFTER UPDATE:');
@@ -2924,7 +2999,11 @@ let rolesConfig = [
       'users.access': true,
       'audit.view': true,
       'insights.view': true,
-      'customers.view': true
+      'customers.view': true,
+      'devices.view': true,
+      'devices.create': true,
+      'devices.edit': true,
+      'devices.delete': true
     }
   },
   { 
@@ -2938,7 +3017,11 @@ let rolesConfig = [
       'tickets.message': true,
       'users.access': false,
       'audit.view': false,
-      'customers.view': true
+      'customers.view': true,
+      'devices.view': true,
+      'devices.create': false,
+      'devices.edit': true,
+      'devices.delete': false
     }
   },
   { 
@@ -2952,7 +3035,11 @@ let rolesConfig = [
       'tickets.message': true,
       'users.access': false,
       'audit.view': false,
-      'customers.view': false
+      'customers.view': false,
+      'devices.view': true,
+      'devices.create': false,
+      'devices.edit': false,
+      'devices.delete': false
     }
   },
   { 
@@ -2966,10 +3053,17 @@ let rolesConfig = [
       'tickets.message': false,
       'users.access': false,
       'audit.view': false,
-      'customers.view': false
+      'customers.view': false,
+      'devices.view': true,
+      'devices.create': false,
+      'devices.edit': false,
+      'devices.delete': false
     }
   }
 ];
+
+// Now sync all users with their role permissions
+syncAllUserPermissions();
 
 // Get all roles
 app.get('/api/roles', authenticateToken, (req, res) => {
@@ -3022,6 +3116,23 @@ app.post('/api/roles', authenticateToken, (req, res) => {
   }
 });
 
+// Helper function to sync user permissions with their role
+const syncUserPermissionsWithRole = (roleId) => {
+  const role = rolesConfig.find(r => r.id === roleId);
+  if (!role) return;
+
+  // Get all permission keys that are true
+  const rolePermissions = Object.keys(role.permissions).filter(key => role.permissions[key]);
+  
+  // Update all users with this roleId
+  users.forEach(user => {
+    if (user.roleId === roleId) {
+      user.permissions = rolePermissions;
+      console.log(`🔄 Updated permissions for user ${user.email}:`, rolePermissions);
+    }
+  });
+};
+
 // Update role
 app.put('/api/roles/:id', authenticateToken, (req, res) => {
   console.log('PUT /api/roles/:id endpoint hit with id:', req.params.id);
@@ -3043,7 +3154,11 @@ app.put('/api/roles/:id', authenticateToken, (req, res) => {
     // Update role
     if (name !== undefined) rolesConfig[roleIndex].name = name;
     if (description !== undefined) rolesConfig[roleIndex].description = description;
-    if (permissions !== undefined) rolesConfig[roleIndex].permissions = permissions;
+    if (permissions !== undefined) {
+      rolesConfig[roleIndex].permissions = permissions;
+      // Sync user permissions with updated role
+      syncUserPermissionsWithRole(id);
+    }
 
     res.json(rolesConfig[roleIndex]);
   } catch (error) {
@@ -5642,6 +5757,491 @@ app.post('/api/email/process-reply', (req, res) => {
 
   } catch (error) {
     console.error('Error in email processing endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// ==========================================
+// DEVICE MANAGEMENT API ROUTES
+// ==========================================
+
+// In-memory device storage (for demo - replace with real database)
+// devices array is now initialized earlier in the file
+
+// Initialize ticket-device relationships (moved to earlier in file)
+
+// Initialize ticket-device relationships
+let ticketDevices = [];
+
+// Helper function to get device with customer and ticket info
+const getDeviceWithRelations = (device) => {
+  const customer = users.find(u => u.id === device.customerId);
+  const linkedTickets = ticketDevices
+    .filter(td => td.deviceId === device.id)
+    .map(td => {
+      const ticket = tickets.find(t => t.id === td.ticketId);
+      return ticket ? {
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        title: ticket.title,
+        status: ticket.status,
+        createdAt: ticket.createdAt
+      } : null;
+    })
+    .filter(t => t !== null);
+
+  return {
+    ...device,
+    customerName: customer ? `${customer.firstName} ${customer.lastName}` : 'Unknown Customer',
+    customerEmail: customer ? customer.email : 'unknown@example.com',
+    ticketCount: linkedTickets.length,
+    linkedTickets
+  };
+};
+
+// Auto-create device when ticket references one
+const autoCreateDeviceFromTicket = (ticket) => {
+  if (!ticket.deviceSerialNumber || !ticket.deviceModel) {
+    return null;
+  }
+
+  // Check if device already exists
+  let device = devices.find(d => d.serialNumber === ticket.deviceSerialNumber);
+  
+  if (!device) {
+    // Create new device
+    device = {
+      id: uuidv4(),
+      customerId: ticket.customerId,
+      model: ticket.deviceModel,
+      serialNumber: ticket.deviceSerialNumber,
+      warrantyExpires: null,
+      invoiceNumber: null,
+      invoiceDate: null,
+      comments: `Auto-created from ticket ${ticket.ticketNumber || ticket.id}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    devices.push(device);
+    console.log('🔧 Auto-created device:', device.serialNumber);
+  }
+
+  // Link ticket to device
+  const existingLink = ticketDevices.find(td => 
+    td.ticketId === ticket.id && td.deviceId === device.id
+  );
+  
+  if (!existingLink) {
+    ticketDevices.push({
+      ticketId: ticket.id,
+      deviceId: device.id,
+      linkedAt: new Date().toISOString(),
+      linkedBy: null
+    });
+    console.log('🔗 Linked ticket to device:', ticket.id, '->', device.id);
+  }
+
+  return device;
+};
+
+// GET /api/devices - Get all devices with filtering and pagination
+app.get('/api/devices', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('devices.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Device view permission required' }
+      });
+    }
+
+    const { 
+      page = 1, 
+      limit = 10, 
+      search = '', 
+      model = '', 
+      status = '',
+      customerId = ''
+    } = req.query;
+
+    let filteredDevices = devices.map(device => getDeviceWithRelations(device));
+
+    // Apply filters
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredDevices = filteredDevices.filter(device =>
+        device.serialNumber.toLowerCase().includes(searchLower) ||
+        device.model.toLowerCase().includes(searchLower) ||
+        device.customerName.toLowerCase().includes(searchLower) ||
+        device.customerEmail.toLowerCase().includes(searchLower) ||
+        (device.comments && device.comments.toLowerCase().includes(searchLower))
+      );
+    }
+
+    if (model) {
+      filteredDevices = filteredDevices.filter(device => device.model === model);
+    }
+
+    if (customerId) {
+      filteredDevices = filteredDevices.filter(device => device.customerId === customerId);
+    }
+
+    if (status) {
+      const now = new Date();
+      filteredDevices = filteredDevices.filter(device => {
+        if (!device.warrantyExpires) return status === 'no-warranty';
+        const warrantyDate = new Date(device.warrantyExpires);
+        
+        switch (status) {
+          case 'active':
+            return warrantyDate > now;
+          case 'expired':
+            return warrantyDate <= now;
+          case 'expiring-soon':
+            const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+            return warrantyDate > now && warrantyDate <= thirtyDaysFromNow;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Pagination
+    const startIndex = (parseInt(page) - 1) * parseInt(limit);
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedDevices = filteredDevices.slice(startIndex, endIndex);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'devices_viewed',
+      targetType: 'device_list',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Viewed devices list (page ${page}, ${filteredDevices.length} results)`
+    });
+
+    res.json({
+      success: true,
+      data: {
+        devices: paginatedDevices,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: filteredDevices.length,
+          totalPages: Math.ceil(filteredDevices.length / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching devices:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// GET /api/devices/:id - Get specific device with full details
+app.get('/api/devices/:id', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('devices.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Device view permission required' }
+      });
+    }
+
+    const { id } = req.params;
+    const device = devices.find(d => d.id === id);
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Device not found' }
+      });
+    }
+
+    const deviceWithRelations = getDeviceWithRelations(device);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'device_viewed',
+      targetType: 'device',
+      targetId: id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Viewed device details: ${device.serialNumber}`
+    });
+
+    res.json({
+      success: true,
+      data: { device: deviceWithRelations }
+    });
+  } catch (error) {
+    console.error('Error fetching device:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// POST /api/devices - Create new device manually
+app.post('/api/devices', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('devices.create')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Device creation permission required' }
+      });
+    }
+
+    const {
+      customerId,
+      model,
+      serialNumber,
+      warrantyExpires,
+      invoiceNumber,
+      invoiceDate,
+      comments
+    } = req.body;
+
+    // Validation
+    if (!customerId || !model || !serialNumber) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Customer ID, model, and serial number are required' }
+      });
+    }
+
+    // Check if serial number already exists
+    if (devices.find(d => d.serialNumber === serialNumber)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Device with this serial number already exists' }
+      });
+    }
+
+    // Verify customer exists
+    const customer = users.find(u => u.id === customerId && u.userType === 'customer');
+    if (!customer) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Customer not found' }
+      });
+    }
+
+    // Verify model is valid
+    if (!deviceModels.find(dm => dm.name === model)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid device model' }
+      });
+    }
+
+    const newDevice = {
+      id: uuidv4(),
+      customerId,
+      model,
+      serialNumber,
+      warrantyExpires: warrantyExpires || null,
+      invoiceNumber: invoiceNumber || null,
+      invoiceDate: invoiceDate || null,
+      comments: comments || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    devices.push(newDevice);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'device_created',
+      targetType: 'device',
+      targetId: newDevice.id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Created device: ${newDevice.serialNumber} (${newDevice.model})`
+    });
+
+    const deviceWithRelations = getDeviceWithRelations(newDevice);
+
+    res.status(201).json({
+      success: true,
+      data: { device: deviceWithRelations }
+    });
+  } catch (error) {
+    console.error('Error creating device:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// PUT /api/devices/:id - Update device
+app.put('/api/devices/:id', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('devices.edit')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Device edit permission required' }
+      });
+    }
+
+    const { id } = req.params;
+    const deviceIndex = devices.findIndex(d => d.id === id);
+
+    if (deviceIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Device not found' }
+      });
+    }
+
+    const {
+      warrantyExpires,
+      invoiceNumber,
+      invoiceDate,
+      comments
+    } = req.body;
+
+    const oldDevice = { ...devices[deviceIndex] };
+    
+    // Update device
+    devices[deviceIndex] = {
+      ...devices[deviceIndex],
+      warrantyExpires: warrantyExpires !== undefined ? warrantyExpires : devices[deviceIndex].warrantyExpires,
+      invoiceNumber: invoiceNumber !== undefined ? invoiceNumber : devices[deviceIndex].invoiceNumber,
+      invoiceDate: invoiceDate !== undefined ? invoiceDate : devices[deviceIndex].invoiceDate,
+      comments: comments !== undefined ? comments : devices[deviceIndex].comments,
+      updatedAt: new Date().toISOString()
+    };
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'device_updated',
+      targetType: 'device',
+      targetId: id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Updated device: ${devices[deviceIndex].serialNumber}`
+    });
+
+    const deviceWithRelations = getDeviceWithRelations(devices[deviceIndex]);
+
+    res.json({
+      success: true,
+      data: { device: deviceWithRelations }
+    });
+  } catch (error) {
+    console.error('Error updating device:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// DELETE /api/devices/:id - Delete device
+app.delete('/api/devices/:id', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('devices.delete')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Device delete permission required' }
+      });
+    }
+
+    const { id } = req.params;
+    const deviceIndex = devices.findIndex(d => d.id === id);
+
+    if (deviceIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Device not found' }
+      });
+    }
+
+    const device = devices[deviceIndex];
+    
+    // Remove device
+    devices.splice(deviceIndex, 1);
+    
+    // Remove ticket-device relationships
+    ticketDevices = ticketDevices.filter(td => td.deviceId !== id);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'device_deleted',
+      targetType: 'device',
+      targetId: id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Deleted device: ${device.serialNumber}`
+    });
+
+    res.json({
+      success: true,
+      data: { message: 'Device deleted successfully' }
+    });
+  } catch (error) {
+    console.error('Error deleting device:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// GET /api/devices/stats - Get device statistics
+app.get('/api/devices/stats', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('devices.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Device view permission required' }
+      });
+    }
+
+    const now = new Date();
+    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const stats = {
+      totalDevices: devices.length,
+      activeWarranties: devices.filter(d => d.warrantyExpires && new Date(d.warrantyExpires) > now).length,
+      expiredWarranties: devices.filter(d => d.warrantyExpires && new Date(d.warrantyExpires) <= now).length,
+      expiringSoon: devices.filter(d => 
+        d.warrantyExpires && 
+        new Date(d.warrantyExpires) > now && 
+        new Date(d.warrantyExpires) <= thirtyDaysFromNow
+      ).length,
+      noWarrantyInfo: devices.filter(d => !d.warrantyExpires).length,
+      modelBreakdown: deviceModels.map(model => ({
+        model: model.name,
+        count: devices.filter(d => d.model === model.name).length
+      }))
+    };
+
+    res.json({
+      success: true,
+      data: { stats }
+    });
+  } catch (error) {
+    console.error('Error fetching device stats:', error);
     res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
