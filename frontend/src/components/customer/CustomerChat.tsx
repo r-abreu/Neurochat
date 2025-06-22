@@ -6,6 +6,7 @@ import soundService from '../../services/soundService';
 import ThemeToggle from '../common/ThemeToggle';
 import FileUpload from '../common/FileUpload';
 import CountrySelect from '../common/CountrySelect';
+import CompanySuggestion from '../common/CompanySuggestion';
 
 interface CustomerInfo {
   name: string;
@@ -79,6 +80,9 @@ const CustomerChat: React.FC = () => {
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [showPersistentSurvey, setShowPersistentSurvey] = useState(false);
   const [surveyCompleted, setSurveyCompleted] = useState(false);
+  const [companySuggestions, setCompanySuggestions] = useState<Array<{name: string; confidence: number; description?: string}>>([]);
+  const [showCompanySuggestions, setShowCompanySuggestions] = useState(false);
+  const [companyInputTimeout, setCompanyInputTimeout] = useState<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
@@ -177,6 +181,11 @@ const CustomerChat: React.FC = () => {
       // Clear visibility timeout
       if (visibilityTimeoutId) {
         clearTimeout(visibilityTimeoutId);
+      }
+      
+      // Clear company input timeout
+      if (companyInputTimeout) {
+        clearTimeout(companyInputTimeout);
       }
       
       // Remove event listeners
@@ -324,6 +333,36 @@ const CustomerChat: React.FC = () => {
         setEmailError('');
       }
     }
+
+    // Handle company field changes for real-time suggestions
+    if (field === 'company') {
+      // Clear existing timeout
+      if (companyInputTimeout) {
+        clearTimeout(companyInputTimeout);
+      }
+
+      if (value.trim().length >= 2) {
+        // Set a debounced timeout to fetch suggestions
+        const timeout = setTimeout(async () => {
+          try {
+            const response = await apiService.suggestCompanyRealtime(value.trim(), 50);
+            if (response.suggestions.length > 0) {
+              setCompanySuggestions(response.suggestions);
+              setShowCompanySuggestions(true);
+            } else {
+              setShowCompanySuggestions(false);
+            }
+          } catch (error) {
+            console.error('Error fetching company suggestions:', error);
+            setShowCompanySuggestions(false);
+          }
+        }, 500); // 500ms delay
+
+        setCompanyInputTimeout(timeout);
+      } else {
+        setShowCompanySuggestions(false);
+      }
+    }
     
     // Check if all required info is complete
     const isComplete = updatedInfo.name.trim() !== '' && 
@@ -332,6 +371,25 @@ const CustomerChat: React.FC = () => {
                       selectedCategory !== '' &&
                       emailError === '';
     setIsInfoComplete(isComplete);
+  };
+
+  const handleCompanySelect = (companyName: string) => {
+    const updatedInfo = { ...customerInfo, company: companyName };
+    setCustomerInfo(updatedInfo);
+    saveCustomerInfo(updatedInfo);
+    setShowCompanySuggestions(false);
+    
+    // Check if all required info is complete
+    const isComplete = updatedInfo.name.trim() !== '' && 
+                      updatedInfo.email.trim() !== '' && 
+                      validateEmail(updatedInfo.email) &&
+                      selectedCategory !== '' &&
+                      emailError === '';
+    setIsInfoComplete(isComplete);
+  };
+
+  const handleDismissCompanySuggestions = () => {
+    setShowCompanySuggestions(false);
   };
 
   const createTicketFromFirstMessage = async (firstMessage: string) => {
@@ -770,18 +828,25 @@ const CustomerChat: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Company
-                  </label>
-                  <input
-                    type="text"
-                    value={customerInfo.company}
-                    onChange={(e) => handleInfoChange('company', e.target.value)}
-                    placeholder="Company Inc."
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Company
+                </label>
+                <input
+                  type="text"
+                  value={customerInfo.company}
+                  onChange={(e) => handleInfoChange('company', e.target.value)}
+                  placeholder="Company Inc."
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+                {showCompanySuggestions && (
+                  <CompanySuggestion
+                    suggestions={companySuggestions}
+                    onSelect={handleCompanySelect}
+                    onDismiss={handleDismissCompanySuggestions}
                   />
-                </div>
+                )}
+              </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">

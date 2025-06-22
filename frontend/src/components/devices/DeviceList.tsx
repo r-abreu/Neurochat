@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
 import apiService from '../../services/api';
-import { exportToExcel } from '../../utils/excelExport';
+import ConfigurableTable, { TableColumn, FilterConfig } from '../common/ConfigurableTable';
 
 interface Device {
   id: string;
@@ -31,29 +30,14 @@ interface DeviceListProps {
 }
 
 const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
-  const { user } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [sortField, setSortField] = useState<keyof Device>('createdAt');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [visibleColumns, setVisibleColumns] = useState({
-    model: true,
-    serialNumber: true,
-    customerName: true,
-    ticketCount: true,
-    warrantyExpires: true,
-    invoiceNumber: true,
-    invoiceDate: true,
-    comments: true
-  });
 
-  const deviceModels = ['', 'BWIII', 'BWMini', 'Compass', 'Maxxi'];
+  const deviceModels = ['BWIII', 'BWMini', 'Compass', 'Maxxi'];
   const statusOptions = [
     { value: '', label: 'All Statuses' },
     { value: 'active', label: 'Active Warranty' },
@@ -62,16 +46,12 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
     { value: 'no-warranty', label: 'No Warranty Info' }
   ];
 
-  const itemsPerPage = 10;
-
   const loadDevices = async () => {
     try {
       setLoading(true);
       setError(null);
       
       const filters = {
-        page: currentPage,
-        limit: itemsPerPage,
         search,
         model: modelFilter,
         status: statusFilter
@@ -79,8 +59,7 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
 
       const response = await apiService.getDevices(filters);
       
-      setDevices(response.devices);
-      setTotalPages(response.pagination.totalPages);
+      setDevices(response.devices || response);
     } catch (error: any) {
       console.error('Error loading devices:', error);
       setError(error.message || 'Failed to load devices');
@@ -91,35 +70,7 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
 
   useEffect(() => {
     loadDevices();
-  }, [currentPage, search, modelFilter, statusFilter]);
-
-  const handleSort = (field: keyof Device) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
-  const sortedDevices = [...devices].sort((a, b) => {
-    let valueA = a[sortField];
-    let valueB = b[sortField];
-
-    // Handle null values
-    if (valueA === null || valueA === undefined) valueA = '';
-    if (valueB === null || valueB === undefined) valueB = '';
-
-    // Convert to string for comparison
-    const stringA = valueA.toString().toLowerCase();
-    const stringB = valueB.toString().toLowerCase();
-
-    if (sortDirection === 'asc') {
-      return stringA.localeCompare(stringB);
-    } else {
-      return stringB.localeCompare(stringA);
-    }
-  });
+  }, [search, modelFilter, statusFilter]);
 
   const getWarrantyStatus = (warrantyExpires: string | null): { status: string; color: string } => {
     if (!warrantyExpires) return { status: 'No Info', color: 'text-gray-500' };
@@ -142,68 +93,210 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const handleExport = async () => {
-    try {
-      const allDevicesResponse = await apiService.getDevices({ limit: 1000 });
-      const allDevices = allDevicesResponse.devices;
-      
-      const exportData = allDevices.map((device: Device) => ({
+  // Define table columns
+  const columns: TableColumn<Device>[] = [
+    {
+      id: 'model',
+      label: 'Device Model',
+      width: 120,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      render: (device) => (
+        <div className="text-sm">
+          <div className="font-medium text-gray-900 dark:text-white">
+            {device.model}
+          </div>
+          <div className="text-gray-500 dark:text-gray-400 text-xs font-mono">
+            {device.serialNumber}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'customerName',
+      label: 'Customer',
+      width: 200,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      render: (device) => (
+        <div className="text-sm">
+          <div className="font-medium text-gray-900 dark:text-white">
+            {device.customerName}
+          </div>
+          <div className="text-gray-500 dark:text-gray-400 text-xs break-all">
+            {device.customerEmail}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'ticketCount',
+      label: 'Tickets',
+      width: 100,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      render: (device) => (
+        <div className="text-sm text-center">
+          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+            device.ticketCount > 0 
+              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200' 
+              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+          }`}>
+            {device.ticketCount}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'warrantyExpires',
+      label: 'Warranty Status',
+      width: 150,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      render: (device) => {
+        const warranty = getWarrantyStatus(device.warrantyExpires);
+        return (
+          <div className="text-sm">
+            <div className={`font-medium ${warranty.color}`}>
+              {warranty.status}
+            </div>
+            {device.warrantyExpires && (
+              <div className="text-gray-500 dark:text-gray-400 text-xs">
+                {formatDate(device.warrantyExpires)}
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'invoiceNumber',
+      label: 'Invoice Number',
+      width: 130,
+      visible: true,
+      resizable: true,
+      sortable: false,
+      render: (device) => (
+        <div className="text-sm text-gray-900 dark:text-white font-mono">
+          {device.invoiceNumber || '-'}
+        </div>
+      ),
+    },
+    {
+      id: 'invoiceDate',
+      label: 'Invoice Date',
+      width: 120,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      render: (device) => (
+        <div className="text-sm text-gray-900 dark:text-white">
+          {formatDate(device.invoiceDate)}
+        </div>
+      ),
+    },
+    {
+      id: 'comments',
+      label: 'Comments',
+      width: 150,
+      visible: false,
+      resizable: true,
+      sortable: false,
+      render: (device) => (
+        <div className="text-sm text-gray-900 dark:text-white">
+          {device.comments ? (
+            <span className="truncate" title={device.comments}>
+              {device.comments.length > 50 ? `${device.comments.substring(0, 50)}...` : device.comments}
+            </span>
+          ) : '-'}
+        </div>
+      ),
+    },
+    {
+      id: 'createdAt',
+      label: 'Added',
+      width: 120,
+      visible: false,
+      resizable: true,
+      sortable: true,
+      render: (device) => (
+        <div className="text-sm text-gray-900 dark:text-white">
+          {formatDate(device.createdAt)}
+        </div>
+      ),
+    },
+  ];
+
+  // Define filters
+  const filters: FilterConfig[] = [
+    {
+      key: 'model',
+      label: 'All Models',
+      type: 'select',
+      value: modelFilter,
+      onChange: setModelFilter,
+      options: deviceModels.map(model => ({ value: model, label: model })),
+    },
+    {
+      key: 'status',
+      label: 'All Statuses',
+      type: 'select',
+      value: statusFilter,
+      onChange: setStatusFilter,
+      options: statusOptions.slice(1), // Remove the "All Statuses" option since it's in the label
+    },
+  ];
+
+  // Define actions
+  const actions = [
+    {
+      label: 'View Details',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        </svg>
+      ),
+      onClick: onDeviceSelect,
+      className: 'text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300',
+    },
+  ];
+
+  // Export function
+  const handleExport = () => {
+    const exportData = devices.map(device => {
+      const warranty = getWarrantyStatus(device.warrantyExpires);
+      return {
         'Device Model': device.model,
         'Serial Number': device.serialNumber,
         'Customer Name': device.customerName,
         'Customer Email': device.customerEmail,
         'Ticket Count': device.ticketCount,
-        'Warranty Expires': device.warrantyExpires ? formatDate(device.warrantyExpires) : 'No Info',
+        'Warranty Status': warranty.status,
+        'Warranty Expires': formatDate(device.warrantyExpires),
         'Invoice Number': device.invoiceNumber || '-',
-        'Invoice Date': device.invoiceDate ? formatDate(device.invoiceDate) : '-',
+        'Invoice Date': formatDate(device.invoiceDate),
         'Comments': device.comments || '-',
-        'Created Date': formatDate(device.createdAt)
-      }));
+        'Added Date': formatDate(device.createdAt),
+      };
+    });
 
-      exportToExcel(exportData, 'devices-list.xlsx', 'Devices');
-    } catch (error) {
-      console.error('Error exporting devices:', error);
-    }
-  };
-
-  const handleReset = () => {
-    setSearch('');
-    setModelFilter('');
-    setStatusFilter('');
-    setCurrentPage(1);
-  };
-
-  const getSortIcon = (field: keyof Device) => {
-    if (sortField !== field) {
-      return (
-        <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-        </svg>
-      );
-    }
+    const XLSX = require('xlsx');
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Devices');
     
-    return sortDirection === 'asc' ? (
-      <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-      </svg>
-    ) : (
-      <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      </svg>
-    );
+    const filename = `devices-${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
-      <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-md p-4">
+      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
         <div className="flex">
           <div className="flex-shrink-0">
             <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
@@ -211,11 +304,11 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
             </svg>
           </div>
           <div className="ml-3">
-            <h3 className="text-sm font-medium text-red-800 dark:text-red-200">Error Loading Devices</h3>
-            <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
-            <button 
+            <h3 className="text-sm font-medium text-red-800 dark:text-red-200">Error loading devices</h3>
+            <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+            <button
               onClick={loadDevices}
-              className="mt-2 text-sm text-red-600 dark:text-red-400 hover:text-red-500 dark:hover:text-red-300"
+              className="mt-2 bg-red-100 hover:bg-red-200 dark:bg-red-800 dark:hover:bg-red-700 px-3 py-1 rounded text-sm text-red-800 dark:text-red-200"
             >
               Try Again
             </button>
@@ -226,350 +319,35 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Device Management</h1>
+    <ConfigurableTable
+      data={devices}
+      columns={columns}
+      loading={loading}
+      storageKey="agent-device-list-preferences"
+      title={`Devices (${devices.length})`}
+      searchTerm={search}
+      onSearchChange={setSearch}
+      filters={filters}
+      onRowClick={onDeviceSelect}
+      onExport={handleExport}
+      exportFilename="devices-list.xlsx"
+      actions={actions}
+      emptyState={
+        <div className="text-gray-500 dark:text-gray-400">
+          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No devices found</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Track and manage all devices linked to tickets and customers
+            {search || modelFilter || statusFilter
+              ? 'Try adjusting your search criteria or filters.' 
+              : 'No devices have been registered yet.'
+            }
           </p>
         </div>
-        <div className="mt-4 sm:mt-0 flex space-x-2">
-          <button
-            onClick={handleExport}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Export
-          </button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Search
-            </label>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search devices..."
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Model
-            </label>
-            <select
-              value={modelFilter}
-              onChange={(e) => setModelFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
-            >
-              <option value="">All Models</option>
-              {deviceModels.slice(1).map(model => (
-                <option key={model} value={model}>{model}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Warranty Status
-            </label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
-            >
-              {statusOptions.map(option => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-end">
-            <button
-              onClick={handleReset}
-              className="w-full px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 rounded-md"
-            >
-              Reset Filters
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Column Visibility Controls */}
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Show/Hide Columns</h3>
-        <div className="flex flex-wrap gap-4">
-          {Object.entries(visibleColumns).map(([column, visible]) => (
-            <label key={column} className="flex items-center">
-              <input
-                type="checkbox"
-                checked={visible}
-                onChange={(e) => setVisibleColumns(prev => ({ ...prev, [column]: e.target.checked }))}
-                className="rounded border-gray-300 dark:border-gray-600 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 dark:bg-gray-700"
-              />
-              <span className="ml-2 text-sm text-gray-700 dark:text-gray-300 capitalize">
-                {column.replace(/([A-Z])/g, ' $1').trim()}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* Device Table */}
-      <div className="bg-white dark:bg-gray-800 shadow overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                {visibleColumns.model && (
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                    onClick={() => handleSort('model')}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Model</span>
-                      {getSortIcon('model')}
-                    </div>
-                  </th>
-                )}
-                {visibleColumns.serialNumber && (
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                    onClick={() => handleSort('serialNumber')}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Serial Number</span>
-                      {getSortIcon('serialNumber')}
-                    </div>
-                  </th>
-                )}
-                {visibleColumns.customerName && (
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                    onClick={() => handleSort('customerName')}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Customer</span>
-                      {getSortIcon('customerName')}
-                    </div>
-                  </th>
-                )}
-                {visibleColumns.ticketCount && (
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                    onClick={() => handleSort('ticketCount')}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Tickets</span>
-                      {getSortIcon('ticketCount')}
-                    </div>
-                  </th>
-                )}
-                {visibleColumns.warrantyExpires && (
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                    onClick={() => handleSort('warrantyExpires')}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Warranty Status</span>
-                      {getSortIcon('warrantyExpires')}
-                    </div>
-                  </th>
-                )}
-                {visibleColumns.invoiceNumber && (
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                    onClick={() => handleSort('invoiceNumber')}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Invoice #</span>
-                      {getSortIcon('invoiceNumber')}
-                    </div>
-                  </th>
-                )}
-                {visibleColumns.invoiceDate && (
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                    onClick={() => handleSort('invoiceDate')}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Invoice Date</span>
-                      {getSortIcon('invoiceDate')}
-                    </div>
-                  </th>
-                )}
-                {visibleColumns.comments && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Comments
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {sortedDevices.map((device) => {
-                const warrantyStatus = getWarrantyStatus(device.warrantyExpires);
-                return (
-                  <tr
-                    key={device.id}
-                    onClick={() => onDeviceSelect(device)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                  >
-                    {visibleColumns.model && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {device.model}
-                      </td>
-                    )}
-                    {visibleColumns.serialNumber && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {device.serialNumber}
-                      </td>
-                    )}
-                    {visibleColumns.customerName && (
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {device.customerName}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {device.customerEmail}
-                          </div>
-                        </div>
-                      </td>
-                    )}
-                    {visibleColumns.ticketCount && (
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
-                          {device.ticketCount} tickets
-                        </span>
-                      </td>
-                    )}
-                    {visibleColumns.warrantyExpires && (
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className={`text-sm font-medium ${warrantyStatus.color}`}>
-                            {warrantyStatus.status}
-                          </div>
-                          {device.warrantyExpires && (
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                              {formatDate(device.warrantyExpires)}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                    {visibleColumns.invoiceNumber && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {device.invoiceNumber || '-'}
-                      </td>
-                    )}
-                    {visibleColumns.invoiceDate && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {formatDate(device.invoiceDate)}
-                      </td>
-                    )}
-                    {visibleColumns.comments && (
-                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-xs truncate">
-                        {device.comments || '-'}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {devices.length === 0 && (
-          <div className="text-center py-12">
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No devices found</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              No devices match your current filters.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="bg-white dark:bg-gray-800 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700 sm:px-6 rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="flex-1 flex justify-between sm:hidden">
-            <button
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
-              className="relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages}
-              className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm text-gray-700 dark:text-gray-300">
-                Showing page <span className="font-medium">{currentPage}</span> of{' '}
-                <span className="font-medium">{totalPages}</span>
-              </p>
-            </div>
-            <div>
-              <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                <button
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
-                  className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="sr-only">Previous</span>
-                  <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                </button>
-                
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`${
-                      page === currentPage
-                        ? 'z-10 bg-blue-50 dark:bg-blue-900 border-blue-500 text-blue-600 dark:text-blue-200'
-                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600'
-                    } relative inline-flex items-center px-4 py-2 border text-sm font-medium`}
-                  >
-                    {page}
-                  </button>
-                ))}
-                
-                <button
-                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                  disabled={currentPage === totalPages}
-                  className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="sr-only">Next</span>
-                  <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
-                </button>
-              </nav>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      }
+    />
   );
 };
 
-export default DeviceList; 
+export default DeviceList;

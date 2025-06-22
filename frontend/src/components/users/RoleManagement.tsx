@@ -19,6 +19,10 @@ interface Role {
     'devices.create': boolean;
     'devices.edit': boolean;
     'devices.delete': boolean;
+    'companies.view': boolean;
+    'companies.create': boolean;
+    'companies.edit': boolean;
+    'companies.delete': boolean;
   };
 }
 
@@ -48,6 +52,10 @@ const RoleManagement: React.FC = () => {
       'devices.create': false,
       'devices.edit': false,
       'devices.delete': false,
+      'companies.view': false,
+      'companies.create': false,
+      'companies.edit': false,
+      'companies.delete': false,
     }
   });
 
@@ -189,6 +197,10 @@ const RoleManagement: React.FC = () => {
         'devices.create': false,
         'devices.edit': false,
         'devices.delete': false,
+        'companies.view': false,
+        'companies.create': false,
+        'companies.edit': false,
+        'companies.delete': false,
       }
     });
   };
@@ -211,6 +223,10 @@ const RoleManagement: React.FC = () => {
         'devices.create': role.permissions?.['devices.create'] || false,
         'devices.edit': role.permissions?.['devices.edit'] || false,
         'devices.delete': role.permissions?.['devices.delete'] || false,
+        'companies.view': role.permissions?.['companies.view'] || false,
+        'companies.create': role.permissions?.['companies.create'] || false,
+        'companies.edit': role.permissions?.['companies.edit'] || false,
+        'companies.delete': role.permissions?.['companies.delete'] || false,
       }
     });
   };
@@ -399,6 +415,34 @@ const RoleManagement: React.FC = () => {
                     ))}
                   </div>
                 </div>
+
+                <div>
+                  <h4 className="font-medium text-sm mb-2">Company Management</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { key: 'companies.view', label: 'View Companies' },
+                      { key: 'companies.create', label: 'Create Companies' },
+                      { key: 'companies.edit', label: 'Edit Companies' },
+                      { key: 'companies.delete', label: 'Delete Companies' },
+                    ].map(perm => (
+                      <label key={perm.key} className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={formData.permissions[perm.key as keyof typeof formData.permissions]}
+                          onChange={(e) => setFormData(prev => ({
+                            ...prev,
+                            permissions: {
+                              ...prev.permissions,
+                              [perm.key]: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <span className="text-sm">{perm.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -435,6 +479,7 @@ const RoleManagement: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Tickets</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">User Management</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Devices</th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Companies</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -496,6 +541,25 @@ const RoleManagement: React.FC = () => {
                         <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded">Delete</span>
                       )}
                       {!role.permissions?.['devices.view'] && !role.permissions?.['devices.create'] && !role.permissions?.['devices.edit'] && !role.permissions?.['devices.delete'] && (
+                        <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">No Access</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {role.permissions?.['companies.view'] && (
+                        <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">View</span>
+                      )}
+                      {role.permissions?.['companies.create'] && (
+                        <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">Create</span>
+                      )}
+                      {role.permissions?.['companies.edit'] && (
+                        <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded">Edit</span>
+                      )}
+                      {role.permissions?.['companies.delete'] && (
+                        <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded">Delete</span>
+                      )}
+                      {!role.permissions?.['companies.view'] && !role.permissions?.['companies.create'] && !role.permissions?.['companies.edit'] && !role.permissions?.['companies.delete'] && (
                         <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">No Access</span>
                       )}
                     </div>

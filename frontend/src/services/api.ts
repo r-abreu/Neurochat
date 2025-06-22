@@ -1193,6 +1193,153 @@ class ApiService {
     });
     return this.handleResponse<any>(response);
   }
+
+  // Company/Account APIs
+  async getCompanies(filters?: {
+    search?: string;
+    country?: string;
+    sortBy?: string;
+    sortOrder?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ companies: any[]; pagination: any }> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, value.toString());
+        }
+      });
+    }
+    
+    const queryString = params.toString();
+    const url = `/companies${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await this.fetchWithAuth(url);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { companies: any[]; pagination: any } }>(response);
+    
+    return apiResponse.data;
+  }
+
+  async getCompany(id: string): Promise<any> {
+    const response = await this.fetchWithAuth(`/companies/${id}`);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { company: any } }>(response);
+    return apiResponse.data.company;
+  }
+
+  async createCompany(companyData: {
+    name: string;
+    aliases?: string[];
+    description?: string;
+    primaryEmail?: string;
+    primaryPhone?: string;
+    website?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
+  }): Promise<any> {
+    const response = await this.fetchWithAuth('/companies', {
+      method: 'POST',
+      body: JSON.stringify(companyData),
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { company: any } }>(response);
+    return apiResponse.data.company;
+  }
+
+  async updateCompany(id: string, updates: {
+    name?: string;
+    aliases?: string[];
+    description?: string;
+    primaryEmail?: string;
+    primaryPhone?: string;
+    website?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
+  }): Promise<any> {
+    const response = await this.fetchWithAuth(`/companies/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { company: any } }>(response);
+    return apiResponse.data.company;
+  }
+
+  async deleteCompany(id: string): Promise<void> {
+    await this.fetchWithAuth(`/companies/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async fuzzyMatchCompany(companyName: string, threshold = 75): Promise<{ inputName: string; matches: any[]; threshold: number }> {
+    const response = await this.fetchWithAuth('/companies/fuzzy-match', {
+      method: 'POST',
+      body: JSON.stringify({ companyName, threshold }),
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { inputName: string; matches: any[]; threshold: number } }>(response);
+    return apiResponse.data;
+  }
+
+  async assignCustomerToCompany(companyId: string, customerId: string): Promise<void> {
+    await this.fetchWithAuth(`/companies/${companyId}/assign-customer`, {
+      method: 'POST',
+      body: JSON.stringify({ customerId }),
+    });
+  }
+
+  async unassignCustomerFromCompany(companyId: string, customerId: string): Promise<void> {
+    await this.fetchWithAuth(`/companies/${companyId}/unassign-customer`, {
+      method: 'POST',
+      body: JSON.stringify({ customerId }),
+    });
+  }
+
+  async suggestCompanyMatch(ticketId: string): Promise<{ inputCompanyName: string; suggestions: any[]; ticket: any }> {
+    const response = await this.fetchWithAuth(`/tickets/${ticketId}/suggest-company-match`, {
+      method: 'POST',
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { inputCompanyName: string; suggestions: any[]; ticket: any } }>(response);
+    return apiResponse.data;
+  }
+
+  async confirmCompanyMatch(ticketId: string, companyId: string): Promise<void> {
+    await this.fetchWithAuth(`/tickets/${ticketId}/confirm-company-match`, {
+      method: 'POST',
+      body: JSON.stringify({ companyId }),
+    });
+  }
+
+  // Pending company matches
+  async getPendingCompanyMatches(): Promise<any[]> {
+    const response = await this.fetchWithAuth('/companies/pending-matches');
+    const data = await this.handleResponse<{ success: boolean; data: any[] }>(response);
+    return data.data;
+  }
+
+  async reviewCompanyMatch(matchId: string, action: 'approve' | 'reject'): Promise<void> {
+    const response = await this.fetchWithAuth(`/companies/pending-matches/${matchId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    });
+    
+    await this.handleResponse<{ success: boolean; message: string }>(response);
+  }
+
+  async suggestCompanyRealtime(companyName: string, threshold = 50): Promise<{ inputName: string; suggestions: any[]; threshold: number }> {
+    const response = await fetch(`${this.baseURL}/companies/suggest-realtime`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ companyName, threshold }),
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { inputName: string; suggestions: any[]; threshold: number } }>(response);
+    return apiResponse.data;
+  }
 }
 
 export const apiService = new ApiService();

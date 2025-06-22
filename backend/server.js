@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const stringSimilarity = require('string-similarity');
 
 // Import email services
 const { sendChatFallbackEmail, sendAgentNotificationEmail, getEmailLogs, getEmailStats } = require('./services/emailService');
@@ -35,6 +36,7 @@ let tickets = [];
 let messages = [];
 let internalComments = []; // New: Internal comments for tickets
 let categories = [];
+let ticketDevices = []; // Ticket-device relationships
 
 // Customer session tracking
 let customerSessions = new Map(); // ticketId -> { customerId, socketId, isOnline, lastSeen }
@@ -159,7 +161,9 @@ const demoUsers = [
     isActive: true,
     lastLogin: null,
     createdAt: new Date().toISOString(),
-    avatarUrl: null
+    avatarUrl: null,
+    companyId: null, // Will be set after companies are initialized
+    company: 'Acme Corporation' // For display purposes
   },
   {
     id: uuidv4(),
@@ -170,7 +174,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '1',
     roleName: 'Admin',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete', 'companies.assign'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 10,
@@ -506,10 +510,15 @@ internalComments.push(...demoInternalComments);
 
 // Initialize demo devices first
 const initializeDemoDevices = () => {
+  // Get the customer's company ID for proper device association
+  const customer = demoUsers[0]; // customer@demo.com
+  const customerCompanyId = customer.companyId || null;
+
   const demoDevices = [
     {
       id: uuidv4(),
-      customerId: demoUsers[0].id, // customer@demo.com
+      customerId: customer.id,
+      companyId: customerCompanyId, // Associate with customer's company
       model: 'BWIII',
       serialNumber: 'BW3-2024-001234',
       warrantyExpires: '2025-12-31',
@@ -521,7 +530,8 @@ const initializeDemoDevices = () => {
     },
     {
       id: uuidv4(),
-      customerId: demoUsers[0].id, // customer@demo.com
+      customerId: customer.id,
+      companyId: customerCompanyId, // Associate with customer's company
       model: 'BWMini',
       serialNumber: 'BWM-2024-005678',
       warrantyExpires: '2025-06-30',
@@ -533,7 +543,8 @@ const initializeDemoDevices = () => {
     },
     {
       id: uuidv4(),
-      customerId: demoUsers[0].id, // customer@demo.com
+      customerId: customer.id,
+      companyId: customerCompanyId, // Associate with customer's company
       model: 'Compass',
       serialNumber: 'CMP-2024-003456',
       warrantyExpires: '2025-08-15',
@@ -547,6 +558,7 @@ const initializeDemoDevices = () => {
   
   devices.push(...demoDevices);
   console.log('🔧 Added demo devices:', demoDevices.length);
+  console.log('🏢 Devices associated with company ID:', customerCompanyId);
 };
 
 // Initialize devices array before using it
@@ -554,7 +566,25 @@ let devices = [];
 
 // Initialize demo messages now that tickets are created
 addDemoMessages();
-initializeDemoDevices();
+
+// (Device auto-creation will be called after companies are initialized)
+
+// Link demo customers to companies (done after companies are initialized later in the file)
+const linkCustomersToCompanies = () => {
+  // Find the demo customer
+  const customer = users.find(u => u.email === 'customer@demo.com');
+  if (customer) {
+    // Find Acme Corporation company
+    const acmeCompany = companies.find(c => c.name === 'Acme Corporation');
+    if (acmeCompany) {
+      customer.companyId = acmeCompany.id;
+      console.log('🏢 Linked customer', customer.email, 'to company', acmeCompany.name);
+    }
+  }
+};
+
+// This will be called after companies are initialized
+// initializeDemoDevices will be called from linkCustomersToCompanies
 
 // Initialize audit logs array early
 let auditLogs = [];
@@ -1054,9 +1084,9 @@ app.post('/api/tickets', (req, res) => {
   const ticket = {
     id: uuidv4(),
     ticketNumber: generateTicketNumber(),
-    customerId: user ? user.id : null,
-    customerName: user ? `${user.firstName} ${user.lastName}` : customerInfo.name,
-    customerEmail: user ? user.email : customerInfo.email,
+    customerId: (customerInfo && customerInfo.name && customerInfo.email) ? null : (user ? user.id : null),
+    customerName: (customerInfo && customerInfo.name) ? customerInfo.name : (user ? `${user.firstName} ${user.lastName}` : null),
+    customerEmail: (customerInfo && customerInfo.email) ? customerInfo.email : (user ? user.email : null),
     customerPhone: customerInfo?.phone || null,
     customerCompany: customerInfo?.company || null,
     customerAddress: customerInfo?.address || null, // Keep for backward compatibility
@@ -1075,7 +1105,7 @@ app.post('/api/tickets', (req, res) => {
     status: 'new',
     priority,
     source: 'web',
-    isAnonymous: !user,
+    isAnonymous: !(user && (!customerInfo || !customerInfo.name || !customerInfo.email)),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -1087,6 +1117,48 @@ app.post('/api/tickets', (req, res) => {
   // Auto-create device if ticket has device information
   if (ticket.deviceSerialNumber && ticket.deviceModel) {
     autoCreateDeviceFromTicket(ticket);
+  }
+  
+  // Perform immediate company fuzzy matching for new tickets (including auto-creation)
+  if (ticket.customerCompany && !ticket.companyId) {
+    console.log('🔍 Triggering immediate fuzzy matching for new ticket...');
+    // First try fuzzy matching
+    performAutomaticCompanyMatching(ticket);
+    
+    // If no match found after fuzzy matching, auto-create the company
+    const ticketAfterMatching = tickets.find(t => t.id === ticket.id);
+    if (ticketAfterMatching && !ticketAfterMatching.companyId) {
+      console.log('🏢 No fuzzy match found, auto-creating company:', ticket.customerCompany);
+      const newCompany = {
+        id: uuidv4(),
+        name: ticket.customerCompany,
+        aliases: [],
+        description: `Auto-created company from ticket ${ticket.ticketNumber}`,
+        primaryEmail: null,
+        primaryPhone: null,
+        website: null,
+        address: ticket.customerStreetAddress || null,
+        city: ticket.customerCity || null,
+        state: ticket.customerState || null,
+        zipCode: ticket.customerZipCode || null,
+        country: ticket.customerCountry || null,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: user ? user.id : null,
+        updatedBy: user ? user.id : null
+      };
+      companies.push(newCompany);
+      
+      // Update the ticket with the new company
+      const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
+      if (ticketIndex !== -1) {
+        tickets[ticketIndex].companyId = newCompany.id;
+        console.log('🔗 Associated ticket with newly created company:', newCompany.name);
+      }
+      
+      console.log('🏢 Auto-created company:', newCompany.name, 'ID:', newCompany.id);
+    }
   }
   
   // Log ticket creation
@@ -1311,6 +1383,12 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   // Add resolvedAt timestamp when ticket is resolved
   if (updates.status === 'resolved' && ticket.status === 'resolved') {
     ticket.resolvedAt = new Date().toISOString();
+  }
+  
+  // Trigger automatic company fuzzy matching when ticket is closed or resolved
+  if (updates.status === 'closed' || updates.status === 'resolved') {
+    console.log('🎯 Ticket closed/resolved, triggering company fuzzy matching...');
+    performAutomaticCompanyMatching(ticket);
   }
   
   // Auto-create device if ticket was updated with device information
@@ -3003,7 +3081,11 @@ let rolesConfig = [
       'devices.view': true,
       'devices.create': true,
       'devices.edit': true,
-      'devices.delete': true
+      'devices.delete': true,
+      'companies.view': true,
+      'companies.create': true,
+      'companies.edit': true,
+      'companies.delete': true
     }
   },
   { 
@@ -3021,7 +3103,11 @@ let rolesConfig = [
       'devices.view': true,
       'devices.create': false,
       'devices.edit': true,
-      'devices.delete': false
+      'devices.delete': false,
+      'companies.view': true,
+      'companies.create': false,
+      'companies.edit': true,
+      'companies.delete': false
     }
   },
   { 
@@ -3039,7 +3125,11 @@ let rolesConfig = [
       'devices.view': true,
       'devices.create': false,
       'devices.edit': false,
-      'devices.delete': false
+      'devices.delete': false,
+      'companies.view': true,
+      'companies.create': false,
+      'companies.edit': false,
+      'companies.delete': false
     }
   },
   { 
@@ -3057,7 +3147,11 @@ let rolesConfig = [
       'devices.view': true,
       'devices.create': false,
       'devices.edit': false,
-      'devices.delete': false
+      'devices.delete': false,
+      'companies.view': false,
+      'companies.create': false,
+      'companies.edit': false,
+      'companies.delete': false
     }
   }
 ];
@@ -3739,6 +3833,44 @@ app.get('/api/audit', authenticateToken, (req, res) => {
   } catch (error) {
     console.error('Error fetching audit logs:', error);
     res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Real-time company suggestion for customer chat (non-authenticated)
+app.post('/api/companies/suggest-realtime', (req, res) => {
+  try {
+    const { companyName, threshold = 50 } = req.body;
+
+    if (!companyName || !companyName.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Company name is required' }
+      });
+    }
+
+    const matches = findCompanyMatches(companyName.trim(), threshold);
+
+    // Return only the top 3 matches for customer suggestion
+    const topMatches = matches.slice(0, 3).map(match => ({
+      name: match.company.name,
+      confidence: match.confidence,
+      description: match.company.description
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        inputName: companyName.trim(),
+        suggestions: topMatches,
+        threshold
+      }
+    });
+  } catch (error) {
+    console.error('Error in real-time company suggestion:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
   }
 });
 
@@ -5546,6 +5678,1630 @@ app.delete('/api/customer-types/:id', authenticateToken, (req, res) => {
 });
 
 // ==========================================
+// COMPANY/ACCOUNT MANAGEMENT API ENDPOINTS
+// ==========================================
+
+// In-memory storage for companies (replace with database calls)
+let companies = [
+  {
+    id: uuidv4(),
+    name: 'NeuroVirtual Inc.',
+    aliases: ['Neurovirtual', 'NeuroVirtual USA', 'NeuroVirtual America', 'NV Inc'],
+    description: 'Main company for NeuroVirtual products',
+    primaryEmail: 'info@neurovirtual.com',
+    primaryPhone: null,
+    website: null,
+    address: null,
+    city: null,
+    state: null,
+    zipCode: null,
+    country: 'United States',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: null,
+    updatedBy: null
+  },
+  {
+    id: uuidv4(),
+    name: 'Acme Corporation',
+    aliases: ['ACME Corp', 'Acme Corp.', 'ACME', 'Acme Inc'],
+    description: 'Large enterprise customer',
+    primaryEmail: 'contact@acme.com',
+    primaryPhone: null,
+    website: null,
+    address: null,
+    city: null,
+    state: null,
+    zipCode: null,
+    country: 'United States',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: null,
+    updatedBy: null
+  },
+  {
+    id: uuidv4(),
+    name: 'Innovative Solutions Ltd',
+    aliases: ['Innovative Solutions', 'Innovation Solutions', 'IS Ltd', 'InnoSol'],
+    description: 'Technology solutions company',
+    primaryEmail: 'hello@innovativesolutions.com',
+    primaryPhone: null,
+    website: null,
+    address: null,
+    city: null,
+    state: null,
+    zipCode: null,
+    country: 'United Kingdom',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: null,
+    updatedBy: null
+  },
+  {
+    id: uuidv4(),
+    name: 'Tech Startup Inc.',
+    aliases: ['Tech Startup', 'TechStart', 'TS Inc', 'TechStartup Inc'],
+    description: 'Growing technology startup',
+    primaryEmail: 'team@techstartup.com',
+    primaryPhone: null,
+    website: null,
+    address: null,
+    city: null,
+    state: null,
+    zipCode: null,
+    country: 'Canada',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: null,
+    updatedBy: null
+  },
+  {
+    id: uuidv4(),
+    name: 'Global Healthcare Systems',
+    aliases: ['Global Healthcare', 'GHS', 'Global Health', 'Healthcare Systems'],
+    description: 'International healthcare provider',
+    primaryEmail: 'support@globalhealthcare.com',
+    primaryPhone: null,
+    website: null,
+    address: null,
+    city: null,
+    state: null,
+    zipCode: null,
+    country: 'Germany',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: null,
+    updatedBy: null
+  }
+];
+
+// Auto-create device when ticket references one
+const autoCreateDeviceFromTicket = (ticket) => {
+  if (!ticket.deviceSerialNumber || !ticket.deviceModel) {
+    return null;
+  }
+
+  // Check if device already exists
+  let device = devices.find(d => d.serialNumber === ticket.deviceSerialNumber);
+  
+  if (!device) {
+    // Get company ID from ticket or customer
+    const customer = users.find(u => u.id === ticket.customerId);
+    let deviceCompanyId = ticket.companyId || customer?.companyId || null;
+    
+    // For tickets with customer company info, try to find or create a company based on customerCompany name
+    if (!deviceCompanyId && ticket.customerCompany) {
+              console.log('🏢 Looking for company:', ticket.customerCompany);
+      let company = companies.find(c => 
+        c.name === ticket.customerCompany || 
+        (c.aliases && c.aliases.includes(ticket.customerCompany))
+      );
+      
+      if (!company) {
+        // Auto-create company for anonymous ticket
+        company = {
+          id: uuidv4(),
+          name: ticket.customerCompany,
+          aliases: [],
+          description: `Auto-created company from ticket ${ticket.ticketNumber}`,
+          primaryEmail: null,
+          primaryPhone: null,
+          website: null,
+          address: ticket.customerStreetAddress || null,
+          city: ticket.customerCity || null,
+          state: ticket.customerState || null,
+          zipCode: ticket.customerZipCode || null,
+          country: ticket.customerCountry || null,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          createdBy: null,
+          updatedBy: null
+        };
+        companies.push(company);
+        console.log('🏢 Auto-created company:', company.name, 'ID:', company.id);
+      }
+      
+      deviceCompanyId = company.id;
+      
+      // Also update the ticket with the company association
+      const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
+      if (ticketIndex !== -1) {
+        tickets[ticketIndex].companyId = company.id;
+        console.log('🔗 Associated ticket with company:', company.name);
+      }
+    }
+
+    // Create new device
+    device = {
+      id: uuidv4(),
+      customerId: ticket.customerId, // Can be null for anonymous tickets
+      companyId: deviceCompanyId, // Associate with company (ticket or customer company)
+      model: ticket.deviceModel,
+      serialNumber: ticket.deviceSerialNumber,
+      warrantyExpires: null,
+      invoiceNumber: null,
+      invoiceDate: null,
+      comments: `Auto-created from ticket ${ticket.ticketNumber || ticket.id}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    devices.push(device);
+    console.log('🔧 Auto-created device:', device.serialNumber, 'for company:', deviceCompanyId);
+  }
+
+  // Link ticket to device
+  const existingLink = ticketDevices.find(td => 
+    td.ticketId === ticket.id && td.deviceId === device.id
+  );
+  
+  if (!existingLink) {
+    ticketDevices.push({
+      ticketId: ticket.id,
+      deviceId: device.id,
+      linkedAt: new Date().toISOString(),
+      linkedBy: null
+    });
+    console.log('🔗 Linked ticket to device:', ticket.id, '->', device.id);
+  }
+
+  return device;
+};
+
+// Now that companies are initialized, link customers to companies and initialize devices
+linkCustomersToCompanies();
+initializeDemoDevices();
+
+// Process existing demo tickets to create missing devices (now that companies are available)
+console.log('🔧 Processing existing demo tickets for device auto-creation...');
+tickets.forEach(ticket => {
+  if (ticket.deviceSerialNumber && ticket.deviceModel) {
+    console.log(`  - Processing ticket ${ticket.ticketNumber}: ${ticket.deviceSerialNumber}`);
+    autoCreateDeviceFromTicket(ticket);
+  }
+});
+
+// Company fuzzy matching log (replace with database calls)
+let companyMatchingLog = [];
+
+// Pending company matches for agent review
+let pendingCompanyMatches = [];
+
+// Simple fuzzy matching algorithm using Levenshtein distance
+function calculateLevenshteinDistance(str1, str2) {
+  const matrix = [];
+
+  // Initialize the matrix
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  // Fill the matrix
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+
+  return matrix[str2.length][str1.length];
+}
+
+// Calculate similarity percentage using both Levenshtein and string-similarity
+function calculateSimilarity(str1, str2) {
+  if (!str1 || !str2) return 0;
+  
+  // Use string-similarity library for better fuzzy matching
+  const jaccardSimilarity = stringSimilarity.compareTwoStrings(str1.toLowerCase(), str2.toLowerCase());
+  
+  // Also use Levenshtein for backup/comparison
+  const maxLength = Math.max(str1.length, str2.length);
+  if (maxLength === 0) return 100; // Both strings are empty
+  
+  const distance = calculateLevenshteinDistance(str1.toLowerCase(), str2.toLowerCase());
+  const levenshteinSimilarity = ((maxLength - distance) / maxLength) * 100;
+  
+  // Use the higher similarity score for better matching
+  return Math.max(jaccardSimilarity * 100, levenshteinSimilarity);
+}
+
+// Fuzzy match company names
+function findCompanyMatches(inputName, threshold = 75) {
+  const matches = [];
+  
+  companies.forEach(company => {
+    // Check against company name
+    const nameScore = calculateSimilarity(inputName, company.name);
+    if (nameScore >= threshold) {
+      matches.push({
+        company: company,
+        matchedField: 'name',
+        matchedValue: company.name,
+        confidence: Math.round(nameScore * 100) / 100
+      });
+    }
+    
+    // Check against aliases
+    if (company.aliases && Array.isArray(company.aliases)) {
+      company.aliases.forEach(alias => {
+        const aliasScore = calculateSimilarity(inputName, alias);
+        if (aliasScore >= threshold) {
+          matches.push({
+            company: company,
+            matchedField: 'alias',
+            matchedValue: alias,
+            confidence: Math.round(aliasScore * 100) / 100
+          });
+        }
+      });
+    }
+  });
+  
+  // Sort by confidence (highest first) and remove duplicates
+  const uniqueMatches = [];
+  const seenCompanies = new Set();
+  
+  matches
+    .sort((a, b) => b.confidence - a.confidence)
+    .forEach(match => {
+      if (!seenCompanies.has(match.company.id)) {
+        seenCompanies.add(match.company.id);
+        uniqueMatches.push(match);
+      }
+    });
+  
+  return uniqueMatches;
+}
+
+// Automatic fuzzy matching when ticket is closed/resolved
+function performAutomaticCompanyMatching(ticket) {
+  console.log('🔍 Performing automatic company matching for ticket:', ticket.id);
+  
+  // Only perform fuzzy matching if customer typed a company name manually
+  if (!ticket.customerCompany || ticket.companyId) {
+    console.log('  - Skipping: No manual company name or already assigned');
+    return;
+  }
+
+  // Check if this customer already has a company assigned
+  const customer = users.find(u => u.id === ticket.customerId);
+  if (customer && customer.companyId) {
+    console.log('  - Skipping: Customer already has a company assigned');
+    return;
+  }
+
+  // Find fuzzy matches with 85% confidence threshold
+  const matches = findCompanyMatches(ticket.customerCompany, 85);
+  
+  if (matches.length > 0) {
+    const bestMatch = matches[0]; // Highest confidence match
+    
+    console.log(`  - Found match: "${ticket.customerCompany}" → "${bestMatch.company.name}" (${bestMatch.confidence}%)`);
+    
+    // Auto-approve matches with very high confidence (95%+) or exact matches
+    if (bestMatch.confidence >= 95 || bestMatch.matchedField === 'name') {
+      console.log(`  - Auto-approving high-confidence match (${bestMatch.confidence}%)`);
+      
+      // Find the ticket index for updating
+      const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
+      if (ticketIndex !== -1) {
+        // Update the ticket with company association
+        tickets[ticketIndex] = {
+          ...tickets[ticketIndex],
+          companyId: bestMatch.company.id,
+          customerCompany: bestMatch.company.name
+        };
+        
+        // Update customer if exists
+        if (ticket.customerId) {
+          const customerIndex = users.findIndex(u => u.id === ticket.customerId);
+          if (customerIndex !== -1) {
+            users[customerIndex] = {
+              ...users[customerIndex],
+              companyId: bestMatch.company.id,
+              company: bestMatch.company.name
+            };
+          }
+        }
+        
+        // Update any devices associated with this ticket/customer
+        if (ticket.customerId) {
+          devices.forEach((device, index) => {
+            if (device.customerId === ticket.customerId) {
+              devices[index] = {
+                ...device,
+                companyId: bestMatch.company.id
+              };
+            }
+          });
+        }
+        
+        // Also update devices directly linked to this ticket
+        const ticketDeviceLinks = ticketDevices.filter(td => td.ticketId === ticket.id);
+        ticketDeviceLinks.forEach(link => {
+          const deviceIndex = devices.findIndex(d => d.id === link.deviceId);
+          if (deviceIndex !== -1 && !devices[deviceIndex].companyId) {
+            devices[deviceIndex] = {
+              ...devices[deviceIndex],
+              companyId: bestMatch.company.id
+            };
+            console.log('  - Updated device company association:', devices[deviceIndex].serialNumber);
+          }
+        });
+        
+        // Log the automatic assignment
+        companyMatchingLog.push({
+          id: uuidv4(),
+          inputCompanyName: ticket.customerCompany,
+          matchedCompanyId: bestMatch.company.id,
+          matchedCompanyName: bestMatch.company.name,
+          confidenceScore: bestMatch.confidence,
+          ticketId: ticket.id,
+          customerId: ticket.customerId,
+          actionTaken: 'auto_assigned',
+          assignedBy: null,
+          createdAt: new Date().toISOString()
+        });
+        
+        console.log('  - Company automatically assigned to ticket and customer');
+        
+        // Emit notification to agents about the automatic assignment
+        io.emit('company_auto_assigned', {
+          ticketId: ticket.id,
+          ticketNumber: ticket.ticketNumber,
+          customerName: ticket.customerName,
+          inputCompanyName: ticket.customerCompany,
+          assignedCompany: bestMatch.company.name,
+          confidence: bestMatch.confidence,
+          message: `Auto-assigned company: "${bestMatch.company.name}" (confidence: ${bestMatch.confidence.toFixed(1)}%)`
+        });
+      }
+    } else {
+      // Create a pending match for agent review (confidence 85-94%)
+      const pendingMatch = {
+        id: uuidv4(),
+        ticketId: ticket.id,
+        customerId: ticket.customerId,
+        inputCompanyName: ticket.customerCompany,
+        suggestedCompany: bestMatch.company,
+        confidence: bestMatch.confidence,
+        matchedField: bestMatch.matchedField,
+        matchedValue: bestMatch.matchedValue,
+        status: 'pending', // 'pending', 'approved', 'rejected'
+        createdAt: new Date().toISOString(),
+        reviewedAt: null,
+        reviewedBy: null
+      };
+      
+      pendingCompanyMatches.push(pendingMatch);
+      
+      // Log the matching attempt
+      companyMatchingLog.push({
+        id: uuidv4(),
+        inputCompanyName: ticket.customerCompany,
+        matchedCompanyId: bestMatch.company.id,
+        matchedCompanyName: bestMatch.company.name,
+        confidenceScore: bestMatch.confidence,
+        ticketId: ticket.id,
+        customerId: ticket.customerId,
+        actionTaken: 'suggested',
+        assignedBy: null,
+        createdAt: new Date().toISOString()
+      });
+      
+      // Emit notification to connected agents
+      io.emit('company_match_suggestion', {
+        pendingMatchId: pendingMatch.id,
+        ticketId: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        customerName: ticket.customerName,
+        inputCompanyName: ticket.customerCompany,
+        suggestedCompany: bestMatch.company.name,
+        confidence: bestMatch.confidence,
+        message: `Customer typed: "${ticket.customerCompany}". Possible match: "${bestMatch.company.name}" (confidence: ${bestMatch.confidence.toFixed(1)}%). Assign?`
+      });
+      
+      console.log('  - Notification sent to agents for review');
+    }
+  } else {
+    console.log('  - No matches found above 85% confidence threshold');
+    
+    // Log the no-match attempt
+    companyMatchingLog.push({
+      id: uuidv4(),
+      inputCompanyName: ticket.customerCompany,
+      matchedCompanyId: null,
+      matchedCompanyName: null,
+      confidenceScore: null,
+      ticketId: ticket.id,
+      customerId: ticket.customerId,
+      actionTaken: 'no_match',
+      assignedBy: null,
+      createdAt: new Date().toISOString()
+    });
+  }
+}
+
+// Get enriched company data with related counts
+const getCompanyWithRelations = (company) => {
+  // Count related registered customers (users)
+  const relatedRegisteredCustomers = users.filter(user => 
+    user.userType === 'customer' && 
+    (user.companyId === company.id || user.company === company.name)
+  );
+  
+  // Count related tickets
+  const relatedTickets = tickets.filter(ticket => 
+    ticket.companyId === company.id || 
+    ticket.customerCompany === company.name ||
+    relatedRegisteredCustomers.some(customer => customer.id === ticket.customerId)
+  );
+  
+  // Get unique customers from tickets (both registered and non-registered)
+  const ticketCustomerMap = new Map();
+  
+  relatedTickets.forEach(ticket => {
+    if (ticket.customerEmail) {
+      const existingCustomer = ticketCustomerMap.get(ticket.customerEmail);
+      if (!existingCustomer) {
+        // Check if this customer has a registered user account
+        const registeredUser = users.find(u => u.email === ticket.customerEmail && u.userType === 'customer');
+        
+        ticketCustomerMap.set(ticket.customerEmail, {
+          id: registeredUser?.id || ticket.customerEmail,
+          name: ticket.customerName || (registeredUser ? `${registeredUser.firstName} ${registeredUser.lastName}` : ''),
+          firstName: registeredUser?.firstName || ticket.customerName?.split(' ')[0] || '',
+          lastName: registeredUser?.lastName || ticket.customerName?.split(' ').slice(1).join(' ') || '',
+          email: ticket.customerEmail,
+          phone: ticket.customerPhone || registeredUser?.phone || '',
+          company: company.name,
+          country: ticket.customerCountry || '',
+          streetAddress: ticket.customerStreetAddress || '',
+          city: ticket.customerCity || '',
+          state: ticket.customerState || '',
+          zipCode: ticket.customerZipCode || '',
+          customerType: ticket.customerType || 'Standard',
+          isRegistered: !!registeredUser,
+          createdAt: registeredUser?.createdAt || null,
+          lastTicketDate: ticket.createdAt,
+          ticketCount: 1
+        });
+      } else {
+        // Update existing customer data
+        existingCustomer.ticketCount++;
+        if (new Date(ticket.createdAt) > new Date(existingCustomer.lastTicketDate)) {
+          existingCustomer.lastTicketDate = ticket.createdAt;
+        }
+        // Update customer fields with latest ticket data if not already set
+        if (!existingCustomer.name && ticket.customerName) existingCustomer.name = ticket.customerName;
+        if (!existingCustomer.phone && ticket.customerPhone) existingCustomer.phone = ticket.customerPhone;
+        if (!existingCustomer.country && ticket.customerCountry) existingCustomer.country = ticket.customerCountry;
+        if (!existingCustomer.streetAddress && ticket.customerStreetAddress) existingCustomer.streetAddress = ticket.customerStreetAddress;
+        if (!existingCustomer.city && ticket.customerCity) existingCustomer.city = ticket.customerCity;
+        if (!existingCustomer.state && ticket.customerState) existingCustomer.state = ticket.customerState;
+        if (!existingCustomer.zipCode && ticket.customerZipCode) existingCustomer.zipCode = ticket.customerZipCode;
+        if (ticket.customerType && existingCustomer.customerType === 'Standard') existingCustomer.customerType = ticket.customerType;
+      }
+    }
+  });
+  
+  const allCustomers = Array.from(ticketCustomerMap.values());
+  
+  // Count related devices (both direct company association and indirect through customers)
+  const relatedDevices = devices.filter(device => 
+    device.companyId === company.id || 
+    allCustomers.some(customer => customer.id === device.customerId)
+  );
+  
+  return {
+    ...company,
+    customerCount: allCustomers.length,
+    ticketCount: relatedTickets.length,
+    deviceCount: relatedDevices.length,
+    lastTicketDate: relatedTickets.length > 0 
+      ? relatedTickets.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0].createdAt
+      : null,
+    customers: allCustomers,
+    tickets: relatedTickets,
+    devices: relatedDevices
+  };
+};
+
+// Get companies list with filtering and pagination
+app.get('/api/companies', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company view permission required' }
+      });
+    }
+
+    const { 
+      search = '', 
+      country = '', 
+      sortBy = 'name', 
+      sortOrder = 'asc',
+      page = 1,
+      limit = 50
+    } = req.query;
+
+    let filteredCompanies = companies.filter(company => company.isActive);
+
+    // Apply search filter
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredCompanies = filteredCompanies.filter(company =>
+        company.name.toLowerCase().includes(searchLower) ||
+        company.description?.toLowerCase().includes(searchLower) ||
+        company.primaryEmail?.toLowerCase().includes(searchLower) ||
+        (company.aliases && company.aliases.some(alias => 
+          alias.toLowerCase().includes(searchLower)
+        ))
+      );
+    }
+
+    // Apply country filter
+    if (country) {
+      filteredCompanies = filteredCompanies.filter(company => company.country === country);
+    }
+
+    // Get enriched data
+    const enrichedCompanies = filteredCompanies.map(getCompanyWithRelations);
+
+    // Apply sorting
+    enrichedCompanies.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+          break;
+        case 'country':
+          aValue = a.country || '';
+          bValue = b.country || '';
+          break;
+        case 'customerCount':
+          aValue = a.customerCount;
+          bValue = b.customerCount;
+          break;
+        case 'ticketCount':
+          aValue = a.ticketCount;
+          bValue = b.ticketCount;
+          break;
+        case 'createdAt':
+          aValue = new Date(a.createdAt);
+          bValue = new Date(b.createdAt);
+          break;
+        default:
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+      }
+
+      if (sortOrder === 'desc') {
+        return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+      } else {
+        return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+      }
+    });
+
+    // Apply pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = startIndex + limitNum;
+    const paginatedCompanies = enrichedCompanies.slice(startIndex, endIndex);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'companies_viewed',
+      targetType: 'companies',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Viewed companies list with filters: search="${search}", country="${country}"`
+    });
+
+    res.json({
+      success: true,
+      data: {
+        companies: paginatedCompanies,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: enrichedCompanies.length,
+          totalPages: Math.ceil(enrichedCompanies.length / limitNum),
+          hasMore: endIndex < enrichedCompanies.length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching companies:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Get single company with details
+app.get('/api/companies/:id', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company view permission required' }
+      });
+    }
+
+    const { id } = req.params;
+    const company = companies.find(c => c.id === id && c.isActive);
+    
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Company not found' }
+      });
+    }
+
+    const enrichedCompany = getCompanyWithRelations(company);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'company_viewed',
+      targetType: 'company',
+      targetId: id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Viewed company details: ${company.name}`
+    });
+
+    res.json({
+      success: true,
+      data: { company: enrichedCompany }
+    });
+  } catch (error) {
+    console.error('Error fetching company:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Create new company
+app.post('/api/companies', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.create')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company create permission required' }
+      });
+    }
+
+    const {
+      name,
+      aliases = [],
+      description,
+      primaryEmail,
+      primaryPhone,
+      website,
+      address,
+      city,
+      state,
+      zipCode,
+      country
+    } = req.body;
+
+    // Validation
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Company name is required' }
+      });
+    }
+
+    // Check for duplicate names
+    const existingCompany = companies.find(c => 
+      c.name.toLowerCase() === name.trim().toLowerCase() && c.isActive
+    );
+    if (existingCompany) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'DUPLICATE_COMPANY', message: 'Company with this name already exists' }
+      });
+    }
+
+    const newCompany = {
+      id: uuidv4(),
+      name: name.trim(),
+      aliases: Array.isArray(aliases) ? aliases.filter(a => a && a.trim()) : [],
+      description: description?.trim() || null,
+      primaryEmail: primaryEmail?.trim() || null,
+      primaryPhone: primaryPhone?.trim() || null,
+      website: website?.trim() || null,
+      address: address?.trim() || null,
+      city: city?.trim() || null,
+      state: state?.trim() || null,
+      zipCode: zipCode?.trim() || null,
+      country: country?.trim() || null,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: req.user.id,
+      updatedBy: req.user.id
+    };
+
+    companies.push(newCompany);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'company_created',
+      targetType: 'company',
+      targetId: newCompany.id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Created company: ${newCompany.name}`
+    });
+
+    const enrichedCompany = getCompanyWithRelations(newCompany);
+
+    res.status(201).json({
+      success: true,
+      data: { company: enrichedCompany }
+    });
+  } catch (error) {
+    console.error('Error creating company:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Update company
+app.put('/api/companies/:id', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.edit')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company edit permission required' }
+      });
+    }
+
+    const { id } = req.params;
+    const {
+      name,
+      aliases,
+      description,
+      primaryEmail,
+      primaryPhone,
+      website,
+      address,
+      city,
+      state,
+      zipCode,
+      country
+    } = req.body;
+
+    const companyIndex = companies.findIndex(c => c.id === id && c.isActive);
+    if (companyIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Company not found' }
+      });
+    }
+
+    const company = companies[companyIndex];
+
+    // Validation
+    if (name && !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Company name cannot be empty' }
+      });
+    }
+
+    // Check for duplicate names (excluding current company)
+    if (name && name.trim() !== company.name) {
+      const existingCompany = companies.find(c => 
+        c.name.toLowerCase() === name.trim().toLowerCase() && 
+        c.isActive && 
+        c.id !== id
+      );
+      if (existingCompany) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'DUPLICATE_COMPANY', message: 'Company with this name already exists' }
+        });
+      }
+    }
+
+    // Update company
+    const updatedCompany = {
+      ...company,
+      name: name?.trim() || company.name,
+      aliases: aliases !== undefined ? (Array.isArray(aliases) ? aliases.filter(a => a && a.trim()) : []) : company.aliases,
+      description: description !== undefined ? (description?.trim() || null) : company.description,
+      primaryEmail: primaryEmail !== undefined ? (primaryEmail?.trim() || null) : company.primaryEmail,
+      primaryPhone: primaryPhone !== undefined ? (primaryPhone?.trim() || null) : company.primaryPhone,
+      website: website !== undefined ? (website?.trim() || null) : company.website,
+      address: address !== undefined ? (address?.trim() || null) : company.address,
+      city: city !== undefined ? (city?.trim() || null) : company.city,
+      state: state !== undefined ? (state?.trim() || null) : company.state,
+      zipCode: zipCode !== undefined ? (zipCode?.trim() || null) : company.zipCode,
+      country: country !== undefined ? (country?.trim() || null) : company.country,
+      updatedAt: new Date().toISOString(),
+      updatedBy: req.user.id
+    };
+
+    companies[companyIndex] = updatedCompany;
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'company_updated',
+      targetType: 'company',
+      targetId: id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Updated company: ${updatedCompany.name}`
+    });
+
+    const enrichedCompany = getCompanyWithRelations(updatedCompany);
+
+    res.json({
+      success: true,
+      data: { company: enrichedCompany }
+    });
+  } catch (error) {
+    console.error('Error updating company:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Delete company (soft delete)
+app.delete('/api/companies/:id', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.delete')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company delete permission required' }
+      });
+    }
+
+    const { id } = req.params;
+    const companyIndex = companies.findIndex(c => c.id === id && c.isActive);
+    
+    if (companyIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Company not found' }
+      });
+    }
+
+    const company = companies[companyIndex];
+
+    // Check if company has active customers or tickets
+    const relatedCustomers = users.filter(user => 
+      user.userType === 'customer' && 
+      (user.companyId === company.id || user.company === company.name)
+    );
+    
+    const relatedTickets = tickets.filter(ticket => 
+      ticket.companyId === company.id || 
+      ticket.customerCompany === company.name ||
+      relatedCustomers.some(customer => customer.id === ticket.customerId)
+    );
+
+    if (relatedCustomers.length > 0 || relatedTickets.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: { 
+          code: 'COMPANY_IN_USE', 
+          message: `Cannot delete company: ${relatedCustomers.length} customers and ${relatedTickets.length} tickets are associated with it`
+        }
+      });
+    }
+
+    // Soft delete
+    companies[companyIndex] = {
+      ...company,
+      isActive: false,
+      updatedAt: new Date().toISOString(),
+      updatedBy: req.user.id
+    };
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'company_deleted',
+      targetType: 'company',
+      targetId: id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Deleted company: ${company.name}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Company deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting company:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Fuzzy match company names
+app.post('/api/companies/fuzzy-match', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company view permission required' }
+      });
+    }
+
+    const { companyName, threshold = 75 } = req.body;
+
+    if (!companyName || !companyName.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Company name is required' }
+      });
+    }
+
+    const matches = findCompanyMatches(companyName.trim(), threshold);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'company_fuzzy_match',
+      targetType: 'company',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Fuzzy matched company name: "${companyName}" (${matches.length} matches found)`
+    });
+
+    res.json({
+      success: true,
+      data: {
+        inputName: companyName.trim(),
+        matches: matches.map(match => ({
+          company: getCompanyWithRelations(match.company),
+          matchedField: match.matchedField,
+          matchedValue: match.matchedValue,
+          confidence: match.confidence
+        })),
+        threshold
+      }
+    });
+  } catch (error) {
+    console.error('Error in fuzzy matching:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Assign customer to company
+app.post('/api/companies/:companyId/assign-customer', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.assign')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company assignment permission required' }
+      });
+    }
+
+    const { companyId } = req.params;
+    const { customerId } = req.body;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Customer ID is required' }
+      });
+    }
+
+    const company = companies.find(c => c.id === companyId && c.isActive);
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Company not found' }
+      });
+    }
+
+    const customerIndex = users.findIndex(u => u.id === customerId && u.userType === 'customer');
+    if (customerIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
+    const customer = users[customerIndex];
+    
+    // Update customer company assignment
+    users[customerIndex] = {
+      ...customer,
+      companyId: companyId,
+      company: company.name
+    };
+
+    // Update related tickets
+    tickets.forEach((ticket, index) => {
+      if (ticket.customerId === customerId) {
+        tickets[index] = {
+          ...ticket,
+          companyId: companyId,
+          customerCompany: company.name
+        };
+      }
+    });
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'customer_assigned_to_company',
+      targetType: 'company',
+      targetId: companyId,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Assigned customer ${customer.name || customer.email} to company ${company.name}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Customer assigned to company successfully'
+    });
+  } catch (error) {
+    console.error('Error assigning customer to company:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Unassign customer from company
+app.post('/api/companies/:companyId/unassign-customer', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.assign')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company assignment permission required' }
+      });
+    }
+
+    const { companyId } = req.params;
+    const { customerId } = req.body;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Customer ID is required' }
+      });
+    }
+
+    const company = companies.find(c => c.id === companyId && c.isActive);
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Company not found' }
+      });
+    }
+
+    const customerIndex = users.findIndex(u => u.id === customerId && u.userType === 'customer');
+    if (customerIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
+    const customer = users[customerIndex];
+    
+    // Update customer company assignment
+    users[customerIndex] = {
+      ...customer,
+      companyId: null,
+      company: null
+    };
+
+    // Update related tickets
+    tickets.forEach((ticket, index) => {
+      if (ticket.customerId === customerId) {
+        tickets[index] = {
+          ...ticket,
+          companyId: null,
+          customerCompany: null
+        };
+      }
+    });
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'customer_unassigned_from_company',
+      targetType: 'company',
+      targetId: companyId,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Unassigned customer ${customer.name || customer.email} from company ${company.name}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Customer unassigned from company successfully'
+    });
+  } catch (error) {
+    console.error('Error unassigning customer from company:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Get company matching suggestions when chat ends
+app.post('/api/tickets/:ticketId/suggest-company-match', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company view permission required' }
+      });
+    }
+
+    const { ticketId } = req.params;
+    const ticket = tickets.find(t => t.id === ticketId);
+    
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+      });
+    }
+
+    // Check if customer manually typed a company name
+    if (!ticket.customerCompany || ticket.companyId) {
+      return res.json({
+        success: true,
+        data: {
+          suggestions: [],
+          message: 'No company matching suggestions needed'
+        }
+      });
+    }
+
+    const matches = findCompanyMatches(ticket.customerCompany, 85); // Higher threshold for suggestions
+
+    if (matches.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          suggestions: [],
+          message: 'No matching companies found'
+        }
+      });
+    }
+
+    // Log the matching attempt
+    const logEntry = {
+      id: uuidv4(),
+      inputCompanyName: ticket.customerCompany,
+      ticketId: ticketId,
+      customerId: ticket.customerId,
+      matches: matches,
+      actionTaken: 'suggested',
+      createdAt: new Date().toISOString()
+    };
+    companyMatchingLog.push(logEntry);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'company_match_suggested',
+      ticketNumber: ticket.ticketNumber,
+      targetType: 'ticket',
+      targetId: ticketId,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Suggested company matches for "${ticket.customerCompany}" (${matches.length} matches)`
+    });
+
+    res.json({
+      success: true,
+      data: {
+        inputCompanyName: ticket.customerCompany,
+        suggestions: matches.map(match => ({
+          company: getCompanyWithRelations(match.company),
+          matchedField: match.matchedField,
+          matchedValue: match.matchedValue,
+          confidence: match.confidence
+        })),
+        ticket: {
+          id: ticket.id,
+          ticketNumber: ticket.ticketNumber,
+          customerName: ticket.customerName,
+          customerEmail: ticket.customerEmail
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error suggesting company matches:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Confirm company match and assign
+app.post('/api/tickets/:ticketId/confirm-company-match', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.assign')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company assignment permission required' }
+      });
+    }
+
+    const { ticketId } = req.params;
+    const { companyId } = req.body;
+
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Company ID is required' }
+      });
+    }
+
+    const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+    if (ticketIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+      });
+    }
+
+    const company = companies.find(c => c.id === companyId && c.isActive);
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Company not found' }
+      });
+    }
+
+    const ticket = tickets[ticketIndex];
+
+    // Update ticket
+    tickets[ticketIndex] = {
+      ...ticket,
+      companyId: companyId,
+      customerCompany: company.name
+    };
+
+    // Update customer if exists
+    if (ticket.customerId) {
+      const customerIndex = users.findIndex(u => u.id === ticket.customerId);
+      if (customerIndex !== -1) {
+        users[customerIndex] = {
+          ...users[customerIndex],
+          companyId: companyId,
+          company: company.name
+        };
+      }
+    }
+
+    // Update any devices from this ticket/customer
+    if (ticket.customerId) {
+      devices.forEach((device, index) => {
+        if (device.customerId === ticket.customerId) {
+          devices[index] = {
+            ...device,
+            companyId: companyId
+          };
+        }
+      });
+    }
+
+    // Log the confirmed match
+    const logEntry = {
+      id: uuidv4(),
+      inputCompanyName: ticket.customerCompany,
+      matchedCompanyId: companyId,
+      matchedCompanyName: company.name,
+      ticketId: ticketId,
+      customerId: ticket.customerId,
+      actionTaken: 'manual_override',
+      assignedBy: req.user.id,
+      createdAt: new Date().toISOString()
+    };
+    companyMatchingLog.push(logEntry);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'company_match_confirmed',
+      ticketNumber: ticket.ticketNumber,
+      targetType: 'ticket',
+      targetId: ticketId,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Confirmed company match: "${ticket.customerCompany}" → "${company.name}"`
+    });
+
+    res.json({
+      success: true,
+      message: 'Company match confirmed and assigned successfully'
+    });
+  } catch (error) {
+    console.error('Error confirming company match:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Get pending company matches for agent review
+app.get('/api/companies/pending-matches', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company view permission required' }
+      });
+    }
+
+    // Filter pending matches (not reviewed yet)
+    const pending = pendingCompanyMatches.filter(match => match.status === 'pending');
+    
+    // Enrich with ticket and customer information
+    const enrichedMatches = pending.map(match => {
+      const ticket = tickets.find(t => t.id === match.ticketId);
+      const customer = users.find(u => u.id === match.customerId);
+      
+      return {
+        ...match,
+        ticket: ticket ? {
+          id: ticket.id,
+          ticketNumber: ticket.ticketNumber,
+          title: ticket.title,
+          status: ticket.status
+        } : null,
+        customer: customer ? {
+          id: customer.id,
+          firstName: customer.firstName,
+          lastName: customer.lastName,
+          email: customer.email
+        } : null
+      };
+    });
+
+    res.json({
+      success: true,
+      data: enrichedMatches
+    });
+  } catch (error) {
+    console.error('Error fetching pending company matches:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Approve/reject pending company match
+app.post('/api/companies/pending-matches/:matchId/review', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('companies.assign')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Company assignment permission required' }
+      });
+    }
+
+    const { matchId } = req.params;
+    const { action } = req.body; // 'approve' or 'reject'
+
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Action must be "approve" or "reject"' }
+      });
+    }
+
+    const matchIndex = pendingCompanyMatches.findIndex(m => m.id === matchId);
+    if (matchIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Pending match not found' }
+      });
+    }
+
+    const match = pendingCompanyMatches[matchIndex];
+    
+    // Update match status
+    pendingCompanyMatches[matchIndex] = {
+      ...match,
+      status: action === 'approve' ? 'approved' : 'rejected',
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: req.user.id
+    };
+
+    if (action === 'approve') {
+      // Assign customer to company
+      const customerIndex = users.findIndex(u => u.id === match.customerId);
+      if (customerIndex !== -1) {
+        const customer = users[customerIndex];
+        users[customerIndex] = {
+          ...customer,
+          companyId: match.suggestedCompany.id,
+          company: match.suggestedCompany.name
+        };
+
+        // Update related tickets
+        tickets.forEach((ticket, index) => {
+          if (ticket.customerId === match.customerId) {
+            tickets[index] = {
+              ...ticket,
+              companyId: match.suggestedCompany.id,
+              customerCompany: match.suggestedCompany.name
+            };
+          }
+        });
+
+        // Update devices if any (both by customer and by ticket)
+        devices.forEach((device, index) => {
+          if (device.customerId === match.customerId) {
+            devices[index] = {
+              ...device,
+              companyId: match.suggestedCompany.id
+            };
+          }
+        });
+        
+        // Also update devices directly linked to this ticket
+        const ticketDeviceLinks = ticketDevices.filter(td => td.ticketId === match.ticketId);
+        ticketDeviceLinks.forEach(link => {
+          const deviceIndex = devices.findIndex(d => d.id === link.deviceId);
+          if (deviceIndex !== -1 && !devices[deviceIndex].companyId) {
+            devices[deviceIndex] = {
+              ...devices[deviceIndex],
+              companyId: match.suggestedCompany.id
+            };
+          }
+        });
+
+        // Log the assignment
+        companyMatchingLog.push({
+          id: uuidv4(),
+          inputCompanyName: match.inputCompanyName,
+          matchedCompanyId: match.suggestedCompany.id,
+          matchedCompanyName: match.suggestedCompany.name,
+          confidenceScore: match.confidence,
+          ticketId: match.ticketId,
+          customerId: match.customerId,
+          actionTaken: 'auto_assigned',
+          assignedBy: req.user.id,
+          createdAt: new Date().toISOString()
+        });
+
+        logAudit({
+          userId: req.user.id,
+          userName: `${req.user.firstName} ${req.user.lastName}`,
+          userType: req.user.userType,
+          action: 'company_match_approved',
+          targetType: 'company',
+          targetId: match.suggestedCompany.id,
+          ipAddress: getClientIP(req),
+          userAgent: req.headers['user-agent'],
+          details: `Approved fuzzy match: "${match.inputCompanyName}" → "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
+        });
+      }
+    } else {
+      // Log the rejection
+      companyMatchingLog.push({
+        id: uuidv4(),
+        inputCompanyName: match.inputCompanyName,
+        matchedCompanyId: match.suggestedCompany.id,
+        matchedCompanyName: match.suggestedCompany.name,
+        confidenceScore: match.confidence,
+        ticketId: match.ticketId,
+        customerId: match.customerId,
+        actionTaken: 'manual_override',
+        assignedBy: req.user.id,
+        createdAt: new Date().toISOString()
+      });
+
+      logAudit({
+        userId: req.user.id,
+        userName: `${req.user.firstName} ${req.user.lastName}`,
+        userType: req.user.userType,
+        action: 'company_match_rejected',
+        targetType: 'company',
+        targetId: match.suggestedCompany.id,
+        ipAddress: getClientIP(req),
+        userAgent: req.headers['user-agent'],
+        details: `Rejected fuzzy match: "${match.inputCompanyName}" → "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Company match ${action}d successfully`
+    });
+  } catch (error) {
+    console.error('Error reviewing company match:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// ==========================================
 // EMAIL SYSTEM API ENDPOINTS
 // ==========================================
 
@@ -5774,11 +7530,12 @@ app.post('/api/email/process-reply', (req, res) => {
 // Initialize ticket-device relationships (moved to earlier in file)
 
 // Initialize ticket-device relationships
-let ticketDevices = [];
+// ticketDevices array moved to top of file with other declarations
 
 // Helper function to get device with customer and ticket info
 const getDeviceWithRelations = (device) => {
   const customer = users.find(u => u.id === device.customerId);
+  const company = companies.find(c => c.id === device.companyId);
   const linkedTickets = ticketDevices
     .filter(td => td.deviceId === device.id)
     .map(td => {
@@ -5795,58 +7552,15 @@ const getDeviceWithRelations = (device) => {
 
   return {
     ...device,
-    customerName: customer ? `${customer.firstName} ${customer.lastName}` : 'Unknown Customer',
-    customerEmail: customer ? customer.email : 'unknown@example.com',
+    customerName: customer ? `${customer.firstName} ${customer.lastName}` : 'Anonymous User',
+    customerEmail: customer ? customer.email : 'anonymous@example.com',
+    companyName: company ? company.name : (customer?.company || 'No Company'),
     ticketCount: linkedTickets.length,
     linkedTickets
   };
 };
 
-// Auto-create device when ticket references one
-const autoCreateDeviceFromTicket = (ticket) => {
-  if (!ticket.deviceSerialNumber || !ticket.deviceModel) {
-    return null;
-  }
-
-  // Check if device already exists
-  let device = devices.find(d => d.serialNumber === ticket.deviceSerialNumber);
-  
-  if (!device) {
-    // Create new device
-    device = {
-      id: uuidv4(),
-      customerId: ticket.customerId,
-      model: ticket.deviceModel,
-      serialNumber: ticket.deviceSerialNumber,
-      warrantyExpires: null,
-      invoiceNumber: null,
-      invoiceDate: null,
-      comments: `Auto-created from ticket ${ticket.ticketNumber || ticket.id}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    
-    devices.push(device);
-    console.log('🔧 Auto-created device:', device.serialNumber);
-  }
-
-  // Link ticket to device
-  const existingLink = ticketDevices.find(td => 
-    td.ticketId === ticket.id && td.deviceId === device.id
-  );
-  
-  if (!existingLink) {
-    ticketDevices.push({
-      ticketId: ticket.id,
-      deviceId: device.id,
-      linkedAt: new Date().toISOString(),
-      linkedBy: null
-    });
-    console.log('🔗 Linked ticket to device:', ticket.id, '->', device.id);
-  }
-
-  return device;
-};
+// (Function moved earlier in the file)
 
 // GET /api/devices - Get all devices with filtering and pagination
 app.get('/api/devices', authenticateToken, (req, res) => {
@@ -5864,7 +7578,8 @@ app.get('/api/devices', authenticateToken, (req, res) => {
       search = '', 
       model = '', 
       status = '',
-      customerId = ''
+      customerId = '',
+      companyId = ''
     } = req.query;
 
     let filteredDevices = devices.map(device => getDeviceWithRelations(device));
@@ -5887,6 +7602,10 @@ app.get('/api/devices', authenticateToken, (req, res) => {
 
     if (customerId) {
       filteredDevices = filteredDevices.filter(device => device.customerId === customerId);
+    }
+
+    if (companyId) {
+      filteredDevices = filteredDevices.filter(device => device.companyId === companyId);
     }
 
     if (status) {
@@ -6049,6 +7768,7 @@ app.post('/api/devices', authenticateToken, (req, res) => {
     const newDevice = {
       id: uuidv4(),
       customerId,
+      companyId: customer.companyId || null, // Inherit company from customer
       model,
       serialNumber,
       warrantyExpires: warrantyExpires || null,

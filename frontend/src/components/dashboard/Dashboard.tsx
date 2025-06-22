@@ -9,13 +9,15 @@ import AuditTrail from '../users/AuditTrail';
 import Insights from './Insights';
 import CustomerManagement from '../customers/CustomerManagement';
 import DeviceManagement from '../devices/DeviceManagement';
+import CompanyManagement from '../companies/CompanyManagement';
 import ThemeToggle from '../common/ThemeToggle';
+import CompanyMatchNotification from '../common/CompanyMatchNotification';
 import { Ticket, User } from '../../types';
 import apiService from '../../services/api';
 import socketService from '../../services/socket';
 import soundService from '../../services/soundService';
 
-type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit' | 'insights' | 'customers' | 'devices';
+type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit' | 'insights' | 'customers' | 'devices' | 'companies';
 
 const Dashboard: React.FC = () => {
   const { user, logout, updateUser } = useAuth();
@@ -35,6 +37,7 @@ const Dashboard: React.FC = () => {
   const soundSettingsRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [messageBlinkingTickets, setMessageBlinkingTickets] = useState<Set<string>>(new Set());
+  const [companyMatchNotifications, setCompanyMatchNotifications] = useState<any[]>([]);
 
   // Close sound settings when clicking outside
   useEffect(() => {
@@ -236,11 +239,34 @@ const Dashboard: React.FC = () => {
       // Refresh tickets to update message timestamps
       loadTickets(true);
     };
+
+    // Listen for company match suggestions
+    const handleCompanyMatchSuggestion = (data: any) => {
+      console.log('🏢 Company match suggestion received:', data);
+      
+      // Add to notifications if user has permission to assign companies
+      if (user?.permissions?.includes('companies.assign')) {
+        setCompanyMatchNotifications(prev => [...prev, {
+          id: data.pendingMatchId,
+          ticketId: data.ticketId,
+          ticketNumber: data.ticketNumber,
+          customerName: data.customerName,
+          inputCompanyName: data.inputCompanyName,
+          suggestedCompany: {
+            id: data.suggestedCompany,
+            name: data.suggestedCompany
+          },
+          confidence: data.confidence,
+          message: data.message
+        }]);
+      }
+    };
     
     socketService.on('new_ticket', handleNewTicket);
     socketService.on('ticket_updated', handleTicketUpdate);
     socketService.on('ticket_deleted', handleTicketDelete);
     socketService.on('new_message', handleNewMessage);
+    socketService.on('company_match_suggestion', handleCompanyMatchSuggestion);
     
     // Set up periodic auto-refresh as fallback (every 30 seconds)
     const autoRefreshInterval = setInterval(() => {
@@ -261,6 +287,7 @@ const Dashboard: React.FC = () => {
       socketService.off('ticket_updated', handleTicketUpdate);
       socketService.off('ticket_deleted', handleTicketDelete);
       socketService.off('new_message', handleNewMessage);
+      socketService.off('company_match_suggestion', handleCompanyMatchSuggestion);
       clearInterval(autoRefreshInterval);
       socketService.disconnect();
     };
@@ -346,6 +373,34 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // Company match notification handlers
+  const handleApproveCompanyMatch = async (matchId: string) => {
+    try {
+      await apiService.reviewCompanyMatch(matchId, 'approve');
+      // Remove notification after successful approval
+      setCompanyMatchNotifications(prev => prev.filter(n => n.id !== matchId));
+      // Refresh tickets to show updated company assignment
+      loadTickets();
+    } catch (error) {
+      console.error('Error approving company match:', error);
+    }
+  };
+
+  const handleRejectCompanyMatch = async (matchId: string) => {
+    try {
+      await apiService.reviewCompanyMatch(matchId, 'reject');
+      // Remove notification after successful rejection
+      setCompanyMatchNotifications(prev => prev.filter(n => n.id !== matchId));
+    } catch (error) {
+      console.error('Error rejecting company match:', error);
+    }
+  };
+
+  const handleDismissCompanyMatch = (matchId: string) => {
+    // Just remove the notification without taking action
+    setCompanyMatchNotifications(prev => prev.filter(n => n.id !== matchId));
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case 'create':
@@ -420,6 +475,33 @@ const Dashboard: React.FC = () => {
           setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
           return null;
         }
+      case 'companies':
+        // Check if user has permission to access company management
+        if (user?.role === 'agent' && user.permissions?.includes('companies.view')) {
+          return <CompanyManagement 
+            onTicketSelect={(ticketId: string) => {
+              // Find the ticket by ID and select it
+              const ticket = tickets.find(t => t.id === ticketId);
+              if (ticket) {
+                handleTicketSelect(ticket);
+              }
+            }}
+            onCustomerSelect={(customer: any) => {
+              // Switch to customers view and trigger customer selection
+              setCurrentView('customers');
+              // We need to update CustomerManagement to handle this properly
+            }}
+            onDeviceSelect={(device: any) => {
+              // Switch to devices view and trigger device selection
+              setCurrentView('devices');
+              // We need to update DeviceManagement to handle this properly
+            }}
+          />;
+        } else {
+          // Redirect to default view if no permission
+          setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
+          return null;
+        }
       case 'tickets':
       case 'my-tickets':
       case 'my-open-tickets':
@@ -471,6 +553,9 @@ const Dashboard: React.FC = () => {
             if (view === 'devices' && !(user?.role === 'agent' && user.permissions?.includes('devices.view'))) {
               return; // Don't allow view change if no permission
             }
+            if (view === 'companies' && !(user?.role === 'agent' && user.permissions?.includes('companies.view'))) {
+              return; // Don't allow view change if no permission
+            }
             setCurrentView(view as ViewType);
           }}
           onCreateTicket={handleTicketCreate}
@@ -503,6 +588,9 @@ const Dashboard: React.FC = () => {
               return; // Don't allow view change if no permission
             }
             if (view === 'devices' && !(user?.role === 'agent' && user.permissions?.includes('devices.view'))) {
+              return; // Don't allow view change if no permission
+            }
+            if (view === 'companies' && !(user?.role === 'agent' && user.permissions?.includes('companies.view'))) {
               return; // Don't allow view change if no permission
             }
             setCurrentView(view as ViewType);
@@ -635,6 +723,28 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Company Match Notifications */}
+        {companyMatchNotifications.length > 0 && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
+            <div className="px-6 py-4">
+              <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-3">
+                Company Match Suggestions ({companyMatchNotifications.length})
+              </h3>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {companyMatchNotifications.map((match) => (
+                  <CompanyMatchNotification
+                    key={match.id}
+                    match={match}
+                    onApprove={handleApproveCompanyMatch}
+                    onReject={handleRejectCompanyMatch}
+                    onDismiss={handleDismissCompanyMatch}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Main content area */}
         <main className="flex-1">
