@@ -1,6 +1,7 @@
 class SoundService {
   private audioContext: AudioContext | null = null;
   private isEnabled: boolean = true;
+  private repeatingSoundTimers: Map<string, NodeJS.Timeout> = new Map();
 
   constructor() {
     // Initialize audio context when first needed
@@ -102,9 +103,70 @@ class SoundService {
     setTimeout(() => this.playTone(1000, 0.1, 0.04, 'sine'), 120);
   }
 
+  // Enhanced methods for the new urgency system
+  
+  // Start repeating yellow urgency sound
+  startRepeatingYellowSound(ticketId: string, intervalMinutes: number = 2) {
+    this.stopRepeatingSound(ticketId); // Stop any existing timer
+    
+    if (intervalMinutes <= 0) return;
+    
+    const timer = setInterval(() => {
+      this.playYellowTicketSound();
+    }, intervalMinutes * 60 * 1000);
+    
+    this.repeatingSoundTimers.set(ticketId, timer);
+  }
+
+  // Start repeating red urgency sound
+  startRepeatingRedSound(ticketId: string, intervalMinutes: number = 2) {
+    this.stopRepeatingSound(ticketId); // Stop any existing timer
+    
+    if (intervalMinutes <= 0) return;
+    
+    const timer = setInterval(() => {
+      this.playRedTicketSound();
+    }, intervalMinutes * 60 * 1000);
+    
+    this.repeatingSoundTimers.set(ticketId, timer);
+  }
+
+  // Stop repeating sound for a specific ticket
+  stopRepeatingSound(ticketId: string) {
+    const timer = this.repeatingSoundTimers.get(ticketId);
+    if (timer) {
+      clearInterval(timer);
+      this.repeatingSoundTimers.delete(ticketId);
+    }
+  }
+
+  // Stop all repeating sounds
+  stopAllRepeatingSounds() {
+    this.repeatingSoundTimers.forEach(timer => clearInterval(timer));
+    this.repeatingSoundTimers.clear();
+  }
+
+  // Play urgency sound based on level
+  async playUrgencySound(level: 'green' | 'yellow' | 'red') {
+    switch (level) {
+      case 'green':
+        await this.playNewTicketSound();
+        break;
+      case 'yellow':
+        await this.playYellowTicketSound();
+        break;
+      case 'red':
+        await this.playRedTicketSound();
+        break;
+    }
+  }
+
   // Enable/disable sounds
   setEnabled(enabled: boolean) {
     this.isEnabled = enabled;
+    if (!enabled) {
+      this.stopAllRepeatingSounds();
+    }
   }
 
   isAudioEnabled(): boolean {
@@ -130,6 +192,11 @@ class SoundService {
       console.log('Testing update sound...');
       await this.playTicketUpdateSound();
     }, 3000);
+  }
+
+  // Get active repeating sounds count (for debugging)
+  getActiveRepeatingSounds(): number {
+    return this.repeatingSoundTimers.size;
   }
 }
 

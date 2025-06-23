@@ -56,6 +56,11 @@ export interface Ticket {
   aiDisabledReason?: string;
   aiDisabledBy?: string;
   aiDisabledAt?: string;
+  // AI Summary fields
+  resolutionSummary?: string;
+  resolutionSummaryGeneratedAt?: string;
+  resolutionSummaryModelVersion?: string;
+  resolutionSummaryGeneratedBy?: string;
 }
 
 export interface Message {

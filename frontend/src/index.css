@@ -59,3 +59,80 @@ code {
   from { transform: translateX(-10px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* Ticket Urgency Blinking Animations */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes urgencyPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.02); opacity: 0.8; }
+}
+
+@keyframes urgencyGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.8); }
+}
+
+@keyframes redUrgencyGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+}
+
+@keyframes yellowUrgencyGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.8); }
+}
+
+@keyframes greenUrgencyGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(34, 197, 94, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.8); }
+}
+
+/* Utility classes for urgency animations */
+.blink-animation {
+  animation: blink 0.5s ease-in-out infinite alternate;
+}
+
+.urgency-pulse {
+  animation: urgencyPulse 1s ease-in-out infinite;
+}
+
+.urgency-glow-blue {
+  animation: urgencyGlow 2s ease-in-out infinite;
+}
+
+.urgency-glow-red {
+  animation: redUrgencyGlow 1.5s ease-in-out infinite;
+}
+
+.urgency-glow-yellow {
+  animation: yellowUrgencyGlow 2s ease-in-out infinite;
+}
+
+.urgency-glow-green {
+  animation: greenUrgencyGlow 3s ease-in-out infinite;
+}
+
+/* Ticket row blinking for urgency changes */
+.ticket-row-blink-red {
+  animation: blink 0.5s ease-in-out infinite alternate;
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+
+.ticket-row-blink-yellow {
+  animation: blink 0.5s ease-in-out infinite alternate;
+  background-color: rgba(245, 158, 11, 0.1) !important;
+}
+
+.ticket-row-blink-green {
+  animation: blink 0.5s ease-in-out infinite alternate;
+  background-color: rgba(34, 197, 94, 0.1) !important;
+}
+
+.ticket-row-blink-blue {
+  animation: blink 0.5s ease-in-out infinite alternate;
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}

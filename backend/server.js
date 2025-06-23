@@ -800,6 +800,808 @@ tickets.forEach((ticket, index) => {
   console.log(`    - deviceSerialNumber: "${ticket.deviceSerialNumber}"`);
 });
 
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const stringSimilarity = require('string-similarity');
+
+// Import email services
+const { sendChatFallbackEmail, sendAgentNotificationEmail, getEmailLogs, getEmailStats } = require('./services/emailService');
+const { startEmailReceiver, stopEmailReceiver, setTickets, setMessages, processIncomingEmail } = require('./services/emailReceiver');
+
+// Import AI services
+const aiService = require('./services/aiService');
+const documentService = require('./services/documentService');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// In-memory storage (for demo - replace with real database)
+let users = [];
+let tickets = [];
+let messages = [];
+let internalComments = []; // New: Internal comments for tickets
+let categories = [];
+let ticketDevices = []; // Ticket-device relationships
+
+// AI Agent storage
+let aiAgentConfig = {
+  id: uuidv4(),
+  model: 'gpt-4o',
+  agent_name: 'NeuroAI',
+  response_tone: 'Professional',
+  attitude_style: 'Helpful',
+  context_limitations: `Role: Technical Support AI Agent (Neurovirtual)
+Primary Objective:
+You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessary—all while ensuring a safe, focused, and friendly interaction.
+
+🎯 Supported Products
+Devices: BWMini, BWIII
+Software: BWAnalysis, BWCenter
+
+Always begin by identifying the product in question:
+"Is your question related to one of our devices (BWMini or BWIII), or our software (BWAnalysis or BWCenter)?"
+
+💬 User Interaction Guidelines
+Ask one question or provide one instruction at a time.
+Avoid overwhelming the user.
+
+For multi-step processes (3+ steps):
+- Provide the steps gradually.
+- Ask for user confirmation after each step before continuing.
+
+If the user stops responding, wait 15 seconds, then ask:
+"Just checking — did that help, or would you like more guidance?"
+
+Maintain professionalism and end each interaction with a positive tone.
+
+🔧 Special Case Handling
+🚫 Device Appears Damaged
+Ask: "Would you like to try a few troubleshooting steps to confirm if the device is damaged?"
+
+If the user is certain the device is defective:
+Ask for the serial number: "Please provide the device's serial number so I can escalate the issue to our support team."
+After receiving the serial number, escalate appropriately.
+
+⚠️ Sensor Not Working
+Refer the user to the relevant troubleshooting or learning documentation.
+If the issue persists or documentation does not resolve it, escalate the case.
+
+💵 Request for Quote or Pricing
+Do not provide any pricing directly. Instead, refer the user to sales:
+"For pricing or quotes, please contact our sales team through this link: https://neurovirtual.com/technicalsupport/"
+
+🔐 Data Safety & Support Protocols
+No Mention of Training Data
+Never reference internal or external data sources.
+
+Request Serial Number Only When Required
+Only ask for serial numbers in the case of hardware escalation.
+
+Do Not Request or Retain Personal Data
+Avoid asking for names, email addresses, or contact details unless required by support escalation protocol.
+
+Stay Within Scope
+If a user asks something unrelated to Neurovirtual devices or software, respond with:
+"I'm here to help with Neurovirtual hardware and software. For anything outside this scope, please contact our team directly."
+
+Graceful Fallback
+If you cannot answer:
+"I couldn't find the information in my support materials. I recommend reaching out to our support team directly for further help."
+
+✅ Support Flow Summary
+1. Identify the product (BWMini, BWIII, BWAnalysis, or BWCenter).
+2. Guide using one question or instruction at a time.
+3. For multi-step processes, give steps in parts, wait for confirmation.
+4. If user disengages, follow up once after 15 seconds.
+5. If device is defective, request the serial number, then escalate.
+6. Refer pricing requests to sales.
+7. For sensor issues, offer docs first, escalate if unresolved.
+8. Never expose or retain personal or internal data.`,
+  exceptions_behavior: 'warranty,refund,billing,escalate,human,pricing,sales,personal_data',
+  confidence_threshold: 0.7,
+  enabled: true,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+};
+
+let aiDocuments = [];
+let aiDocumentChunks = [];
+let aiResponses = [];
+
+// Data persistence for AI documents
+const AI_DOCUMENTS_FILE = path.join(__dirname, '../data/ai-documents.json');
+const AI_CHUNKS_FILE = path.join(__dirname, '../data/ai-document-chunks.json');
+
+// Ensure data directory exists
+const dataDir = path.join(__dirname, '../data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+// Load AI documents from persistent storage
+function loadAIDocuments() {
+  try {
+    if (fs.existsSync(AI_DOCUMENTS_FILE)) {
+      const data = fs.readFileSync(AI_DOCUMENTS_FILE, 'utf8');
+      aiDocuments = JSON.parse(data);
+      console.log(`📁 Loaded ${aiDocuments.length} AI documents from persistent storage`);
+    }
+  } catch (error) {
+    console.error('Error loading AI documents:', error);
+    aiDocuments = [];
+  }
+
+  try {
+    if (fs.existsSync(AI_CHUNKS_FILE)) {
+      const data = fs.readFileSync(AI_CHUNKS_FILE, 'utf8');
+      aiDocumentChunks = JSON.parse(data);
+      console.log(`📁 Loaded ${aiDocumentChunks.length} AI document chunks from persistent storage`);
+    }
+  } catch (error) {
+    console.error('Error loading AI document chunks:', error);
+    aiDocumentChunks = [];
+  }
+}
+
+// Save AI documents to persistent storage
+function saveAIDocuments() {
+  try {
+    fs.writeFileSync(AI_DOCUMENTS_FILE, JSON.stringify(aiDocuments, null, 2));
+    console.log(`💾 Saved ${aiDocuments.length} AI documents to persistent storage`);
+  } catch (error) {
+    console.error('Error saving AI documents:', error);
+  }
+
+  try {
+    fs.writeFileSync(AI_CHUNKS_FILE, JSON.stringify(aiDocumentChunks, null, 2));
+    console.log(`💾 Saved ${aiDocumentChunks.length} AI document chunks to persistent storage`);
+  } catch (error) {
+    console.error('Error saving AI document chunks:', error);
+  }
+}
+
+// Auto-save AI documents periodically (every 5 minutes)
+setInterval(saveAIDocuments, 5 * 60 * 1000);
+
+// Save on process exit
+process.on('SIGINT', () => {
+  console.log('\n🔄 Saving AI documents before exit...');
+  saveAIDocuments();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🔄 Saving AI documents before exit...');
+  saveAIDocuments();
+  process.exit(0);
+});
+
+// Customer session tracking
+let customerSessions = new Map(); // ticketId -> { customerId, socketId, isOnline, lastSeen }
+let socketToTicketMap = new Map(); // socketId -> ticketId (for disconnect cleanup)
+
+// Agent session tracking for presence indicators
+let agentSessions = new Map(); // agentId -> { socketId, isOnline, lastSeen, joinedAt }
+let socketToAgentMap = new Map(); // socketId -> agentId (for disconnect cleanup)
+
+// NeuroAI Agent ID - will be created during initialization
+let neuroAIAgentId = null;
+
+// Create NeuroAI agent
+const createNeuroAIAgent = () => {
+  const aiAgentId = uuidv4();
+  neuroAIAgentId = aiAgentId;
+  
+  const neuroAIAgent = {
+    id: aiAgentId,
+    email: 'neuroai@neurovirtual.com',
+    password: bcrypt.hashSync('neuroai-secure-password', 10),
+    firstName: 'NeuroAI',
+    lastName: 'Assistant',
+    userType: 'agent',
+    roleId: '5', // Special AI agent role
+    roleName: 'AI Agent',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'customers.view', 'devices.view', 'companies.view'],
+    isActive: true,
+    agentStatus: 'online', // AI is always online when enabled
+    maxConcurrentTickets: 1000, // AI can handle many tickets
+    lastLogin: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    avatarUrl: null,
+    isAIAgent: true // Special flag to identify AI agent
+  };
+
+  // Check if NeuroAI agent already exists
+  const existingAI = users.find(u => u.email === 'neuroai@neurovirtual.com' || u.isAIAgent);
+  if (!existingAI) {
+    users.push(neuroAIAgent);
+    console.log('🤖 Created NeuroAI agent with ID:', aiAgentId);
+    
+    // Sync permissions with AI Agent role
+    const aiRole = rolesConfig.find(r => r.id === '5');
+    if (aiRole) {
+      const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
+      neuroAIAgent.permissions = rolePermissions;
+      console.log('🔄 Synced NeuroAI agent permissions with AI Agent role:', rolePermissions);
+    }
+  } else {
+    neuroAIAgentId = existingAI.id;
+    console.log('🤖 NeuroAI agent already exists with ID:', existingAI.id);
+    
+    // Update existing AI agent to use role ID 5 and sync permissions
+    existingAI.roleId = '5';
+    existingAI.roleName = 'AI Agent';
+    const aiRole = rolesConfig.find(r => r.id === '5');
+    if (aiRole) {
+      const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
+      existingAI.permissions = rolePermissions;
+      console.log('🔄 Updated existing NeuroAI agent with role ID 5 and permissions:', rolePermissions);
+    }
+  }
+
+  // Ensure AI agent is always marked as online when AI is enabled
+  if (aiAgentConfig.enabled) {
+    agentSessions.set(neuroAIAgentId, {
+      socketId: 'ai-virtual-session',
+      isOnline: true,
+      lastSeen: new Date().toISOString(),
+      joinedAt: new Date().toISOString()
+    });
+  }
+
+  return neuroAIAgentId;
+};
+
+// Function to assign ticket to NeuroAI when AI responds
+const assignTicketToNeuroAI = (ticketId) => {
+  if (!neuroAIAgentId || !aiAgentConfig.enabled) {
+    return false;
+  }
+
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+  if (ticketIndex === -1) {
+    return false;
+  }
+
+  const ticket = tickets[ticketIndex];
+  
+  // Only assign if ticket is not already assigned to a human agent or if it's unassigned
+  if (!ticket.agentId || ticket.agentId === neuroAIAgentId) {
+    tickets[ticketIndex] = {
+      ...ticket,
+      agentId: neuroAIAgentId,
+      assignedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`🤖 Assigned ticket ${ticket.ticketNumber} to NeuroAI`);
+    
+    // Broadcast assignment change
+    io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
+      ticketId: ticketId,
+      agentId: neuroAIAgentId,
+      agentName: 'NeuroAI Assistant',
+      assignedAt: new Date().toISOString()
+    });
+
+    return true;
+  }
+
+  return false;
+};
+
+// Function to unassign ticket from NeuroAI when human agent takes over
+const unassignTicketFromNeuroAI = (ticketId, newAgentId = null) => {
+  if (!neuroAIAgentId) {
+    return false;
+  }
+
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+  if (ticketIndex === -1) {
+    return false;
+  }
+
+  const ticket = tickets[ticketIndex];
+  
+  // Only unassign if currently assigned to NeuroAI
+  if (ticket.agentId === neuroAIAgentId) {
+    tickets[ticketIndex] = {
+      ...ticket,
+      agentId: newAgentId,
+      assignedAt: newAgentId ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`🤖 Unassigned ticket ${ticket.ticketNumber} from NeuroAI${newAgentId ? ` and assigned to ${newAgentId}` : ''}`);
+    
+    // Broadcast assignment change
+    io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
+      ticketId: ticketId,
+      agentId: newAgentId,
+      agentName: newAgentId ? users.find(u => u.id === newAgentId)?.firstName + ' ' + users.find(u => u.id === newAgentId)?.lastName : null,
+      assignedAt: newAgentId ? new Date().toISOString() : null,
+      previousAgent: 'NeuroAI Assistant'
+    });
+
+    return true;
+  }
+
+  return false;
+};
+
+// Add some demo messages for testing
+const addDemoMessages = () => {
+  const demoMessages = [
+    {
+      id: uuidv4(),
+      ticketId: tickets[0]?.id, // First ticket (Login Issues)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I cannot login to my account. It keeps saying invalid credentials.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 4 * 60 * 1000).toISOString() // 4 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'The application crashed again while I was working on my project.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString() // 20 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[1].id, // agent@demo.com
+      content: 'Hi! I can help you with this issue. Can you tell me what version of the application you are using?',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString() // 15 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I am using version 2.1.4. The crash happens when I click Save.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() // 10 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[2]?.id, // Third ticket (Billing Question)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I was charged twice for my subscription this month. Can you help?',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() // 2 days ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[2]?.id, // Third ticket (Billing Question)
+      senderId: demoUsers[2].id, // agent2@demo.com
+      content: 'I have reviewed your account and processed a refund for the duplicate charge. You should see it in 3-5 business days.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[4]?.id, // Anonymous ticket (Feature Request)
+      senderId: null,
+      content: 'I would really love to see a dark mode option in the application. It would be much easier on the eyes.',
+      messageType: 'text',
+      isAnonymous: true,
+      senderName: 'Anonymous User',
+      createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 minutes ago
+    }
+  ];
+  
+  messages.push(...demoMessages);
+  console.log('📨 Added demo messages:', demoMessages.length);
+};
+
+// Initialize categories
+categories = [
+  { id: uuidv4(), name: 'Software', description: 'Software-related issues', colorCode: '#28a745' },
+  { id: uuidv4(), name: 'Hardware', description: 'Hardware problems', colorCode: '#dc3545' },
+  { id: uuidv4(), name: 'Billing', description: 'Billing inquiries', colorCode: '#ffc107' },
+  { id: uuidv4(), name: 'Account', description: 'Account management', colorCode: '#17a2b8' },
+  { id: uuidv4(), name: 'General', description: 'General support', colorCode: '#6c757d' }
+];
+
+// Initialize device models
+let deviceModels = [
+  { id: uuidv4(), name: 'BWIII', description: 'BrainWave III Device', isActive: true, displayOrder: 1 },
+  { id: uuidv4(), name: 'BWMini', description: 'BrainWave Mini Device', isActive: true, displayOrder: 2 },
+  { id: uuidv4(), name: 'Compass', description: 'Compass Navigation Device', isActive: true, displayOrder: 3 },
+  { id: uuidv4(), name: 'Maxxi', description: 'Maxxi Advanced Device', isActive: true, displayOrder: 4 }
+];
+
+// Initialize customer types
+let customerTypes = [
+  { id: uuidv4(), name: 'Standard', description: 'Standard support level customer', colorCode: '#6c757d', isActive: true, displayOrder: 1 },
+  { id: uuidv4(), name: 'VIP', description: 'VIP customer with priority support', colorCode: '#ffc107', isActive: true, displayOrder: 2 },
+  { id: uuidv4(), name: 'Distributor', description: 'Product distributor with special support', colorCode: '#6f42c1', isActive: true, displayOrder: 3 }
+];
+
+// Demo messages will be initialized after tickets are created
+const demoUsers = [
+  {
+    id: uuidv4(),
+    email: 'customer@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'John',
+    lastName: 'Customer',
+    userType: 'customer',
+    isActive: true,
+    lastLogin: null,
+    createdAt: new Date().toISOString(),
+    avatarUrl: null,
+    companyId: null, // Will be set after companies are initialized
+    company: 'Acme Corporation' // For display purposes
+  },
+  {
+    id: uuidv4(),
+    email: 'admin@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Jane',
+    lastName: 'Admin',
+    userType: 'agent',
+    roleId: '1',
+    roleName: 'Admin',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 10,
+    lastLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  },
+  {
+    id: uuidv4(),
+    email: 'tier2@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Mike',
+    lastName: 'Senior',
+    userType: 'agent',
+    roleId: '2',
+    roleName: 'Tier2',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 8,
+    lastLogin: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), // 4 hours ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  },
+  {
+    id: uuidv4(),
+    email: 'agent@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Sarah',
+    lastName: 'Agent',
+    userType: 'agent',
+    roleId: '3',
+    roleName: 'Tier1',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 5,
+    lastLogin: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  },
+  {
+    id: uuidv4(),
+    email: 'viewer@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Bob',
+    lastName: 'Viewer',
+    userType: 'agent',
+    roleId: '4',
+    roleName: 'Viewer',
+    permissions: ['tickets.view'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 3,
+    lastLogin: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  }
+];
+
+users.push(...demoUsers);
+
+// Sync all users with their role permissions
+const syncAllUserPermissions = () => {
+  users.forEach(user => {
+    if (user.roleId) {
+      const role = rolesConfig.find(r => r.id === user.roleId);
+      if (role) {
+        const rolePermissions = Object.keys(role.permissions).filter(key => role.permissions[key]);
+        user.permissions = rolePermissions;
+        console.log(`🔄 Synced permissions for user ${user.email} with role ${role.name}:`, rolePermissions);
+      }
+    }
+  });
+};
+
+// Call sync function after users are initialized - moved after rolesConfig declaration
+
+// Create demo tickets
+// Helper function to parse address into components
+const parseAddress = (fullAddress) => {
+  if (!fullAddress) {
+    return {
+      street: null,
+      state: null,
+      zipCode: null,
+      country: 'United States'
+    };
+  }
+  
+  // Simple parsing logic for demo addresses
+  const parts = fullAddress.split(',').map(part => part.trim());
+  if (parts.length >= 3) {
+    const lastPart = parts[parts.length - 1]; // "NY 10001" or "CA 94102"
+    const stateParts = lastPart.split(' ');
+    const state = stateParts[0];
+    const zipCode = stateParts[1];
+    const street = parts.slice(0, -1).join(', ');
+    
+    return {
+      street: street || null,
+      state: state || null,
+      zipCode: zipCode || null,
+      country: 'United States'
+    };
+  }
+  
+  return {
+    street: fullAddress,
+    state: null,
+    zipCode: null,
+    country: 'United States'
+  };
+};
+
+const demoTickets = [
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190001', // Today's first ticket
+    title: 'Login Issues',
+    description: 'Cannot login to my account',
+    status: 'new',
+    priority: 'high',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: null,
+    categoryId: categories[3].id, // Account
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: '+1-555-0101',
+    customerCompany: 'Acme Corporation',
+    customerAddress: '456 Main Street, Downtown, NY 10001',
+    customerStreetAddress: '456 Main Street',
+    customerCity: 'Downtown',
+    customerState: 'NY',
+    customerZipCode: '10001',
+    customerCountry: 'United States',
+    customerType: 'Standard',
+    deviceModel: 'BWIII',
+    deviceSerialNumber: 'BW3-2024-001234',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+    updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190002', // Today's second ticket
+    title: 'Application Crash',
+    description: 'The application keeps crashing when I try to save my work',
+    status: 'in_progress',
+    priority: 'high',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[1].id, // agent@demo.com
+    categoryId: categories[0].id, // Software
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: '+1-555-0202',
+    customerCompany: 'Innovative Solutions Ltd',
+    customerAddress: '789 Oak Avenue\nSuite 200\nTech City, CA 94102',
+    customerStreetAddress: '789 Oak Avenue, Suite 200',
+    customerCity: 'Tech City',
+    customerState: 'CA',
+    customerZipCode: '94102',
+    customerCountry: 'United States',
+    customerType: 'VIP',
+    deviceModel: 'BWMini',
+    deviceSerialNumber: 'BWM-2024-005678',
+    aiEnabled: false, // AI disabled manually for this ticket
+    aiDisabledReason: 'manual',
+    aiDisabledAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    aiDisabledBy: demoUsers[1].id,
+    createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 minutes ago
+    updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506170001', // 2 days ago, first ticket
+    title: 'Billing Question',
+    description: 'I was charged twice for my subscription',
+    status: 'resolved',
+    priority: 'medium',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[2].id, // agent2@demo.com
+    categoryId: categories[2].id, // Billing
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: null,
+    customerCompany: null,
+    customerAddress: null,
+    customerStreetAddress: null,
+    customerCity: null,
+    customerState: null,
+    customerZipCode: null,
+    customerCountry: null,
+    customerType: 'Standard',
+    deviceModel: null,
+    deviceSerialNumber: null,
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    resolvedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506120001', // 7 days ago, first ticket
+    title: 'Hardware Replacement',
+    description: 'My keyboard is not working properly',
+    status: 'resolved',
+    priority: 'low',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[3].id, // agent3@demo.com
+    categoryId: categories[1].id, // Hardware
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: null,
+    customerCompany: null,
+    customerAddress: null,
+    customerStreetAddress: null,
+    customerCity: null,
+    customerState: null,
+    customerZipCode: null,
+    customerCountry: null,
+    customerType: 'Standard',
+    deviceModel: 'Compass',
+    deviceSerialNumber: 'CMP-2023-009876',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
+    updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), // 6 days ago
+    resolvedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190003', // Today's third ticket
+    title: 'Feature Request',
+    description: 'Can you add dark mode to the application?',
+    status: 'new',
+    priority: 'low',
+    customerId: null,
+    agentId: null,
+    categoryId: categories[4].id, // General
+    isAnonymous: true,
+    customerName: 'Anonymous User',
+    customerEmail: 'anonymous@example.com',
+    customerPhone: '+1-555-0123',
+    customerCompany: 'Tech Startup Inc.',
+    customerAddress: '123 Tech Street, Innovation City, CA 94105',
+    customerStreetAddress: '123 Tech Street',
+    customerCity: 'Innovation City',
+    customerState: 'CA',
+    customerZipCode: '94105',
+    customerCountry: 'United States',
+    customerType: 'Distributor',
+    deviceModel: 'Maxxi',
+    deviceSerialNumber: 'MXX-2024-012345',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
+    updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
+  }
+];
+
+// Ticket counter for sequential numbering
+let ticketCounters = {};
+
+// Initialize the ticket counter based on existing demo tickets
+ticketCounters['250619'] = 3; // Today has 3 tickets
+ticketCounters['250617'] = 1; // 2 days ago has 1 ticket
+ticketCounters['250612'] = 1; // 7 days ago has 1 ticket
+
+tickets.push(...demoTickets);
+
+// CRITICAL FIX: Ensure all demo tickets have the customerCity field properly set
+// This fixes the issue where customerCity was showing as null
+tickets.forEach((ticket, index) => {
+  if (!ticket.customerCity && ticket.customerAddress) {
+    // Extract city from the address for tickets that don't have explicit city
+    if (ticket.id === demoTickets[0].id) {
+      ticket.customerCity = 'Downtown';
+      ticket.customerStreetAddress = '456 Main Street';
+      ticket.customerState = 'NY';
+      ticket.customerZipCode = '10001';
+      ticket.customerCountry = 'United States';
+    } else if (ticket.id === demoTickets[1].id) {
+      ticket.customerCity = 'Tech City';
+      ticket.customerStreetAddress = '789 Oak Avenue, Suite 200';
+      ticket.customerState = 'CA';
+      ticket.customerZipCode = '94102';
+      ticket.customerCountry = 'United States';
+    } else if (ticket.id === demoTickets[4].id) {
+      ticket.customerCity = 'Innovation City';
+      ticket.customerStreetAddress = '123 Tech Street';
+      ticket.customerState = 'CA';
+      ticket.customerZipCode = '94105';
+      ticket.customerCountry = 'United States';
+    }
+  }
+});
+
+// Debug: Log the ticket data to verify customerCity is set
+console.log('🔧 DEBUG: Checking demo tickets after initialization:');
+tickets.forEach((ticket, index) => {
+  console.log(`  Ticket ${index + 1}: ${ticket.title}`);
+  console.log(`    - customerCity: "${ticket.customerCity}"`);
+  console.log(`    - customerAddress: "${ticket.customerAddress}"`);
+  console.log(`    - customerStreetAddress: "${ticket.customerStreetAddress}"`);
+  console.log(`    - deviceModel: "${ticket.deviceModel}"`);
+  console.log(`    - deviceSerialNumber: "${ticket.deviceSerialNumber}"`);
+});
+
 // Add demo internal comments
 const demoInternalComments = [
   {
@@ -4105,7 +4907,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': true,
       'companies.edit': true,
-      'companies.delete': true
+      'companies.delete': true,
+      'system.settings': true,
+      'system.ai_settings': true
     }
   },
   { 
@@ -4127,7 +4931,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': false,
       'companies.edit': true,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   },
   { 
@@ -4149,7 +4955,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': false,
       'companies.edit': false,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   },
   { 
@@ -4171,7 +4979,9 @@ let rolesConfig = [
       'companies.view': false,
       'companies.create': false,
       'companies.edit': false,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   },
   { 
@@ -4193,7 +5003,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': false,
       'companies.edit': false,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   }
 ];
@@ -6054,30 +6866,37 @@ let systemSettings = {
   systemNotifications: true,
   maintenanceMode: false,
   
-  // Urgency thresholds (in seconds)
-  urgency_yellow_unassigned: 60,
-  urgency_red_unassigned: 120,
-  urgency_yellow_in_progress: 600, // 10 minutes
-  urgency_red_in_progress: 1200, // 20 minutes
+  // Chat-related settings
+  chatAbandonmentTimeout: 15, // in minutes
   
-  // Sound notifications enabled/disabled
-  sound_enabled_green: true,
-  sound_enabled_yellow: true,
-  sound_enabled_red: true,
+  // Enhanced Ticket Timing Rules (in minutes)
+  ai_to_yellow_delay: 0,
+  yellow_to_red_delay: 3,
+  unassigned_to_yellow: 1,
+  unassigned_to_red: 3,
+  assigned_to_yellow: 5,
+  assigned_to_red: 10,
   
-  // Timeout settings (in minutes)
-  agent_timeout_minutes: 30,
-  customer_timeout_minutes: 5,
+  // Sound + Blink Configuration
+  green_sound_enabled: true,
+  yellow_sound_enabled: true,
+  red_sound_enabled: true,
+  yellow_sound_repeat_interval: 2,
+  red_sound_repeat_interval: 2,
+  green_blink_enabled: true,
+  yellow_blink_enabled: true,
+  red_blink_enabled: true,
+  blink_duration_seconds: 10
 };
 
-// Get system settings (Admin only)
+// Get system settings (requires system.settings permission)
 app.get('/api/system-settings', authenticateToken, (req, res) => {
   try {
-    // Check if user is admin
-    if (req.user.roleName !== 'Admin') {
+    // Check if user has system settings permission
+    if (!req.user.permissions.includes('system.settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'System settings permission required' }
       });
     }
 
@@ -6094,14 +6913,14 @@ app.get('/api/system-settings', authenticateToken, (req, res) => {
   }
 });
 
-// Update system settings (Admin only)
+// Update system settings (requires system.settings permission)
 app.put('/api/system-settings', authenticateToken, (req, res) => {
   try {
-    // Check if user is admin
-    if (req.user.roleName !== 'Admin') {
+    // Check if user has system settings permission
+    if (!req.user.permissions.includes('system.settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'System settings permission required' }
       });
     }
 
@@ -6151,14 +6970,14 @@ app.put('/api/system-settings', authenticateToken, (req, res) => {
   }
 });
 
-// Create new category (Admin only)
+// Create new category (requires system.settings permission)
 app.post('/api/categories', authenticateToken, (req, res) => {
   try {
-    // Check if user is admin
-    if (req.user.roleName !== 'Admin') {
+    // Check if user has system settings permission
+    if (!req.user.permissions.includes('system.settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'System settings permission required' }
       });
     }
 
@@ -9041,10 +9860,10 @@ app.get('/api/devices/stats', authenticateToken, (req, res) => {
 // Get AI agent configuration (Admin only)
 app.get('/api/ai-agent/config', authenticateToken, (req, res) => {
   try {
-    if (req.user.roleName !== 'Admin') {
+    if (!req.user.permissions.includes('system.ai_settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
       });
     }
 
@@ -9064,10 +9883,10 @@ app.get('/api/ai-agent/config', authenticateToken, (req, res) => {
 // Update AI agent configuration (Admin only)
 app.put('/api/ai-agent/config', authenticateToken, (req, res) => {
   try {
-    if (req.user.roleName !== 'Admin') {
+    if (!req.user.permissions.includes('system.ai_settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
       });
     }
 
@@ -9150,10 +9969,10 @@ app.put('/api/ai-agent/config', authenticateToken, (req, res) => {
 // Get AI agent statistics (Admin only)
 app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
   try {
-    if (req.user.roleName !== 'Admin') {
+    if (!req.user.permissions.includes('system.ai_settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
       });
     }
 
@@ -9228,11 +10047,11 @@ async function handleAiDocumentUpload(req, res) {
     console.log('📄 AI Document Upload Request Started');
     console.log('User:', req.user.email, 'Role:', req.user.roleName);
     
-    if (req.user.roleName !== 'Admin') {
-      console.log('❌ Access denied: User is not Admin');
+    if (!req.user.permissions.includes('system.ai_settings')) {
+      console.log('❌ Access denied: User does not have AI settings permission');
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
       });
     }
 
@@ -9406,10 +10225,10 @@ async function handleAiDocumentUpload(req, res) {
 // Get AI knowledge base documents (Admin only)
 app.get('/api/ai-agent/documents', authenticateToken, (req, res) => {
   try {
-    if (req.user.roleName !== 'Admin') {
+    if (!req.user.permissions.includes('system.ai_settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
       });
     }
 
@@ -9440,10 +10259,10 @@ app.get('/api/ai-agent/documents', authenticateToken, (req, res) => {
 // Delete AI knowledge base document (Admin only)
 app.delete('/api/ai-agent/documents/:id', authenticateToken, async (req, res) => {
   try {
-    if (req.user.roleName !== 'Admin') {
+    if (!req.user.permissions.includes('system.ai_settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
       });
     }
 
@@ -9571,10 +10390,10 @@ app.post('/api/tickets/:ticketId/toggle-ai', authenticateToken, (req, res) => {
 // Get AI response statistics (Admin only)
 app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
   try {
-    if (req.user.roleName !== 'Admin') {
+    if (!req.user.permissions.includes('system.ai_settings')) {
       return res.status(403).json({
         success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
       });
     }
 

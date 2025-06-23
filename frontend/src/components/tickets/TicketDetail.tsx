@@ -50,7 +50,6 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     deviceSerialNumber: initialTicket?.deviceSerialNumber || '',
   });
   const [saving, setSaving] = useState(false);
-  const [categories, setCategories] = useState<any[]>([]);
   const [customerTypes, setCustomerTypes] = useState<any[]>([]);
   const [deviceModels, setDeviceModels] = useState<any[]>([]);
   const [customerStatus, setCustomerStatus] = useState<{
@@ -69,6 +68,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
   // AI related state
   const [aiEnabled, setAiEnabled] = useState<boolean>(true);
   const [aiToggling, setAiToggling] = useState(false);
+  const [generatingSummary, setGeneratingSummary] = useState<boolean>(false);
   const [aiStatus, setAiStatus] = useState<{
     enabled: boolean;
     reason: string | null;
@@ -123,7 +123,6 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     
     loadMessages();
     loadAgents();
-    loadCategories();
     loadDropdownOptions();
     if (user?.role === 'agent' || user?.userType === 'agent') {
       loadInternalComments();
@@ -224,12 +223,42 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       }
     };
 
+    // Listen for AI summary generation events
+    const handleSummaryGenerated = (data: { 
+      ticketId: string; 
+      summary: string; 
+      generatedAt: string; 
+      modelVersion: string; 
+      confidence: number; 
+    }) => {
+      if (ticket?.id && data.ticketId === ticket.id) {
+        console.log('📝 AI summary generated via socket:', data);
+        setTicket(prev => {
+          if (!prev) return prev;
+          console.log('📝 Updating ticket with summary:', data.summary);
+          return {
+            ...prev,
+            resolutionSummary: data.summary,
+            resolutionSummaryGeneratedAt: data.generatedAt,
+            resolutionSummaryModelVersion: data.modelVersion
+          };
+        });
+        
+        // Also call onTicketUpdate to refresh parent component after socket confirmation
+        setTimeout(() => {
+          console.log('📝 Refreshing parent after socket confirmation');
+          onTicketUpdate();
+        }, 500); // Small delay to ensure state is updated
+      }
+    };
+
     socketService.on('new_message', handleNewMessage);
     socketService.on('user_typing', handleTyping);
     socketService.on('ticket_updated', handleTicketUpdate);
     socketService.on('customer_status_changed', handleCustomerStatusChange);
     socketService.on('agent_status_changed', handleAgentStatusChange);
     socketService.on('ai_status_changed', handleAiStatusChange);
+    socketService.on('ticket_summary_generated', handleSummaryGenerated);
 
     return () => {
       socketService.off('new_message', handleNewMessage);
@@ -238,6 +267,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       socketService.off('customer_status_changed', handleCustomerStatusChange);
       socketService.off('agent_status_changed', handleAgentStatusChange);
       socketService.off('ai_status_changed', handleAiStatusChange);
+      socketService.off('ticket_summary_generated', handleSummaryGenerated);
       if (ticket?.id) {
         socketService.leaveTicket(ticket.id);
       }
@@ -286,14 +316,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     }
   };
 
-  const loadCategories = async () => {
-    try {
-      const fetchedCategories = await apiService.getCategories();
-      setCategories(fetchedCategories);
-    } catch (error) {
-      console.error('❌ Error loading categories:', error);
-    }
-  };
+
 
   const loadDropdownOptions = async () => {
     try {
@@ -474,6 +497,14 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       setTimeout(() => {
         onTicketUpdate();
       }, 100);
+      
+      // Auto-generate summary when ticket is resolved (only if no summary exists)
+      if (newStatus === 'resolved' && user?.permissions?.includes('tickets.edit') && !ticket?.resolutionSummary) {
+        console.log('🎯 Ticket resolved, auto-generating summary...');
+        setTimeout(() => {
+          handleGenerateSummary();
+        }, 2000); // Delay to ensure ticket is fully updated
+      }
     } catch (error) {
       console.error('Error updating ticket status:', error);
     }
@@ -518,6 +549,86 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       setAiEnabled(!enabled);
     } finally {
       setAiToggling(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    console.log('🔴 [DEBUG] handleGenerateSummary called');
+    console.log('🔴 [DEBUG] ticket:', ticket);
+    console.log('🔴 [DEBUG] ticket.id:', ticket?.id);
+    console.log('🔴 [DEBUG] user permissions:', user?.permissions);
+    console.log('🔴 [DEBUG] generatingSummary state:', generatingSummary);
+    
+    if (!ticket?.id) {
+      console.error('🔴 [DEBUG] No ticket ID available');
+      alert('Error: No ticket ID available');
+      return;
+    }
+    
+    // Prevent multiple simultaneous generation attempts
+    if (generatingSummary) {
+      console.log('🔴 [DEBUG] Summary generation already in progress, skipping');
+      return;
+    }
+    
+    try {
+      console.log('🔴 [DEBUG] Setting generatingSummary to true');
+      setGeneratingSummary(true);
+      console.log(`📝 Generating summary for ticket ${ticket.ticketNumber} (ID: ${ticket.id})`);
+      
+      console.log('🔴 [DEBUG] Calling apiService.generateTicketSummary...');
+      const summaryData = await apiService.generateTicketSummary(ticket.id);
+      console.log('✅ Summary generated successfully:', summaryData);
+      
+      // Update local ticket state with new summary
+      setTicket(prev => {
+        if (!prev) return prev;
+        const updated = {
+          ...prev,
+          resolutionSummary: summaryData.summary,
+          resolutionSummaryGeneratedAt: summaryData.generatedAt,
+          resolutionSummaryModelVersion: summaryData.modelVersion,
+          resolutionSummaryGeneratedBy: summaryData.generatedBy
+        };
+        console.log('🔴 [DEBUG] Updated ticket state:', updated);
+        return updated;
+      });
+      
+      // Don't call onTicketUpdate() immediately to avoid race condition
+      // The Socket.IO event 'ticket_summary_generated' will handle real-time updates for all users
+      console.log('🔴 [DEBUG] Summary updated locally, waiting for socket event confirmation');
+      
+    } catch (error: any) {
+      console.error('❌ Error generating summary:', error);
+      console.error('🔴 [DEBUG] Error type:', typeof error);
+      console.error('🔴 [DEBUG] Error constructor:', error.constructor.name);
+      console.error('🔴 [DEBUG] Error message:', error.message);
+      console.error('🔴 [DEBUG] Error stack:', error.stack);
+      
+      // More detailed error handling
+      let errorMessage = 'Failed to generate summary. ';
+      
+      // Check if it's a fetch error or API error
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        errorMessage += 'Network error. Please check if the backend server is running.';
+      } else if (error.message.includes('Authentication failed')) {
+        errorMessage += 'Authentication failed. Please login again.';
+      } else if (error.message.includes('HTTP error')) {
+        errorMessage += `Server error: ${error.message}`;
+      } else {
+        errorMessage += `${error.message || 'Please try again or contact support.'}`;
+      }
+      
+      alert(errorMessage);
+      console.error('📋 Full error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        error: error
+      });
+    } finally {
+      console.log('🔴 [DEBUG] Setting generatingSummary to false');
+      setGeneratingSummary(false);
     }
   };
 
@@ -1324,6 +1435,8 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                     </div>
                   </div>
                 )}
+
+
               </div>
             )}
           </div>
@@ -1745,6 +1858,75 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                   )}
                 </div>
               </>
+            )}
+          </div>
+        </div>
+
+        {/* AI Summary Section - Below chat */}
+        <div className="lg:col-span-3 mt-4">
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">AI Summary</h3>
+              {user?.permissions?.includes('tickets.edit') && (
+                <button
+                  onClick={() => {
+                    console.log('🔵 [DEBUG] Button clicked!');
+                    console.log('🔵 [DEBUG] Current generatingSummary state:', generatingSummary);
+                    handleGenerateSummary();
+                  }}
+                  disabled={generatingSummary}
+                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {generatingSummary ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Generating...</span>
+                    </div>
+                  ) : ticket.resolutionSummary ? (
+                    'Regenerate'
+                  ) : (
+                    'Generate Summary'
+                  )}
+                </button>
+              )}
+            </div>
+            
+            {ticket.resolutionSummary ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{ticket.resolutionSummary}</p>
+                </div>
+                <div className="flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
+                  <span>
+                    Generated {ticket.resolutionSummaryGeneratedAt ? 
+                      new Date(ticket.resolutionSummaryGeneratedAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : 'Unknown'}
+                  </span>
+                  {ticket.resolutionSummaryModelVersion && (
+                    <span className="text-gray-400 dark:text-gray-500 font-mono text-xs">
+                      {ticket.resolutionSummaryModelVersion}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-gray-500 dark:text-gray-400 mb-2">No AI summary available</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">
+                  {user?.permissions?.includes('tickets.edit') 
+                    ? 'Click "Generate Summary" to create an AI-powered summary of this ticket'
+                    : 'Summaries are automatically generated when tickets are resolved'
+                  }
+                </p>
+              </div>
             )}
           </div>
         </div>

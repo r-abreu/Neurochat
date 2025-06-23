@@ -83,6 +83,7 @@ const CustomerChat: React.FC = () => {
   const [companySuggestions, setCompanySuggestions] = useState<Array<{name: string; confidence: number; description?: string}>>([]);
   const [showCompanySuggestions, setShowCompanySuggestions] = useState(false);
   const [companyInputTimeout, setCompanyInputTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [systemSettings, setSystemSettings] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
@@ -92,6 +93,26 @@ const CustomerChat: React.FC = () => {
   useEffect(() => {
     currentTicketIdRef.current = currentTicketId;
   }, [currentTicketId]);
+
+  // Load system settings
+  useEffect(() => {
+    const loadSystemSettings = async () => {
+      try {
+        const response = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001'}/api/system/settings`);
+        if (response.ok) {
+          const data = await response.json();
+          setSystemSettings(data.settings);
+        }
+      } catch (error) {
+        console.error('Error loading system settings:', error);
+        // Use default values
+        setSystemSettings({
+          chatAbandonmentTimeout: 15, // Default 15 minutes
+        });
+      }
+    };
+    loadSystemSettings();
+  }, []);
 
   useEffect(() => {
     // Clear any existing authentication tokens for anonymous customer chat
@@ -135,10 +156,10 @@ const CustomerChat: React.FC = () => {
     let visibilityTimeoutId: NodeJS.Timeout | null = null;
     
     const handleVisibilityChange = () => {
-              if (document.hidden && currentTicketIdRef.current && !ticketClosed) {
-          // User switched away from tab - set a timer to mark as abandoned after some delay
-          visibilityTimeoutId = setTimeout(() => {
-            if (document.hidden && currentTicketIdRef.current) {
+      if (document.hidden && currentTicketIdRef.current && !ticketClosed) {
+        // User switched away from tab - set a timer to mark as abandoned after some delay
+        visibilityTimeoutId = setTimeout(() => {
+          if (document.hidden && currentTicketIdRef.current) {
             console.log('🔴 Customer tab hidden for too long, marking ticket as abandoned');
             // Mark ticket as abandoned
             try {
@@ -154,7 +175,7 @@ const CustomerChat: React.FC = () => {
             }
             socketService.leaveTicket(currentTicketIdRef.current);
           }
-        }, 60000); // 1 minute delay before marking as abandoned
+        }, (systemSettings?.chatAbandonmentTimeout || 15) * 60 * 1000); // Use system setting or default 15 minutes
       } else if (!document.hidden && visibilityTimeoutId) {
         // User came back to tab - cancel the abandon timer
         clearTimeout(visibilityTimeoutId);
@@ -589,10 +610,10 @@ const CustomerChat: React.FC = () => {
       clearTimeout(inactivityTimeoutRef.current);
     }
     
-    if (currentTicketId && !ticketClosed) {
+    if (currentTicketId && !ticketClosed && systemSettings) {
       inactivityTimeoutRef.current = setTimeout(() => {
         handleTimeoutClose();
-      }, 5 * 60 * 1000); // 5 minutes
+      }, (systemSettings?.chatAbandonmentTimeout || 15) * 60 * 1000); // Convert minutes to milliseconds
     }
   };
 
@@ -1229,6 +1250,12 @@ const CustomerChat: React.FC = () => {
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage(e);
+                      }
+                    }}
                     placeholder={isInfoComplete ? "Type your message..." : "Please fill in your details above first"}
                     disabled={!isInfoComplete || loading || ticketClosed}
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:bg-gray-100 dark:disabled:bg-gray-800"

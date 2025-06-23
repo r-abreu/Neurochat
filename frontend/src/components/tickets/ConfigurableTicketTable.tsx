@@ -242,11 +242,44 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: true,
       resizable: true,
-      render: (ticket) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${props.getStatusColor(ticket.status)}`}>
-          {props.formatStatus(ticket.status)}
-        </span>
-      ),
+      render: (ticket) => {
+        const statusElement = (
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${props.getStatusColor(ticket.status)}`}>
+            {props.formatStatus(ticket.status)}
+            {ticket.status === 'resolved' && ticket.resolutionSummary && (
+              <svg className="ml-1 w-3 h-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            )}
+          </span>
+        );
+
+        // Add tooltip for resolved tickets with summaries
+        if (ticket.status === 'resolved' && ticket.resolutionSummary) {
+          return (
+            <div className="relative group">
+              {statusElement}
+              <div className="absolute z-50 invisible group-hover:visible bg-gray-900 text-white text-xs rounded-lg py-2 px-3 bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-80 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <div className="font-semibold mb-1">AI Summary:</div>
+                <div className="text-left leading-relaxed">{ticket.resolutionSummary}</div>
+                {ticket.resolutionSummaryGeneratedAt && (
+                  <div className="text-xs text-gray-300 mt-1 text-right">
+                    Generated {new Date(ticket.resolutionSummaryGeneratedAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </div>
+                )}
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900"></div>
+              </div>
+            </div>
+          );
+        }
+
+        return statusElement;
+      },
     },
     {
       id: 'priority',

@@ -54,6 +54,88 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const [sessionTimeout, setSessionTimeout] = React.useState<number>(60); // Default 60 minutes
+  const sessionTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const lastActivityRef = React.useRef<Date>(new Date());
+
+  // Load system settings on mount
+  useEffect(() => {
+    const loadSystemSettings = async () => {
+      try {
+        const response = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001'}/api/system/settings`);
+        if (response.ok) {
+          const data = await response.json();
+          setSessionTimeout(data.settings?.sessionTimeout || 60);
+        }
+      } catch (error) {
+        console.error('Error loading system settings for session timeout:', error);
+      }
+    };
+    loadSystemSettings();
+  }, []);
+
+  const logout = (): void => {
+    // Clear timeout first
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current);
+    }
+    
+    // Disconnect socket
+    socketService.disconnect();
+    // Clear local storage
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_data');
+    // Clear state
+    dispatch({ type: 'CLEAR_USER' });
+  };
+
+  // Reset session timeout on activity
+  const resetSessionTimeout = React.useCallback(() => {
+    if (!state.isAuthenticated) return;
+    
+    lastActivityRef.current = new Date();
+    
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current);
+    }
+    
+    sessionTimeoutRef.current = setTimeout(() => {
+      console.log('Session timeout reached - logging out user');
+      logout();
+      alert('Your session has expired due to inactivity. Please log in again.');
+    }, sessionTimeout * 60 * 1000); // Convert minutes to milliseconds
+  }, [state.isAuthenticated, sessionTimeout]);
+
+  // Set up activity listeners
+  useEffect(() => {
+    if (state.isAuthenticated) {
+      const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+      
+      const handleActivity = () => {
+        resetSessionTimeout();
+      };
+      
+      // Add event listeners
+      activityEvents.forEach(event => {
+        document.addEventListener(event, handleActivity, true);
+      });
+      
+      // Start initial timeout
+      resetSessionTimeout();
+      
+      return () => {
+        // Remove event listeners
+        activityEvents.forEach(event => {
+          document.removeEventListener(event, handleActivity, true);
+        });
+        
+        // Clear timeout
+        if (sessionTimeoutRef.current) {
+          clearTimeout(sessionTimeoutRef.current);
+        }
+      };
+    }
+  }, [state.isAuthenticated, resetSessionTimeout]);
 
   useEffect(() => {
     // Check for existing auth token on app load
@@ -109,16 +191,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       dispatch({ type: 'SET_LOADING', payload: false });
       throw error;
     }
-  };
-
-  const logout = (): void => {
-    // Disconnect socket
-    socketService.disconnect();
-    // Clear local storage
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user_data');
-    // Clear state
-    dispatch({ type: 'CLEAR_USER' });
   };
 
   const updateUser = (updatedUser: User): void => {

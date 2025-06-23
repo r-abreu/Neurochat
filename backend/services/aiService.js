@@ -251,6 +251,132 @@ Remember: You are the first responder but human agents are available for complex
       return [];
     }
   }
+
+  // Generate AI-powered resolution summary for a ticket
+  async generateResolutionSummary(ticketData, messages, modelVersion = 'gpt-4o') {
+    if (!this.isEnabled()) {
+      throw new Error('AI Service is not available');
+    }
+
+    const startTime = Date.now();
+
+    try {
+      // Filter out system messages and format chat transcript
+      const conversationMessages = messages
+        .filter(msg => msg.messageType !== 'system')
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map(msg => {
+          const sender = msg.sender || {};
+          const senderName = sender.userType === 'ai' ? 'AI Assistant' : 
+                           sender.userType === 'agent' ? `Agent ${sender.firstName} ${sender.lastName}` :
+                           `Customer ${sender.firstName} ${sender.lastName}`;
+          return `${senderName}: ${msg.content}`;
+        });
+
+      // Build the conversation transcript
+      const transcript = conversationMessages.join('\n');
+
+      // Create the summarization prompt
+      const systemPrompt = `You are an expert at summarizing customer support conversations. Your task is to create a concise, professional summary of this resolved support ticket.
+
+Focus on:
+1. The main issue or problem the customer faced
+2. Key troubleshooting steps taken by the support team
+3. The final resolution or outcome
+4. Keep it between 3-5 sentences
+5. Be specific about technical details when relevant
+6. Use professional, clear language
+
+Guidelines:
+- Start with "Issue:" to describe the problem
+- Include "Resolution:" to describe the solution
+- Mention any specific products, error codes, or technical details
+- Keep it factual and avoid subjective language`;
+
+      const userPrompt = `Please summarize this support conversation:
+
+**Ticket Information:**
+- Ticket ID: ${ticketData.ticketNumber || ticketData.id}
+- Title: ${ticketData.title}
+- Category: ${ticketData.category?.name || 'General'}
+- Priority: ${ticketData.priority}
+- Customer: ${ticketData.customerName || 'Anonymous'}
+- Device: ${ticketData.deviceModel ? `${ticketData.deviceModel} (${ticketData.deviceSerialNumber || 'N/A'})` : 'Not specified'}
+
+**Conversation Transcript:**
+${transcript}
+
+Summarize this support conversation in 3–5 sentences. Focus on the issue, key troubleshooting steps, and outcome.`;
+
+      // Generate summary using OpenAI
+      const completion = await this.openai.chat.completions.create({
+        model: modelVersion,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.3, // Lower temperature for more consistent, factual summaries
+        max_tokens: 300,
+        presence_penalty: 0,
+        frequency_penalty: 0
+      });
+
+      const summary = completion.choices[0]?.message?.content?.trim();
+      
+      if (!summary) {
+        throw new Error('No summary generated');
+      }
+
+      // Calculate confidence based on summary quality
+      const confidence = this.calculateSummaryConfidence(summary, transcript.length);
+
+      return {
+        summary,
+        confidence,
+        responseTimeMs: Date.now() - startTime,
+        modelUsed: modelVersion,
+        messageCount: conversationMessages.length,
+        transcriptLength: transcript.length
+      };
+
+    } catch (error) {
+      console.error('Error generating resolution summary:', error);
+      throw new Error(`Summary generation failed: ${error.message}`);
+    }
+  }
+
+  // Calculate confidence score for summary quality
+  calculateSummaryConfidence(summary, transcriptLength) {
+    let confidence = 0.7; // Base confidence for AI summaries
+
+    // Check summary length (should be substantial but not too long)
+    const summaryLength = summary.length;
+    if (summaryLength > 100 && summaryLength < 500) {
+      confidence += 0.1;
+    }
+
+    // Check for structured format (Issue/Resolution)
+    if (summary.toLowerCase().includes('issue') && summary.toLowerCase().includes('resolution')) {
+      confidence += 0.1;
+    }
+
+    // Check for specific technical details
+    const technicalKeywords = ['error', 'code', 'device', 'serial', 'model', 'configuration', 'settings'];
+    const hasechnicalDetails = technicalKeywords.some(keyword => 
+      summary.toLowerCase().includes(keyword)
+    );
+    if (hasechnicalDetails) {
+      confidence += 0.05;
+    }
+
+    // Adjust based on transcript length (more content = potentially better summary)
+    if (transcriptLength > 500) {
+      confidence += 0.05;
+    }
+
+    // Cap confidence between 0.5 and 0.95
+    return Math.max(0.5, Math.min(0.95, confidence));
+  }
 }
 
 module.exports = new AIService(); 

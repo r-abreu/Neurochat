@@ -804,6 +804,22 @@ class ApiService {
     return apiResponse.data;
   }
 
+  async generateTicketSummary(ticketId: string): Promise<any> {
+    const response = await this.fetchWithAuth(`/tickets/${ticketId}/generate-summary`, {
+      method: 'POST'
+    });
+    const apiResponse = await this.handleResponse<{ 
+      success: boolean; 
+      data: { 
+        summary: string;
+        generatedAt: string;
+        modelVersion: string;
+        generatedBy: string;
+      } 
+    }>(response);
+    return apiResponse.data;
+  }
+
   // Dropdown Options Management APIs
   async getDropdownOptions(): Promise<{
     categories: Category[];

@@ -23,6 +23,8 @@ interface Role {
     'companies.create': boolean;
     'companies.edit': boolean;
     'companies.delete': boolean;
+    'system.settings': boolean;
+    'system.ai_settings': boolean;
   };
 }
 
@@ -56,6 +58,8 @@ const RoleManagement: React.FC = () => {
       'companies.create': false,
       'companies.edit': false,
       'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false,
     }
   });
 
@@ -201,6 +205,8 @@ const RoleManagement: React.FC = () => {
         'companies.create': false,
         'companies.edit': false,
         'companies.delete': false,
+        'system.settings': false,
+        'system.ai_settings': false,
       }
     });
   };
@@ -227,6 +233,8 @@ const RoleManagement: React.FC = () => {
         'companies.create': role.permissions?.['companies.create'] || false,
         'companies.edit': role.permissions?.['companies.edit'] || false,
         'companies.delete': role.permissions?.['companies.delete'] || false,
+        'system.settings': role.permissions?.['system.settings'] || false,
+        'system.ai_settings': role.permissions?.['system.ai_settings'] || false,
       }
     });
   };
@@ -443,6 +451,32 @@ const RoleManagement: React.FC = () => {
                     ))}
                   </div>
                 </div>
+
+                <div>
+                  <h4 className="font-medium text-sm mb-2">System Management</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { key: 'system.settings', label: 'System Settings' },
+                      { key: 'system.ai_settings', label: 'AI Agent Settings' },
+                    ].map(perm => (
+                      <label key={perm.key} className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={formData.permissions[perm.key as keyof typeof formData.permissions]}
+                          onChange={(e) => setFormData(prev => ({
+                            ...prev,
+                            permissions: {
+                              ...prev.permissions,
+                              [perm.key]: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <span className="text-sm">{perm.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -473,14 +507,29 @@ const RoleManagement: React.FC = () => {
       <div className={`rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className={`border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <thead className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Role</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Tickets</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">User Management</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Devices</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Companies</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Role
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Tickets
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Admin & System
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Device Management
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Company Management
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  System Management
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
@@ -560,6 +609,19 @@ const RoleManagement: React.FC = () => {
                         <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded">Delete</span>
                       )}
                       {!role.permissions?.['companies.view'] && !role.permissions?.['companies.create'] && !role.permissions?.['companies.edit'] && !role.permissions?.['companies.delete'] && (
+                        <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">No Access</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {role.permissions?.['system.settings'] && (
+                        <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded">System Settings</span>
+                      )}
+                      {role.permissions?.['system.ai_settings'] && (
+                        <span className="px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded">AI Settings</span>
+                      )}
+                      {!role.permissions?.['system.settings'] && !role.permissions?.['system.ai_settings'] && (
                         <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">No Access</span>
                       )}
                     </div>

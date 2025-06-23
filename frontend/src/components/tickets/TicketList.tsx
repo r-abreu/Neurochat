@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import apiService from '../../services/api';
 import soundService from '../../services/soundService';
 import ConfigurableTicketTable from './ConfigurableTicketTable';
+import EnhancedUrgencyIndicator from './EnhancedUrgencyIndicator';
 
 interface TicketListProps {
   tickets: Ticket[];
@@ -17,217 +18,6 @@ interface TicketListProps {
   onCustomerMessage?: (ticketId: string) => void;
   onAgentReply?: (ticketId: string) => void;
 }
-
-// Urgency indicator component
-const UrgencyIndicator: React.FC<{ ticket: Ticket; onUrgencyChange?: (ticketId: string, urgency: string) => void }> = ({ ticket, onUrgencyChange }) => {
-  const [currentTime, setCurrentTime] = useState(Date.now());
-  const [previousUrgency, setPreviousUrgency] = useState<string | null>(null);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const getElapsedTime = () => {
-    const createdTime = new Date(ticket.createdAt).getTime();
-    const elapsed = Math.floor((currentTime - createdTime) / 1000);
-    return elapsed;
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const getUrgencyStyle = () => {
-    const elapsed = getElapsedTime();
-    const isAssigned = !!ticket.agentId;
-    const isResolved = ticket.status === 'resolved';
-    const isInProgress = ticket.status === 'in_progress';
-
-    let currentUrgency = 'green';
-
-    if (isResolved) {
-      currentUrgency = 'green';
-      // If resolved, show checkmark with green background
-      const style = {
-        backgroundColor: 'rgb(34, 197, 94)', // green-500
-        color: 'white',
-        animation: '',
-        showCheckmark: true,
-        urgency: currentUrgency
-      };
-      
-      // Check if urgency changed and play sound
-      if (previousUrgency && previousUrgency !== currentUrgency) {
-        soundService.playNewTicketSound(); // Resolved sound (positive)
-        onUrgencyChange?.(ticket.id, currentUrgency);
-      }
-      if (previousUrgency !== currentUrgency) {
-        setPreviousUrgency(currentUrgency);
-      }
-      
-      return style;
-    } else if (isInProgress) {
-      // For in-progress tickets, check elapsed time since creation
-      const elapsedMinutes = Math.floor(elapsed / 60);
-      
-      if (elapsedMinutes > 20) {
-        currentUrgency = 'red';
-        const style = {
-          backgroundColor: 'rgb(239, 68, 68)', // red-500
-          color: 'white',
-          animation: 'pulse 1s infinite',
-          urgency: currentUrgency
-        };
-        
-        // Play red urgency sound if urgency increased
-        if (previousUrgency && previousUrgency !== 'red') {
-          soundService.playRedTicketSound();
-          onUrgencyChange?.(ticket.id, currentUrgency);
-        }
-        if (previousUrgency !== currentUrgency) {
-          setPreviousUrgency(currentUrgency);
-        }
-        
-        return style;
-      } else if (elapsedMinutes > 10) {
-        currentUrgency = 'yellow';
-        const style = {
-          backgroundColor: 'rgb(245, 158, 11)', // yellow-500
-          color: 'white',
-          animation: '',
-          urgency: currentUrgency
-        };
-        
-        // Play yellow urgency sound if urgency increased
-        if (previousUrgency && previousUrgency === 'green') {
-          soundService.playYellowTicketSound();
-          onUrgencyChange?.(ticket.id, currentUrgency);
-        }
-        if (previousUrgency !== currentUrgency) {
-          setPreviousUrgency(currentUrgency);
-        }
-        
-        return style;
-      } else {
-        currentUrgency = 'green';
-        const style = {
-          backgroundColor: 'rgb(34, 197, 94)', // green-500
-          color: 'white',
-          animation: '',
-          urgency: currentUrgency
-        };
-        
-        // Trigger blinking for in-progress tickets that become green or are newly green
-        if (previousUrgency === null || (previousUrgency !== null && previousUrgency !== currentUrgency)) {
-          onUrgencyChange?.(ticket.id, currentUrgency);
-        }
-        if (previousUrgency !== currentUrgency) {
-          setPreviousUrgency(currentUrgency);
-        }
-        
-        return style;
-      }
-    } else if (isAssigned) {
-      currentUrgency = 'green';
-      const style = {
-        backgroundColor: 'rgb(34, 197, 94)', // green-500
-        color: 'white',
-        animation: '',
-        urgency: currentUrgency
-      };
-      
-      // Trigger blinking when ticket becomes assigned (green) or is newly assigned
-      if (previousUrgency === null || (previousUrgency !== null && previousUrgency !== currentUrgency)) {
-        onUrgencyChange?.(ticket.id, currentUrgency);
-      }
-      if (previousUrgency !== currentUrgency) {
-        setPreviousUrgency(currentUrgency);
-      }
-      
-      return style;
-    } else if (elapsed > 120) {
-      currentUrgency = 'red';
-      const style = {
-        backgroundColor: 'rgb(239, 68, 68)', // red-500
-        color: 'white',
-        animation: 'pulse 1s infinite',
-        urgency: currentUrgency
-      };
-      
-      // Play red urgency sound if urgency increased
-      if (previousUrgency && previousUrgency !== 'red') {
-        soundService.playRedTicketSound();
-        onUrgencyChange?.(ticket.id, currentUrgency);
-      }
-      if (previousUrgency !== currentUrgency) {
-        setPreviousUrgency(currentUrgency);
-      }
-      
-      return style;
-    } else if (elapsed > 60) {
-      currentUrgency = 'yellow';
-      const style = {
-        backgroundColor: 'rgb(245, 158, 11)', // yellow-500
-        color: 'white',
-        animation: '',
-        urgency: currentUrgency
-      };
-      
-      // Play yellow urgency sound if urgency increased from green
-      if (previousUrgency && previousUrgency === 'green') {
-        soundService.playYellowTicketSound();
-        onUrgencyChange?.(ticket.id, currentUrgency);
-      }
-      if (previousUrgency !== currentUrgency) {
-        setPreviousUrgency(currentUrgency);
-      }
-      
-      return style;
-    } else {
-      currentUrgency = 'green';
-      const style = {
-        backgroundColor: 'rgb(34, 197, 94)', // green-500
-        color: 'white',
-        animation: '',
-        urgency: currentUrgency
-      };
-      
-      // Trigger blinking for new tickets (green) or when urgency changes to green
-      if (previousUrgency === null || (previousUrgency !== null && previousUrgency !== currentUrgency)) {
-        onUrgencyChange?.(ticket.id, currentUrgency);
-      }
-      if (previousUrgency !== currentUrgency) {
-        setPreviousUrgency(currentUrgency);
-      }
-      
-      return style;
-    }
-  };
-
-  const urgencyStyle = getUrgencyStyle();
-  
-  return (
-    <div 
-      className="w-12 h-12 rounded-full flex items-center justify-center text-xs font-mono font-bold shadow-sm"
-      style={urgencyStyle}
-      title={`Urgency: ${(urgencyStyle as any).urgency}`}
-    >
-      {(urgencyStyle as any).showCheckmark ? (
-        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        formatTime(getElapsedTime())
-      )}
-    </div>
-  );
-};
 
 const TicketList: React.FC<TicketListProps> = ({
   tickets,
@@ -476,84 +266,6 @@ const TicketList: React.FC<TicketListProps> = ({
     return agentMessages.length > 0 ? agentMessages[0] : null;
   };
 
-  const getWarningInfo = (ticket: Ticket) => {
-    const now = currentTime;
-    const createdTime = new Date(ticket.createdAt).getTime();
-    const elapsedMinutes = Math.floor((now - createdTime) / (1000 * 60));
-    const isAssigned = !!ticket.agentId;
-    const isResolved = ticket.status === 'resolved';
-    const isInProgress = ticket.status === 'in_progress';
-
-    if (isResolved) {
-      return {
-        level: 'success',
-        message: '✅ Ticket resolved successfully',
-        color: 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border-green-200 dark:border-green-700'
-      };
-    }
-
-    if (!isAssigned) {
-      // Not assigned warnings
-      if (elapsedMinutes >= 2) {
-        return {
-          level: 'critical',
-          message: '🚨 Customer waiting 2+ minutes - URGENT ACTION REQUIRED!',
-          color: 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border-red-200 dark:border-red-700'
-        };
-      } else if (elapsedMinutes >= 1) {
-        return {
-          level: 'warning',
-          message: '⚠️ Customer waiting 1+ minute - Please assign an agent',
-          color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700'
-        };
-      } else {
-        return {
-          level: 'info',
-          message: '🆕 New ticket - Assign an agent soon',
-          color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-700'
-        };
-      }
-    } else {
-      // Assigned warnings
-      if (isInProgress) {
-        if (elapsedMinutes >= 20) {
-          return {
-            level: 'critical',
-            message: '🔥 Solution taking 20+ minutes - ESCALATE IMMEDIATELY!',
-            color: 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border-red-200 dark:border-red-700'
-          };
-        } else if (elapsedMinutes >= 10) {
-          return {
-            level: 'warning',
-            message: '⏰ Solution taking 10+ minutes - Consider escalation',
-            color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700'
-          };
-        } else {
-          return {
-            level: 'success',
-            message: '👨‍💼 Agent actively working on solution',
-            color: 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border-green-200 dark:border-green-700'
-          };
-        }
-      } else {
-        // Just assigned, not yet in progress
-        if (elapsedMinutes >= 5) {
-          return {
-            level: 'warning',
-            message: '⏳ Assigned but not started - Agent should begin work',
-            color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700'
-          };
-        } else {
-          return {
-            level: 'success',
-            message: '✋ Assigned to agent - Customer being helped',
-            color: 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border-green-200 dark:border-green-700'
-          };
-        }
-      }
-    }
-  };
-
   const formatStatus = (status: string) => {
     switch (status) {
       case 'new':
@@ -675,6 +387,131 @@ const TicketList: React.FC<TicketListProps> = ({
       backgroundColor,
       animation: 'blink 0.5s ease-in-out infinite alternate',
       transition: 'background-color 0.3s ease'
+    };
+  };
+
+  // Enhanced warning info function compatible with the new urgency system
+  const getWarningInfo = (ticket: Ticket) => {
+    const now = currentTime;
+    const createdTime = new Date(ticket.createdAt).getTime();
+    const elapsedMinutes = Math.floor((now - createdTime) / (1000 * 60));
+    const isAssigned = !!ticket.agentId;
+    const isResolved = ticket.status === 'resolved';
+    const isInProgress = ticket.status === 'in_progress';
+    
+    // Check if AI is handling
+    const isAIHandling = ticket.agentId === 'neuro-ai-agent' || 
+      (ticket.messages && ticket.messages.some(msg => msg.sender?.userType === 'ai'));
+    
+    // Check if customer requested human
+    const customerMessages = ticket.messages?.filter(msg => msg.sender?.userType === 'customer') || [];
+    const customerRequestedHuman = customerMessages.some(msg => {
+      const content = msg.content.toLowerCase();
+      return content.includes('human') || content.includes('person') || 
+             content.includes('agent') || content.includes('representative') ||
+             content.includes('speak to someone') || content.includes('talk to someone');
+    });
+
+    if (isResolved) {
+      return {
+        level: 'success',
+        message: '✅ Ticket resolved successfully',
+        color: 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border-green-200 dark:border-green-700'
+      };
+    }
+
+    // Assignment-based warnings
+    if (!isAssigned || isAIHandling) {
+      if (isAIHandling && !customerRequestedHuman) {
+        return {
+          level: 'info',
+          message: '🤖 AI interaction ongoing',
+          color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-700'
+        };
+      }
+
+      if (isAIHandling && customerRequestedHuman) {
+        if (elapsedMinutes <= 3) {
+          return {
+            level: 'warning',
+            message: '🟡 Human Agent requested, claim ticket now',
+            color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700'
+          };
+        } else {
+          return {
+            level: 'critical',
+            message: '🚨 Urgent! Human agent must take this ticket NOW',
+            color: 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border-red-200 dark:border-red-700'
+          };
+        }
+      }
+
+      if (!isAIHandling && !isAssigned) {
+        if (elapsedMinutes <= 1) {
+          return {
+            level: 'info',
+            message: '🆕 Customer waiting for an agent',
+            color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-700'
+          };
+        } else if (elapsedMinutes <= 3) {  
+          return {
+            level: 'warning',
+            message: '⚠️ Customer waiting >1 min, claim ticket ASAP',
+            color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700'
+          };
+        } else {
+          return {
+            level: 'critical',
+            message: '🔥 Customer waiting too long, claim ticket NOW!',
+            color: 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border-red-200 dark:border-red-700'
+          };
+        }
+      }
+    }
+
+    // Status-based warnings (assigned to human agent)
+    if (isAssigned && !isAIHandling) {
+      if (isInProgress) {
+        if (elapsedMinutes <= 5) {
+          return {
+            level: 'success',
+            message: '✋ Support in progress (<5 min)',
+            color: 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border-green-200 dark:border-green-700'
+          };
+        } else if (elapsedMinutes <= 10) {
+          return {
+            level: 'warning',
+            message: '⏰ Support taking longer than expected (>5 min)',
+            color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700'
+          };
+        } else {
+          return {
+            level: 'critical',
+            message: '🔥 Support taking too long — escalate now!',
+            color: 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border-red-200 dark:border-red-700'
+          };
+        }
+      } else {
+        if (elapsedMinutes <= 5) {
+          return {
+            level: 'success',
+            message: '✋ Assigned to agent - Customer being helped',
+            color: 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border-green-200 dark:border-green-700'
+          };
+        } else {
+          return {
+            level: 'warning',
+            message: '⏳ Assigned but not started - Agent should begin work',
+            color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700'
+          };
+        }
+      }
+    }
+
+    return {
+      level: 'info',
+      message: '📋 Normal priority',
+      color: 'bg-gray-50 dark:bg-gray-900/20 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700'
     };
   };
 
@@ -842,7 +679,7 @@ const TicketList: React.FC<TicketListProps> = ({
           onTicketSelect={onTicketSelect}
           onDeleteTicket={handleDeleteTicket}
           onReassignTicket={handleReassignTicket}
-          urgencyIndicator={UrgencyIndicator}
+          urgencyIndicator={EnhancedUrgencyIndicator}
           getWarningInfo={getWarningInfo}
           getStatusColor={getStatusColor}
           getPriorityColor={getPriorityColor}

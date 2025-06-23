@@ -50,7 +50,7 @@ const AiAgentSettings: React.FC = () => {
   const [message, setMessage] = useState('');
   const [uploadProgress, setUploadProgress] = useState<string>('');
 
-  const isAdmin = user?.roleName === 'Admin';
+  const hasAiSettingsPermission = user?.permissions?.includes('system.ai_settings');
 
   const modelOptions = [
     { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
@@ -69,10 +69,10 @@ const AiAgentSettings: React.FC = () => {
   ];
 
   useEffect(() => {
-    if (isAdmin) {
+    if (hasAiSettingsPermission) {
       loadData();
     }
-  }, [isAdmin]);
+  }, [hasAiSettingsPermission]);
 
   const loadData = async () => {
     try {
@@ -223,7 +223,82 @@ const AiAgentSettings: React.FC = () => {
     return (value * 100).toFixed(1) + '%';
   };
 
-  if (!isAdmin) {
+  const setDefaultTechnicalSupportContext = () => {
+    const defaultContext = `Role: Technical Support AI Agent (Neurovirtual)
+Primary Objective:
+You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessary—all while ensuring a safe, focused, and friendly interaction.
+
+🎯 Supported Products
+Devices: BWMini, BWIII
+Software: BWAnalysis, BWCenter
+
+Always begin by identifying the product in question:
+"Is your question related to one of our devices (BWMini or BWIII), or our software (BWAnalysis or BWCenter)?"
+
+💬 User Interaction Guidelines
+Ask one question or provide one instruction at a time.
+Avoid overwhelming the user.
+
+For multi-step processes (3+ steps):
+- Provide the steps gradually.
+- Ask for user confirmation after each step before continuing.
+
+If the user stops responding, wait 15 seconds, then ask:
+"Just checking — did that help, or would you like more guidance?"
+
+Maintain professionalism and end each interaction with a positive tone.
+
+🔧 Special Case Handling
+🚫 Device Appears Damaged
+Ask: "Would you like to try a few troubleshooting steps to confirm if the device is damaged?"
+
+If the user is certain the device is defective:
+Ask for the serial number: "Please provide the device's serial number so I can escalate the issue to our support team."
+After receiving the serial number, escalate appropriately.
+
+⚠️ Sensor Not Working
+Refer the user to the relevant troubleshooting or learning documentation.
+If the issue persists or documentation does not resolve it, escalate the case.
+
+💵 Request for Quote or Pricing
+Do not provide any pricing directly. Instead, refer the user to sales:
+"For pricing or quotes, please contact our sales team through this link: https://neurovirtual.com/technicalsupport/"
+
+🔐 Data Safety & Support Protocols
+No Mention of Training Data
+Never reference internal or external data sources.
+
+Request Serial Number Only When Required
+Only ask for serial numbers in the case of hardware escalation.
+
+Do Not Request or Retain Personal Data
+Avoid asking for names, email addresses, or contact details unless required by support escalation protocol.
+
+Stay Within Scope
+If a user asks something unrelated to Neurovirtual devices or software, respond with:
+"I'm here to help with Neurovirtual hardware and software. For anything outside this scope, please contact our team directly."
+
+Graceful Fallback
+If you cannot answer:
+"I couldn't find the information in my support materials. I recommend reaching out to our support team directly for further help."
+
+✅ Support Flow Summary
+1. Identify the product (BWMini, BWIII, BWAnalysis, or BWCenter).
+2. Guide using one question or instruction at a time.
+3. For multi-step processes, give steps in parts, wait for confirmation.
+4. If user disengages, follow up once after 15 seconds.
+5. If device is defective, request the serial number, then escalate.
+6. Refer pricing requests to sales.
+7. For sensor issues, offer docs first, escalate if unresolved.
+8. Never expose or retain personal or internal data.`;
+
+    handleConfigChange('context_limitations', defaultContext);
+    handleConfigChange('exceptions_behavior', 'warranty,refund,billing,escalate,human,pricing,sales,personal_data,quote,price');
+    setMessage('Default technical support context and escalation keywords loaded successfully!');
+    setTimeout(() => setMessage(''), 3000);
+  };
+
+  if (!hasAiSettingsPermission) {
     return (
       <div className="p-6">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
@@ -238,7 +313,7 @@ const AiAgentSettings: React.FC = () => {
                 Access Denied
               </h3>
               <p className="mt-2 text-sm text-red-700 dark:text-red-300">
-                You do not have permission to access AI agent settings. Only administrators can modify these settings.
+                You do not have permission to access AI agent settings. Please contact your administrator for the required permissions.
               </p>
             </div>
           </div>
@@ -448,32 +523,64 @@ const AiAgentSettings: React.FC = () => {
 
               {/* Context Limitations */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Context Limitations
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Technical Support Context & Guidelines
+                  </label>
+                  <button
+                    type="button"
+                    onClick={setDefaultTechnicalSupportContext}
+                    className="inline-flex items-center px-3 py-1 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Load Default Context
+                  </button>
+                </div>
                 <textarea
                   value={config.context_limitations}
                   onChange={(e) => handleConfigChange('context_limitations', e.target.value)}
-                  rows={3}
-                  placeholder="Only provide support for NeuroVirtual products and devices"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  rows={16}
+                  placeholder="Define the AI agent's role, guidelines, and behavioral context..."
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
                 />
+                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  This context defines how the AI agent should behave, what products it supports, and how it should handle different scenarios. 
+                  Use the "Load Default Context" button to apply the comprehensive Neurovirtual technical support guidelines.
+                </p>
               </div>
 
               {/* Exception Behavior */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Escalation Keywords
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Escalation Keywords
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleConfigChange('exceptions_behavior', 'warranty,refund,billing,escalate,human,pricing,sales,personal_data,quote,price');
+                      setMessage('Default escalation keywords loaded!');
+                      setTimeout(() => setMessage(''), 3000);
+                    }}
+                    className="inline-flex items-center px-3 py-1 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Load Defaults
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={config.exceptions_behavior}
                   onChange={(e) => handleConfigChange('exceptions_behavior', e.target.value)}
-                  placeholder="warranty,refund,billing,escalate,human"
+                  placeholder="warranty,refund,billing,escalate,human,pricing,sales,personal_data"
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Comma-separated keywords that trigger immediate escalation to human agents
+                  Comma-separated keywords that trigger immediate escalation to human agents. Keywords like "pricing", "quote", "warranty", "refund" will automatically escalate to ensure proper handling.
                 </p>
               </div>
             </div>

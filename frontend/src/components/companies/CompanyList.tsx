@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import apiService from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { apiService } from '../../services/api';
 import ConfigurableTable, { TableColumn, FilterConfig } from '../common/ConfigurableTable';
 
 interface Company {
@@ -35,6 +36,7 @@ interface CompanyListProps {
 }
 
 const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdit }) => {
+  const { user } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +126,11 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
   };
 
   const handleDeleteCompany = (company: Company) => {
+    // Check if user has delete permission
+    if (!user?.permissions?.includes('companies.delete')) {
+      alert('You do not have permission to delete companies.');
+      return;
+    }
     setDeleteConfirm({ show: true, company });
   };
 
@@ -389,7 +396,7 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       onClick: onCompanyEdit,
       className: 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300',
     }] : []),
-    {
+    ...(user?.permissions?.includes('companies.delete') ? [{
       label: 'Delete Company',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -398,7 +405,7 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       ),
       onClick: handleDeleteCompany,
       className: 'text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300',
-    },
+    }] : []),
   ];
 
   // Export function

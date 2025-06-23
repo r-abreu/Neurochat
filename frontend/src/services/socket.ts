@@ -16,6 +16,7 @@ export interface SocketEvents {
   'customer_status_changed': (data: { ticketId: string; isOnline: boolean; lastSeen: string }) => void;
   'agent_status_changed': (data: { agentId: string; isOnline: boolean; lastSeen: string }) => void;
   'ai_status_changed': (data: { ticketId: string; enabled: boolean; reason?: string; changedBy: string }) => void;
+  'ticket_summary_generated': (data: { ticketId: string; summary: string; generatedAt: string; modelVersion: string; confidence: number }) => void;
   'company_match_suggestion': (data: { pendingMatchId: string; ticketId: string; ticketNumber: string; customerName: string; inputCompanyName: string; suggestedCompany: string; confidence: number; message: string }) => void;
 }
 
