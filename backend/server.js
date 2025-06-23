@@ -14,6 +14,10 @@ const stringSimilarity = require('string-similarity');
 const { sendChatFallbackEmail, sendAgentNotificationEmail, getEmailLogs, getEmailStats } = require('./services/emailService');
 const { startEmailReceiver, stopEmailReceiver, setTickets, setMessages, processIncomingEmail } = require('./services/emailReceiver');
 
+// Import AI services
+const aiService = require('./services/aiService');
+const documentService = require('./services/documentService');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -38,6 +42,93 @@ let internalComments = []; // New: Internal comments for tickets
 let categories = [];
 let ticketDevices = []; // Ticket-device relationships
 
+// AI Agent storage
+let aiAgentConfig = {
+  id: uuidv4(),
+  model: 'gpt-4o',
+  agent_name: 'NeuroAI',
+  response_tone: 'Technical',
+  attitude_style: 'Curious',
+  context_limitations: 'Only provide support for NeuroVirtual products and devices',
+  exceptions_behavior: 'warranty,refund,billing,escalate,human',
+  confidence_threshold: 0.7,
+  enabled: true,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+};
+
+let aiDocuments = [];
+let aiDocumentChunks = [];
+let aiResponses = [];
+
+// Data persistence for AI documents
+const AI_DOCUMENTS_FILE = path.join(__dirname, '../data/ai-documents.json');
+const AI_CHUNKS_FILE = path.join(__dirname, '../data/ai-document-chunks.json');
+
+// Ensure data directory exists
+const dataDir = path.join(__dirname, '../data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+// Load AI documents from persistent storage
+function loadAIDocuments() {
+  try {
+    if (fs.existsSync(AI_DOCUMENTS_FILE)) {
+      const data = fs.readFileSync(AI_DOCUMENTS_FILE, 'utf8');
+      aiDocuments = JSON.parse(data);
+      console.log(`📁 Loaded ${aiDocuments.length} AI documents from persistent storage`);
+    }
+  } catch (error) {
+    console.error('Error loading AI documents:', error);
+    aiDocuments = [];
+  }
+
+  try {
+    if (fs.existsSync(AI_CHUNKS_FILE)) {
+      const data = fs.readFileSync(AI_CHUNKS_FILE, 'utf8');
+      aiDocumentChunks = JSON.parse(data);
+      console.log(`📁 Loaded ${aiDocumentChunks.length} AI document chunks from persistent storage`);
+    }
+  } catch (error) {
+    console.error('Error loading AI document chunks:', error);
+    aiDocumentChunks = [];
+  }
+}
+
+// Save AI documents to persistent storage
+function saveAIDocuments() {
+  try {
+    fs.writeFileSync(AI_DOCUMENTS_FILE, JSON.stringify(aiDocuments, null, 2));
+    console.log(`💾 Saved ${aiDocuments.length} AI documents to persistent storage`);
+  } catch (error) {
+    console.error('Error saving AI documents:', error);
+  }
+
+  try {
+    fs.writeFileSync(AI_CHUNKS_FILE, JSON.stringify(aiDocumentChunks, null, 2));
+    console.log(`💾 Saved ${aiDocumentChunks.length} AI document chunks to persistent storage`);
+  } catch (error) {
+    console.error('Error saving AI document chunks:', error);
+  }
+}
+
+// Auto-save AI documents periodically (every 5 minutes)
+setInterval(saveAIDocuments, 5 * 60 * 1000);
+
+// Save on process exit
+process.on('SIGINT', () => {
+  console.log('\n🔄 Saving AI documents before exit...');
+  saveAIDocuments();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🔄 Saving AI documents before exit...');
+  saveAIDocuments();
+  process.exit(0);
+});
+
 // Customer session tracking
 let customerSessions = new Map(); // ticketId -> { customerId, socketId, isOnline, lastSeen }
 let socketToTicketMap = new Map(); // socketId -> ticketId (for disconnect cleanup)
@@ -45,6 +136,151 @@ let socketToTicketMap = new Map(); // socketId -> ticketId (for disconnect clean
 // Agent session tracking for presence indicators
 let agentSessions = new Map(); // agentId -> { socketId, isOnline, lastSeen, joinedAt }
 let socketToAgentMap = new Map(); // socketId -> agentId (for disconnect cleanup)
+
+// NeuroAI Agent ID - will be created during initialization
+let neuroAIAgentId = null;
+
+// Create NeuroAI agent
+const createNeuroAIAgent = () => {
+  const aiAgentId = uuidv4();
+  neuroAIAgentId = aiAgentId;
+  
+  const neuroAIAgent = {
+    id: aiAgentId,
+    email: 'neuroai@neurovirtual.com',
+    password: bcrypt.hashSync('neuroai-secure-password', 10),
+    firstName: 'NeuroAI',
+    lastName: 'Assistant',
+    userType: 'agent',
+    roleId: '5', // Special AI agent role
+    roleName: 'AI Agent',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'customers.view', 'devices.view', 'companies.view'],
+    isActive: true,
+    agentStatus: 'online', // AI is always online when enabled
+    maxConcurrentTickets: 1000, // AI can handle many tickets
+    lastLogin: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    avatarUrl: null,
+    isAIAgent: true // Special flag to identify AI agent
+  };
+
+  // Check if NeuroAI agent already exists
+  const existingAI = users.find(u => u.email === 'neuroai@neurovirtual.com' || u.isAIAgent);
+  if (!existingAI) {
+    users.push(neuroAIAgent);
+    console.log('🤖 Created NeuroAI agent with ID:', aiAgentId);
+    
+    // Sync permissions with AI Agent role
+    const aiRole = rolesConfig.find(r => r.id === '5');
+    if (aiRole) {
+      const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
+      neuroAIAgent.permissions = rolePermissions;
+      console.log('🔄 Synced NeuroAI agent permissions with AI Agent role:', rolePermissions);
+    }
+  } else {
+    neuroAIAgentId = existingAI.id;
+    console.log('🤖 NeuroAI agent already exists with ID:', existingAI.id);
+    
+    // Update existing AI agent to use role ID 5 and sync permissions
+    existingAI.roleId = '5';
+    existingAI.roleName = 'AI Agent';
+    const aiRole = rolesConfig.find(r => r.id === '5');
+    if (aiRole) {
+      const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
+      existingAI.permissions = rolePermissions;
+      console.log('🔄 Updated existing NeuroAI agent with role ID 5 and permissions:', rolePermissions);
+    }
+  }
+
+  // Ensure AI agent is always marked as online when AI is enabled
+  if (aiAgentConfig.enabled) {
+    agentSessions.set(neuroAIAgentId, {
+      socketId: 'ai-virtual-session',
+      isOnline: true,
+      lastSeen: new Date().toISOString(),
+      joinedAt: new Date().toISOString()
+    });
+  }
+
+  return neuroAIAgentId;
+};
+
+// Function to assign ticket to NeuroAI when AI responds
+const assignTicketToNeuroAI = (ticketId) => {
+  if (!neuroAIAgentId || !aiAgentConfig.enabled) {
+    return false;
+  }
+
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+  if (ticketIndex === -1) {
+    return false;
+  }
+
+  const ticket = tickets[ticketIndex];
+  
+  // Only assign if ticket is not already assigned to a human agent or if it's unassigned
+  if (!ticket.agentId || ticket.agentId === neuroAIAgentId) {
+    tickets[ticketIndex] = {
+      ...ticket,
+      agentId: neuroAIAgentId,
+      assignedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`🤖 Assigned ticket ${ticket.ticketNumber} to NeuroAI`);
+    
+    // Broadcast assignment change
+    io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
+      ticketId: ticketId,
+      agentId: neuroAIAgentId,
+      agentName: 'NeuroAI Assistant',
+      assignedAt: new Date().toISOString()
+    });
+
+    return true;
+  }
+
+  return false;
+};
+
+// Function to unassign ticket from NeuroAI when human agent takes over
+const unassignTicketFromNeuroAI = (ticketId, newAgentId = null) => {
+  if (!neuroAIAgentId) {
+    return false;
+  }
+
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+  if (ticketIndex === -1) {
+    return false;
+  }
+
+  const ticket = tickets[ticketIndex];
+  
+  // Only unassign if currently assigned to NeuroAI
+  if (ticket.agentId === neuroAIAgentId) {
+    tickets[ticketIndex] = {
+      ...ticket,
+      agentId: newAgentId,
+      assignedAt: newAgentId ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`🤖 Unassigned ticket ${ticket.ticketNumber} from NeuroAI${newAgentId ? ` and assigned to ${newAgentId}` : ''}`);
+    
+    // Broadcast assignment change
+    io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
+      ticketId: ticketId,
+      agentId: newAgentId,
+      agentName: newAgentId ? users.find(u => u.id === newAgentId)?.firstName + ' ' + users.find(u => u.id === newAgentId)?.lastName : null,
+      assignedAt: newAgentId ? new Date().toISOString() : null,
+      previousAgent: 'NeuroAI Assistant'
+    });
+
+    return true;
+  }
+
+  return false;
+};
 
 // Add some demo messages for testing
 const addDemoMessages = () => {
@@ -315,6 +551,10 @@ const demoTickets = [
     customerType: 'Standard',
     deviceModel: 'BWIII',
     deviceSerialNumber: 'BW3-2024-001234',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
     createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
     updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
   },
@@ -342,6 +582,10 @@ const demoTickets = [
     customerType: 'VIP',
     deviceModel: 'BWMini',
     deviceSerialNumber: 'BWM-2024-005678',
+    aiEnabled: false, // AI disabled manually for this ticket
+    aiDisabledReason: 'manual',
+    aiDisabledAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    aiDisabledBy: demoUsers[1].id,
     createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 minutes ago
     updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
   },
@@ -369,6 +613,10 @@ const demoTickets = [
     customerType: 'Standard',
     deviceModel: null,
     deviceSerialNumber: null,
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
     updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
     resolvedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
@@ -397,6 +645,10 @@ const demoTickets = [
     customerType: 'Standard',
     deviceModel: 'Compass',
     deviceSerialNumber: 'CMP-2023-009876',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
     createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
     updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), // 6 days ago
     resolvedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
@@ -425,6 +677,10 @@ const demoTickets = [
     customerType: 'Distributor',
     deviceModel: 'Maxxi',
     deviceSerialNumber: 'MXX-2024-012345',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
     createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
     updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
   }
@@ -918,6 +1174,46 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
       lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt,
       messages: ticketMessages.map(msg => {
         const sender = users.find(u => u.id === msg.senderId);
+        
+        // Handle AI messages (sender could be null or NeuroAI agent)
+        if (!sender && (msg.senderId === null || msg.senderId === neuroAIAgentId)) {
+          // Legacy AI messages (with null senderId) or new NeuroAI messages
+          const isAIMessage = aiService.isEnabled() && (
+            msg.messageType === 'text' || 
+            msg.messageType === 'system'
+          ) && (msg.senderId === null || msg.senderId === neuroAIAgentId);
+          
+          if (isAIMessage) {
+            // Check existing AI responses to confirm this is an AI message
+            const aiResponse = aiResponses.find(ar => ar.messageId === msg.id);
+            
+            if (aiResponse) {
+              return {
+                ...msg,
+                sender: {
+                  id: neuroAIAgentId,
+                  firstName: aiAgentConfig.agent_name || 'NeuroAI',
+                  lastName: 'Assistant',
+                  userType: 'ai'
+                }
+              };
+            }
+          }
+        }
+        
+        // Handle NeuroAI agent messages directly
+        if (sender && sender.isAIAgent) {
+          return {
+            ...msg,
+            sender: {
+              id: sender.id,
+              firstName: sender.firstName,
+              lastName: sender.lastName,
+              userType: 'ai'
+            }
+          };
+        }
+        
         return {
           ...msg,
           sender: sender ? {
@@ -1004,6 +1300,46 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
     lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt,
     messages: ticketMessages.map(msg => {
       const sender = users.find(u => u.id === msg.senderId);
+      
+      // Handle AI messages (sender could be null or NeuroAI agent)
+      if (!sender && (msg.senderId === null || msg.senderId === neuroAIAgentId)) {
+        // Legacy AI messages (with null senderId) or new NeuroAI messages
+        const isAIMessage = aiService.isEnabled() && (
+          msg.messageType === 'text' || 
+          msg.messageType === 'system'
+        ) && (msg.senderId === null || msg.senderId === neuroAIAgentId);
+        
+        if (isAIMessage) {
+          // Check existing AI responses to confirm this is an AI message
+          const aiResponse = aiResponses.find(ar => ar.messageId === msg.id);
+          
+          if (aiResponse) {
+            return {
+              ...msg,
+              sender: {
+                id: neuroAIAgentId,
+                firstName: aiAgentConfig.agent_name || 'NeuroAI',
+                lastName: 'Assistant',
+                userType: 'ai'
+              }
+            };
+          }
+        }
+      }
+      
+      // Handle NeuroAI agent messages directly
+      if (sender && sender.isAIAgent) {
+        return {
+          ...msg,
+          sender: {
+            id: sender.id,
+            firstName: sender.firstName,
+            lastName: sender.lastName,
+            userType: 'ai'
+          }
+        };
+      }
+      
       return {
         ...msg,
         sender: sender ? {
@@ -1189,6 +1525,173 @@ app.post('/api/tickets', (req, res) => {
   messages.push(initialMessage);
   console.log('✅ Created initial message:', initialMessage);
 
+  // Check if we should generate AI response for the initial message
+  const isCustomerInitialMessage = !user || user.id === ticket.customerId;
+  const shouldGenerateAIForInitial = isCustomerInitialMessage && 
+                                   aiAgentConfig.enabled && 
+                                   aiService.isEnabled() && 
+                                   ticket.aiEnabled !== false;
+
+  console.log('🔍 AI DECISION DEBUG for initial message:');
+  console.log('  - user:', user ? `${user.firstName} ${user.lastName} (${user.id})` : 'null');
+  console.log('  - ticket.customerId:', ticket.customerId);
+  console.log('  - isCustomerInitialMessage:', isCustomerInitialMessage);
+  console.log('  - aiAgentConfig.enabled:', aiAgentConfig.enabled);
+  console.log('  - aiService.isEnabled():', aiService.isEnabled());
+  console.log('  - ticket.aiEnabled:', ticket.aiEnabled);
+  console.log('  - shouldGenerateAIForInitial:', shouldGenerateAIForInitial);
+
+  // Generate AI response for the initial message if conditions are met
+  if (shouldGenerateAIForInitial) {
+    console.log('🤖 Generating AI response for initial customer message');
+    
+    // Run AI generation asynchronously to avoid blocking the response
+    setImmediate(async () => {
+      try {
+        // Find relevant documents for the user's message
+        const relevantDocs = await aiService.findRelevantDocuments(description, aiDocumentChunks);
+        console.log(`🔍 Found ${relevantDocs.length} relevant document chunks for initial message`);
+
+        // Generate AI response
+        const aiResponse = await aiService.generateResponse(description, aiAgentConfig, relevantDocs);
+        console.log(`🤖 AI response generated for initial message with confidence: ${aiResponse.confidence}`);
+
+        // Check if we should escalate based on confidence
+        if (aiResponse.shouldEscalate) {
+          console.log('📈 AI confidence too low for initial message, escalating to human agent');
+          
+          // Disable AI for this ticket and mark for escalation
+          const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
+          if (ticketIndex !== -1) {
+            tickets[ticketIndex] = {
+              ...tickets[ticketIndex],
+              aiEnabled: false,
+              aiDisabledReason: 'escalation',
+              aiDisabledAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+          }
+
+          // Send escalation message
+          const escalationMessage = {
+            id: uuidv4(),
+            ticketId: ticket.id,
+            senderId: null, // System message
+            content: aiResponse.response,
+            messageType: 'system',
+            createdAt: new Date().toISOString(),
+            isRead: false
+          };
+
+          messages.push(escalationMessage);
+
+          // Broadcast escalation message
+          const escalationMessageWithSender = {
+            ...escalationMessage,
+            sender: {
+              id: null,
+              firstName: aiAgentConfig.agent_name,
+              lastName: 'AI Assistant',
+              userType: 'system'
+            }
+          };
+
+          io.to(`ticket_${ticket.id}`).emit('new_message', {
+            message: escalationMessageWithSender
+          });
+
+          // Broadcast AI status change
+          io.to(`ticket_${ticket.id}`).emit('ai_status_changed', {
+            ticketId: ticket.id,
+            enabled: false,
+            reason: 'escalation',
+            changedBy: aiAgentConfig.agent_name
+          });
+
+        } else {
+          // Assign ticket to NeuroAI when AI responds
+          assignTicketToNeuroAI(ticket.id);
+
+          // Send AI response
+          const aiMessage = {
+            id: uuidv4(),
+            ticketId: ticket.id,
+            senderId: neuroAIAgentId, // NeuroAI agent message
+            content: aiResponse.response,
+            messageType: 'text',
+            createdAt: new Date().toISOString(),
+            isRead: false
+          };
+
+          messages.push(aiMessage);
+
+          // Log AI response
+          const aiResponseRecord = {
+            id: uuidv4(),
+            ticketId: ticket.id,
+            messageId: aiMessage.id,
+            sourceDocIds: aiResponse.sourceDocuments,
+            userMessage: description,
+            aiResponse: aiResponse.response,
+            confidenceScore: aiResponse.confidence,
+            modelUsed: aiResponse.modelUsed,
+            responseTimeMs: aiResponse.responseTimeMs,
+            createdAt: new Date().toISOString()
+          };
+
+          aiResponses.push(aiResponseRecord);
+
+          // Broadcast AI message
+          const aiMessageWithSender = {
+            ...aiMessage,
+            sender: {
+              id: neuroAIAgentId,
+              firstName: aiAgentConfig.agent_name,
+              lastName: 'Assistant',
+              userType: 'ai'
+            }
+          };
+
+          io.to(`ticket_${ticket.id}`).emit('new_message', {
+            message: aiMessageWithSender
+          });
+
+          console.log('🤖 AI response sent successfully for initial message');
+        }
+
+      } catch (error) {
+        console.error('❌ Error generating AI response for initial message:', error);
+        
+        // Send fallback message on AI error
+        const fallbackMessage = {
+          id: uuidv4(),
+          ticketId: ticket.id,
+          senderId: null,
+          content: "I'm having trouble processing your request right now. Let me connect you with a human agent who can assist you better.",
+          messageType: 'system',
+          createdAt: new Date().toISOString(),
+          isRead: false
+        };
+
+        messages.push(fallbackMessage);
+
+        const fallbackMessageWithSender = {
+          ...fallbackMessage,
+          sender: {
+            id: null,
+            firstName: aiAgentConfig.agent_name,
+            lastName: 'AI Assistant',
+            userType: 'system'
+          }
+        };
+
+        io.to(`ticket_${ticket.id}`).emit('new_message', {
+          message: fallbackMessageWithSender
+        });
+      }
+    });
+  }
+
   // Notify agents of new ticket
   io.emit('new_ticket', { ticket });
 
@@ -1244,30 +1747,41 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
     });
   }
 
-  if (ticket.agentId) {
+  // Allow human agents to take over tickets from AI agent
+  if (ticket.agentId && ticket.agentId !== neuroAIAgentId) {
     return res.status(400).json({
       success: false,
-      error: { code: 'TICKET_ALREADY_CLAIMED', message: 'Ticket already assigned to another agent' }
+      error: { code: 'TICKET_ALREADY_CLAIMED', message: 'Ticket already assigned to another human agent' }
     });
   }
 
+  // If taking over from AI agent, handle the transition
+  const wasAssignedToAI = ticket.agentId === neuroAIAgentId;
+  
   ticket.agentId = req.user.sub;
   ticket.status = 'in_progress';
   ticket.assignedAt = new Date().toISOString();
   ticket.updatedAt = new Date().toISOString();
+  
+  // If this was an AI ticket, log the handoff
+  if (wasAssignedToAI) {
+    console.log(`🤖➡️👨 Human agent ${req.user.firstName} ${req.user.lastName} taking over ticket ${ticket.ticketNumber} from NeuroAI`);
+  }
   
   // Log ticket claim
   logAudit({
     userId: req.user.sub,
     userName: `${req.user.firstName} ${req.user.lastName}`,
     userType: 'agent',
-    action: 'ticket_claimed',
+    action: wasAssignedToAI ? 'ticket_taken_from_ai' : 'ticket_claimed',
     ticketNumber: ticket.ticketNumber,
     targetType: 'ticket',
     targetId: ticket.id,
     ipAddress: getClientIP(req),
     userAgent: req.headers['user-agent'],
-    details: `${req.user.firstName} ${req.user.lastName} (${req.user.roleName || 'Unknown Role'}) claimed ticket and changed status to in_progress`
+    details: wasAssignedToAI 
+      ? `${req.user.firstName} ${req.user.lastName} (${req.user.roleName || 'Unknown Role'}) took over ticket from NeuroAI and changed status to in_progress`
+      : `${req.user.firstName} ${req.user.lastName} (${req.user.roleName || 'Unknown Role'}) claimed ticket and changed status to in_progress`
   });
 
   // Notify customer of assignment
@@ -1278,8 +1792,23 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
       firstName: req.user.firstName,
       lastName: req.user.lastName
     },
-    claimedAt: ticket.assignedAt
+    claimedAt: ticket.assignedAt,
+    handoffFromAI: wasAssignedToAI
   });
+
+  // If this was a handoff from AI, also emit a specific handoff event
+  if (wasAssignedToAI) {
+    io.to(`ticket_${ticket.id}`).emit('ai_to_human_handoff', {
+      ticketId: ticket.id,
+      previousAgent: 'NeuroAI Assistant',
+      newAgent: {
+        id: req.user.sub,
+        firstName: req.user.firstName,
+        lastName: req.user.lastName
+      },
+      handoffAt: ticket.assignedAt
+    });
+  }
 
   res.json({
     success: true,
@@ -1368,6 +1897,18 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
         error: { code: 'INVALID_AGENT', message: 'Invalid or inactive agent selected' }
       });
     }
+    
+    // If assigning to a human agent from NeuroAI, unassign from NeuroAI
+    if (ticket.agentId === neuroAIAgentId && updates.agentId !== neuroAIAgentId) {
+      console.log(`🤖 Human agent taking over ticket ${ticket.ticketNumber} from NeuroAI`);
+      unassignTicketFromNeuroAI(ticket.id, updates.agentId);
+    }
+  }
+  
+  // If unassigning (setting agentId to null), check if it was assigned to NeuroAI
+  if (updates.agentId === null && ticket.agentId === neuroAIAgentId) {
+    console.log(`🤖 Unassigning ticket ${ticket.ticketNumber} from NeuroAI`);
+    unassignTicketFromNeuroAI(ticket.id, null);
   }
 
   // Store original values for audit log
@@ -2187,7 +2728,7 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   logAudit({
     userId: user ? user.id : null,
     userName: user ? `${user.firstName} ${user.lastName}` : ticket.customerName,
-    userType: user ? (user.id === ticket.customerId ? 'customer' : user.userType) : 'customer',
+    userType: user ? (ticket.isAnonymous ? user.userType : (user.id === ticket.customerId ? 'customer' : user.userType)) : 'customer',
     action: 'message_sent',
     ticketNumber: ticket.ticketNumber,
     targetType: 'message',
@@ -2197,6 +2738,167 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     details: `Sent message in ticket (${messageType}): ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
   });
 
+  // Check if we should generate AI response
+  // For anonymous tickets, only unauthenticated users (no token) are customers
+  // For registered tickets, check if user ID matches customer ID
+  const isCustomerMessage = ticket.isAnonymous ? !user : (user && user.id === ticket.customerId);
+  const shouldGenerateAI = isCustomerMessage && 
+                          aiAgentConfig.enabled && 
+                          aiService.isEnabled() && 
+                          ticket.aiEnabled !== false &&
+                          messageType === 'text';
+
+  // Generate AI response if conditions are met
+  if (shouldGenerateAI) {
+    console.log('🤖 Generating AI response for customer message');
+    
+    // Run AI generation asynchronously to avoid blocking the response
+    setImmediate(async () => {
+      try {
+        // Find relevant documents for the user's message
+        const relevantDocs = await aiService.findRelevantDocuments(content, aiDocumentChunks);
+        console.log(`🔍 Found ${relevantDocs.length} relevant document chunks`);
+
+        // Generate AI response
+        const aiResponse = await aiService.generateResponse(content, aiAgentConfig, relevantDocs);
+        console.log(`🤖 AI response generated with confidence: ${aiResponse.confidence}`);
+
+        // Check if we should escalate based on confidence
+        if (aiResponse.shouldEscalate) {
+          console.log('📈 AI confidence too low, escalating to human agent');
+          
+          // Disable AI for this ticket and mark for escalation
+          const ticketIndex = tickets.findIndex(t => t.id === req.params.ticketId);
+          if (ticketIndex !== -1) {
+            tickets[ticketIndex] = {
+              ...tickets[ticketIndex],
+              aiEnabled: false,
+              aiDisabledReason: 'escalation',
+              aiDisabledAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+          }
+
+          // Send escalation message
+          const escalationMessage = {
+            id: uuidv4(),
+            ticketId: req.params.ticketId,
+            senderId: null, // System message
+            content: aiResponse.response,
+            messageType: 'system',
+            createdAt: new Date().toISOString(),
+            isRead: false
+          };
+
+          messages.push(escalationMessage);
+
+          // Broadcast escalation message
+          const escalationMessageWithSender = {
+            ...escalationMessage,
+            sender: {
+              id: null,
+              firstName: aiAgentConfig.agent_name,
+              lastName: 'AI Assistant',
+              userType: 'system'
+            }
+          };
+
+          io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
+            message: escalationMessageWithSender
+          });
+
+          // Broadcast AI status change
+          io.to(`ticket_${req.params.ticketId}`).emit('ai_status_changed', {
+            ticketId: req.params.ticketId,
+            enabled: false,
+            reason: 'escalation',
+            changedBy: aiAgentConfig.agent_name
+          });
+
+        } else {
+          // Assign ticket to NeuroAI when AI responds
+          assignTicketToNeuroAI(req.params.ticketId);
+
+          // Send AI response
+          const aiMessage = {
+            id: uuidv4(),
+            ticketId: req.params.ticketId,
+            senderId: neuroAIAgentId, // NeuroAI agent message
+            content: aiResponse.response,
+            messageType: 'text',
+            createdAt: new Date().toISOString(),
+            isRead: false
+          };
+
+          messages.push(aiMessage);
+
+          // Log AI response
+          const aiResponseRecord = {
+            id: uuidv4(),
+            ticketId: req.params.ticketId,
+            messageId: aiMessage.id,
+            sourceDocIds: aiResponse.sourceDocuments,
+            userMessage: content,
+            aiResponse: aiResponse.response,
+            confidenceScore: aiResponse.confidence,
+            modelUsed: aiResponse.modelUsed,
+            responseTimeMs: aiResponse.responseTimeMs,
+            createdAt: new Date().toISOString()
+          };
+
+          aiResponses.push(aiResponseRecord);
+
+          // Broadcast AI message
+          const aiMessageWithSender = {
+            ...aiMessage,
+            sender: {
+              id: neuroAIAgentId,
+              firstName: aiAgentConfig.agent_name,
+              lastName: 'Assistant',
+              userType: 'ai'
+            }
+          };
+
+          io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
+            message: aiMessageWithSender
+          });
+
+          console.log('🤖 AI response sent successfully');
+        }
+
+      } catch (error) {
+        console.error('❌ Error generating AI response:', error);
+        
+        // Send fallback message on AI error
+        const fallbackMessage = {
+          id: uuidv4(),
+          ticketId: req.params.ticketId,
+          senderId: null,
+          content: "I'm having trouble processing your request right now. Let me connect you with a human agent who can assist you better.",
+          messageType: 'system',
+          createdAt: new Date().toISOString(),
+          isRead: false
+        };
+
+        messages.push(fallbackMessage);
+
+        const fallbackMessageWithSender = {
+          ...fallbackMessage,
+          sender: {
+            id: null,
+            firstName: aiAgentConfig.agent_name,
+            lastName: 'AI Assistant',
+            userType: 'system'
+          }
+        };
+
+        io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
+          message: fallbackMessageWithSender
+        });
+      }
+    });
+  }
+
   const sender = user ? users.find(u => u.id === user.id) : null;
   
   console.log('🔍 SENDER DEBUG:');
@@ -2205,8 +2907,8 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   console.log('  - ticket.customerName:', ticket.customerName);
   console.log('  - ticket.customerId:', ticket.customerId);
   console.log('  - ticket.isAnonymous:', ticket.isAnonymous);
-  console.log('  - sender.id === ticket.customerId:', sender?.id === ticket.customerId);
-  console.log('  - determined userType:', sender?.id === ticket.customerId ? 'customer' : sender?.userType);
+  console.log('  - isCustomerMessage:', ticket.isAnonymous ? !user : (user && user.id === ticket.customerId));
+  console.log('  - determined userType:', sender ? (ticket.isAnonymous ? sender.userType : (sender.id === ticket.customerId ? 'customer' : sender.userType)) : 'customer');
   
   const messageWithSender = {
     ...message,
@@ -2214,7 +2916,7 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
       id: sender.id,
       firstName: sender.firstName,
       lastName: sender.lastName,
-      userType: sender.id === ticket.customerId ? 'customer' : sender.userType
+      userType: ticket.isAnonymous ? sender.userType : (sender.id === ticket.customerId ? 'customer' : sender.userType)
     } : {
       id: null,
       firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
@@ -2300,6 +3002,7 @@ const fileFilter = (req, file, cb) => {
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/csv',
+    'text/plain',
     // Archives
     'application/zip',
     'application/x-zip-compressed',
@@ -2309,7 +3012,7 @@ const fileFilter = (req, file, cb) => {
   
   const allowedExtensions = [
     '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg',
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.zip', '.rar', '.7z'
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt', '.zip', '.rar', '.7z'
   ];
   
   const fileExtension = path.extname(file.originalname).toLowerCase();
@@ -2317,16 +3020,46 @@ const fileFilter = (req, file, cb) => {
   if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
     cb(null, true);
   } else {
-    cb(new Error('File type not allowed. Supported formats: images (jpg, png, gif, etc.), documents (pdf, doc, docx, xls, xlsx, csv), and archives (zip, rar, 7z)'), false);
+    cb(new Error('File type not allowed. Supported formats: images (jpg, png, gif, etc.), documents (pdf, doc, docx, xls, xlsx, csv, txt), and archives (zip, rar, 7z)'), false);
   }
 };
 
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
+    fileSize: 200 * 1024 * 1024 // 200MB limit
   },
   fileFilter: fileFilter
+});
+
+// Multiple file upload for AI documents
+const uploadMultiple = multer({
+  storage: storage,
+  limits: {
+    fileSize: 200 * 1024 * 1024, // 200MB per file
+    files: 10 // Maximum 10 files at once
+  },
+  fileFilter: (req, file, cb) => {
+    // Only allow document types for AI learning
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain',
+      'text/csv'
+    ];
+    
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv'];
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+      cb(null, true);
+    } else {
+      cb(new Error('File type not allowed for AI learning. Supported formats: PDF, DOC, DOCX, XLS, XLSX, TXT, CSV'), false);
+    }
+  }
 });
 
 // File upload endpoint
@@ -3153,6 +3886,28 @@ let rolesConfig = [
       'companies.edit': false,
       'companies.delete': false
     }
+  },
+  { 
+    id: '5', 
+    name: 'AI Agent', 
+    description: 'AI Assistant with message and ticket management capabilities',
+    permissions: {
+      'tickets.create': true,
+      'tickets.edit': true,
+      'tickets.delete': false,
+      'tickets.message': true,
+      'users.access': false,
+      'audit.view': false,
+      'customers.view': true,
+      'devices.view': true,
+      'devices.create': false,
+      'devices.edit': false,
+      'devices.delete': false,
+      'companies.view': true,
+      'companies.create': false,
+      'companies.edit': false,
+      'companies.delete': false
+    }
   }
 ];
 
@@ -3310,6 +4065,28 @@ app.get('/api/agents', authenticateToken, (req, res) => {
         const session = agentSessions.get(user.id);
         const isCurrentlyOnline = session && session.isOnline;
         
+        // Special handling for NeuroAI agent
+        if (user.isAIAgent) {
+          return {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            name: `${user.firstName} ${user.lastName}`, // Add combined name for display
+            roleName: user.roleName || 'AI Agent',
+            roleId: user.roleId || '5',
+            isActive: user.isActive !== false && aiAgentConfig.enabled,
+            createdAt: user.createdAt,
+            lastLogin: user.lastLogin,
+            agentStatus: aiAgentConfig.enabled ? 'online' : 'offline',
+            isOnline: aiAgentConfig.enabled && aiService.isEnabled(),
+            lastSeen: session ? session.lastSeen : new Date().toISOString(),
+            maxConcurrentTickets: user.maxConcurrentTickets || 1000,
+            permissions: user.permissions || [],
+            isAIAgent: true
+          };
+        }
+        
         return {
           id: user.id,
           email: user.email,
@@ -3331,7 +4108,7 @@ app.get('/api/agents', authenticateToken, (req, res) => {
 
     console.log('🔍 AGENTS ENDPOINT - Returning agents with lastLogin values:');
     agents.forEach(agent => {
-      console.log(`  - ${agent.email}: lastLogin = ${agent.lastLogin}`);
+      console.log(`  - ${agent.email}: lastLogin = ${agent.lastLogin}${agent.isAIAgent ? ' (AI Agent)' : ''}`);
     });
 
     res.json({
@@ -4243,7 +5020,8 @@ io.on('connection', (socket) => {
       socketToTicketMap.delete(socket.id);
       
       // Notify agents that customer went offline
-      socket.to(`ticket_${data.ticketId}`).emit('customer_status_changed', {
+      // Use io.to() instead of socket.to() because socket is already disconnecting
+      io.to(`ticket_${data.ticketId}`).emit('customer_status_changed', {
         ticketId: data.ticketId,
         isOnline: false,
         lastSeen: new Date().toISOString()
@@ -7970,6 +8748,568 @@ app.get('/api/devices/stats', authenticateToken, (req, res) => {
 });
 
 // ==========================================
+// AI AGENT SYSTEM ENDPOINTS
+// ==========================================
+
+// Get AI agent configuration (Admin only)
+app.get('/api/ai-agent/config', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { config: aiAgentConfig }
+    });
+  } catch (error) {
+    console.error('Error fetching AI agent config:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Update AI agent configuration (Admin only)
+app.put('/api/ai-agent/config', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const {
+      model,
+      agent_name,
+      response_tone,
+      attitude_style,
+      context_limitations,
+      exceptions_behavior,
+      confidence_threshold,
+      enabled
+    } = req.body;
+
+    // Update configuration
+    aiAgentConfig = {
+      ...aiAgentConfig,
+      model: model || aiAgentConfig.model,
+      agent_name: agent_name || aiAgentConfig.agent_name,
+      response_tone: response_tone || aiAgentConfig.response_tone,
+      attitude_style: attitude_style || aiAgentConfig.attitude_style,
+      context_limitations: context_limitations || aiAgentConfig.context_limitations,
+      exceptions_behavior: exceptions_behavior || aiAgentConfig.exceptions_behavior,
+      confidence_threshold: confidence_threshold !== undefined ? confidence_threshold : aiAgentConfig.confidence_threshold,
+      enabled: enabled !== undefined ? enabled : aiAgentConfig.enabled,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Update NeuroAI agent status based on AI configuration
+    if (neuroAIAgentId) {
+      const neuroAIIndex = users.findIndex(u => u.id === neuroAIAgentId);
+      if (neuroAIIndex !== -1) {
+        users[neuroAIIndex] = {
+          ...users[neuroAIIndex],
+          firstName: aiAgentConfig.agent_name,
+          agentStatus: aiAgentConfig.enabled ? 'online' : 'offline',
+          isActive: aiAgentConfig.enabled,
+          updatedAt: new Date().toISOString()
+        };
+
+        // Update agent session status
+        if (aiAgentConfig.enabled) {
+          agentSessions.set(neuroAIAgentId, {
+            socketId: 'ai-virtual-session',
+            isOnline: true,
+            lastSeen: new Date().toISOString(),
+            joinedAt: agentSessions.get(neuroAIAgentId)?.joinedAt || new Date().toISOString()
+          });
+        } else {
+          agentSessions.delete(neuroAIAgentId);
+        }
+      }
+    }
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'ai_config_updated',
+      targetType: 'ai_config',
+      targetId: aiAgentConfig.id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: 'Updated AI agent configuration'
+    });
+
+    res.json({
+      success: true,
+      data: { config: aiAgentConfig }
+    });
+  } catch (error) {
+    console.error('Error updating AI agent config:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Get AI agent statistics (Admin only)
+app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    // Calculate statistics from in-memory data
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const totalResponses = aiResponses.length;
+    const responsesLast24h = aiResponses.filter(r => new Date(r.createdAt) >= last24h).length;
+    const responsesLast7Days = aiResponses.filter(r => new Date(r.createdAt) >= last7Days).length;
+
+    const totalConfidence = aiResponses.reduce((sum, r) => sum + r.confidenceScore, 0);
+    const averageConfidence = totalResponses > 0 ? totalConfidence / totalResponses : 0;
+
+    const totalResponseTime = aiResponses.reduce((sum, r) => sum + r.responseTimeMs, 0);
+    const averageResponseTime = totalResponses > 0 ? totalResponseTime / totalResponses : 0;
+
+    // Count escalations (responses with low confidence)
+    const escalations = aiResponses.filter(r => r.confidenceScore < (aiAgentConfig.confidence_threshold || 0.7)).length;
+    const escalationRate = totalResponses > 0 ? (escalations / totalResponses) * 100 : 0;
+
+    const documentsCount = aiDocuments.filter(d => d.isActive).length;
+    const chunksCount = aiDocumentChunks.length;
+
+    // Count tickets with AI disabled
+    const ticketsWithAiDisabled = tickets.filter(t => t.aiEnabled === false).length;
+
+    const stats = {
+      totalResponses,
+      responsesLast24h,
+      responsesLast7Days,
+      averageConfidence: Math.round(averageConfidence * 100) / 100,
+      averageResponseTime: Math.round(averageResponseTime),
+      escalationRate: Math.round(escalationRate * 100) / 100,
+      documentsCount,
+      chunksCount,
+      ticketsWithAiDisabled
+    };
+
+    res.json({
+      success: true,
+      data: { stats }
+    });
+  } catch (error) {
+    console.error('Error fetching AI agent stats:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Upload AI knowledge base document (Admin only)
+app.post('/api/ai-agent/documents', authenticateToken, uploadMultiple.array('documents'), async (req, res) => {
+  try {
+    console.log('📄 AI Document Upload Request Started');
+    console.log('User:', req.user.email, 'Role:', req.user.roleName);
+    
+    if (req.user.roleName !== 'Admin') {
+      console.log('❌ Access denied: User is not Admin');
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      console.log('❌ No files uploaded');
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'No files uploaded' }
+      });
+    }
+
+    console.log(`📁 Processing ${req.files.length} files...`);
+    const uploadedDocuments = [];
+    const failedDocuments = [];
+
+    for (const file of req.files) {
+      console.log(`🔍 Processing file: ${file.originalname}`);
+      try {
+        const fileType = path.extname(file.originalname).substring(1).toLowerCase();
+        console.log(`   - File type: ${fileType}`);
+        console.log(`   - File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+        console.log(`   - File path: ${file.path}`);
+
+        // Check if documentService exists and has the required methods
+        if (!documentService || typeof documentService.validateDocument !== 'function') {
+          throw new Error('DocumentService not available or missing validateDocument method');
+        }
+
+        // Validate document
+        console.log('   - Validating document...');
+        const validation = documentService.validateDocument(file.path, fileType, file.size);
+        if (!validation.isValid) {
+          console.log('   - ❌ Validation failed:', validation.errors);
+          await documentService.cleanup(file.path);
+          failedDocuments.push({
+            fileName: file.originalname,
+            errors: validation.errors
+          });
+          continue;
+        }
+        console.log('   - ✅ Validation passed');
+
+        // Process document
+        console.log('   - Processing document content...');
+        const processedDoc = await documentService.processDocument(
+          file.path,
+          file.originalname,
+          fileType,
+          file.size
+        );
+        console.log(`   - ✅ Document processed: ${processedDoc.chunkCount} chunks`);
+
+        // Create document record
+        const document = {
+          id: uuidv4(),
+          fileName: processedDoc.fileName,
+          fileType: processedDoc.fileType,
+          filePath: file.path,
+          fileSize: processedDoc.fileSize,
+          parsedText: processedDoc.fullText,
+          chunkCount: processedDoc.chunkCount,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        aiDocuments.push(document);
+        console.log(`   - ✅ Added document with ID: ${document.id}`);
+
+        // Create document chunks
+        console.log('   - Creating document chunks...');
+        processedDoc.chunks.forEach((chunk, index) => {
+          aiDocumentChunks.push({
+            id: chunk.id,
+            documentId: document.id,
+            chunkText: chunk.text,
+            chunkIndex: chunk.index,
+            embedding: chunk.embedding,
+            createdAt: new Date().toISOString()
+          });
+        });
+        console.log(`   - ✅ Created ${processedDoc.chunks.length} chunks`);
+
+        uploadedDocuments.push({
+          id: document.id,
+          fileName: document.fileName,
+          fileType: document.fileType,
+          fileSize: document.fileSize,
+          chunkCount: document.chunkCount,
+          createdAt: document.createdAt
+        });
+
+      } catch (fileError) {
+        console.error(`   - ❌ Error processing file ${file.originalname}:`, fileError.message);
+        
+        // Cleanup file on error
+        if (documentService && typeof documentService.cleanup === 'function') {
+          await documentService.cleanup(file.path);
+        }
+        
+        failedDocuments.push({
+          fileName: file.originalname,
+          errors: [fileError.message]
+        });
+      }
+    }
+
+    // Save documents to persistent storage immediately after upload
+    console.log('💾 Saving documents to persistent storage...');
+    try {
+      saveAIDocuments();
+      console.log('✅ Documents saved successfully');
+    } catch (saveError) {
+      console.error('❌ Error saving documents:', saveError.message);
+    }
+
+    // Log audit trail
+    if (uploadedDocuments.length > 0) {
+      logAudit({
+        userId: req.user.id,
+        userName: `${req.user.firstName} ${req.user.lastName}`,
+        userType: req.user.userType,
+        action: 'ai_document_uploaded',
+        targetType: 'ai_document',
+        targetId: uploadedDocuments.map(doc => doc.id).join(', '),
+        ipAddress: getClientIP(req),
+        userAgent: req.headers['user-agent'],
+        details: `Uploaded AI knowledge documents: ${uploadedDocuments.map(doc => doc.fileName).join(', ')}`
+      });
+    }
+
+    console.log('📊 Upload Summary:');
+    console.log(`   - Successful uploads: ${uploadedDocuments.length}`);
+    console.log(`   - Failed uploads: ${failedDocuments.length}`);
+
+    res.status(201).json({
+      success: true,
+      data: {
+        uploadedDocuments,
+        failedDocuments
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Critical error in AI document upload:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Cleanup files on error
+    if (req.files) {
+      console.log('🧹 Cleaning up uploaded files due to error...');
+      for (const file of req.files) {
+        try {
+          if (documentService && typeof documentService.cleanup === 'function') {
+            await documentService.cleanup(file.path);
+          } else if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        } catch (cleanupError) {
+          console.warn(`Warning: Could not cleanup file ${file.path}:`, cleanupError.message);
+        }
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Document upload failed: ' + error.message }
+    });
+  }
+});
+
+// Get AI knowledge base documents (Admin only)
+app.get('/api/ai-agent/documents', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const documents = aiDocuments.map(doc => ({
+      id: doc.id,
+      fileName: doc.fileName,
+      fileType: doc.fileType,
+      fileSize: doc.fileSize,
+      chunkCount: doc.chunkCount,
+      isActive: doc.isActive,
+      createdAt: doc.createdAt,
+      preview: documentService.getDocumentPreview(doc.parsedText)
+    }));
+
+    res.json({
+      success: true,
+      data: { documents }
+    });
+  } catch (error) {
+    console.error('Error fetching AI documents:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Delete AI knowledge base document (Admin only)
+app.delete('/api/ai-agent/documents/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const { id } = req.params;
+    const docIndex = aiDocuments.findIndex(doc => doc.id === id);
+
+    if (docIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Document not found' }
+      });
+    }
+
+    const document = aiDocuments[docIndex];
+
+    // Remove document and its chunks
+    aiDocuments.splice(docIndex, 1);
+    aiDocumentChunks = aiDocumentChunks.filter(chunk => chunk.documentId !== id);
+
+    // Save to persistent storage after deletion
+    saveAIDocuments();
+
+    // Cleanup file
+    await documentService.cleanup(document.filePath);
+
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'ai_document_deleted',
+      targetType: 'ai_document',
+      targetId: id,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Deleted AI knowledge document: ${document.fileName}`
+    });
+
+    res.json({
+      success: true,
+      data: { message: 'Document deleted successfully' }
+    });
+
+  } catch (error) {
+    console.error('Error deleting AI document:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Toggle AI for specific ticket (Agents only)
+app.post('/api/tickets/:ticketId/toggle-ai', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('tickets.edit')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Ticket edit permission required' }
+      });
+    }
+
+    const { ticketId } = req.params;
+    const { enabled, reason } = req.body;
+
+    const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+    if (ticketIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+      });
+    }
+
+    const ticket = tickets[ticketIndex];
+    const wasEnabled = ticket.aiEnabled !== false;
+
+    // Update ticket AI status
+    tickets[ticketIndex] = {
+      ...ticket,
+      aiEnabled: enabled,
+      aiDisabledReason: enabled ? null : (reason || 'manual'),
+      aiDisabledAt: enabled ? null : new Date().toISOString(),
+      aiDisabledBy: enabled ? null : req.user.id,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Log the change
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: enabled ? 'ai_enabled' : 'ai_disabled',
+      ticketNumber: ticket.ticketNumber,
+      targetType: 'ticket',
+      targetId: ticketId,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `AI ${enabled ? 'enabled' : 'disabled'} for ticket${reason ? ` (${reason})` : ''}`
+    });
+
+    // Broadcast status change to ticket room
+    io.to(`ticket_${ticketId}`).emit('ai_status_changed', {
+      ticketId,
+      enabled,
+      reason,
+      changedBy: `${req.user.firstName} ${req.user.lastName}`
+    });
+
+    res.json({
+      success: true,
+      data: { 
+        aiEnabled: enabled,
+        message: `AI ${enabled ? 'enabled' : 'disabled'} for this ticket`
+      }
+    });
+
+  } catch (error) {
+    console.error('Error toggling AI for ticket:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// Get AI response statistics (Admin only)
+app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
+  try {
+    if (req.user.roleName !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Admin access required' }
+      });
+    }
+
+    const now = new Date();
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const stats = {
+      totalResponses: aiResponses.length,
+      responsesLast24h: aiResponses.filter(r => new Date(r.createdAt) > last24Hours).length,
+      responsesLast7Days: aiResponses.filter(r => new Date(r.createdAt) > last7Days).length,
+      averageConfidence: aiResponses.length > 0 ? 
+        aiResponses.reduce((sum, r) => sum + r.confidenceScore, 0) / aiResponses.length : 0,
+      averageResponseTime: aiResponses.length > 0 ? 
+        aiResponses.reduce((sum, r) => sum + r.responseTimeMs, 0) / aiResponses.length : 0,
+      escalationRate: aiResponses.length > 0 ? 
+        aiResponses.filter(r => r.confidenceScore < aiAgentConfig.confidence_threshold).length / aiResponses.length : 0,
+      documentsCount: aiDocuments.length,
+      chunksCount: aiDocumentChunks.length,
+      ticketsWithAiDisabled: tickets.filter(t => t.aiEnabled === false).length
+    };
+
+    res.json({
+      success: true,
+      data: { stats }
+    });
+
+  } catch (error) {
+    console.error('Error fetching AI stats:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+});
+
+// ==========================================
 // EMAIL RECEIVER SERVICE INITIALIZATION
 // ==========================================
 
@@ -7995,6 +9335,34 @@ function initializeEmailService() {
     console.error('❌ Failed to start email receiver service:', error);
   }
 }
+
+// Initialize AI service
+async function initializeAIService() {
+  console.log('🤖 Initializing AI system...');
+  
+  try {
+    // Load AI documents from persistent storage
+    loadAIDocuments();
+    
+    const isInitialized = await aiService.initialize();
+    if (isInitialized) {
+      console.log('✅ AI service initialized successfully');
+    } else {
+      console.log('⚠️ AI service initialization skipped (no API key)');
+    }
+    
+    // Create NeuroAI agent after AI service is initialized
+    const neuroAIId = createNeuroAIAgent();
+    console.log('✅ NeuroAI agent initialized with ID:', neuroAIId);
+    
+  } catch (error) {
+    console.error('❌ Failed to initialize AI service:', error);
+  }
+}
+
+// Initialize services on startup
+initializeEmailService();
+initializeAIService();
 
 // Graceful shutdown handler
 process.on('SIGINT', () => {

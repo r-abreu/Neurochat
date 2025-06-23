@@ -7,12 +7,13 @@ import EditUserForm from './EditUserForm';
 import RoleManagement from './RoleManagement';
 import AuditTrail from './AuditTrail';
 import SystemSettings from './SystemSettings';
+import AiAgentSettings from './AiAgentSettings';
 
 interface UserManagementProps {}
 
 const UserManagement: React.FC<UserManagementProps> = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'agents' | 'roles' | 'audit' | 'settings'>('agents');
+  const [activeTab, setActiveTab] = useState<'agents' | 'roles' | 'audit' | 'settings' | 'ai-agent'>('agents');
   const [agents, setAgents] = useState<AgentUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -286,6 +287,18 @@ const UserManagement: React.FC<UserManagementProps> = () => {
               System Settings
             </button>
           )}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('ai-agent')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'ai-agent'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              AI Agent Settings
+            </button>
+          )}
         </nav>
       </div>
 
@@ -337,6 +350,10 @@ const UserManagement: React.FC<UserManagementProps> = () => {
 
       {activeTab === 'settings' && isAdmin && (
         <SystemSettings />
+      )}
+
+      {activeTab === 'ai-agent' && isAdmin && (
+        <AiAgentSettings />
       )}
     </div>
   );

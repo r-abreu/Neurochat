@@ -718,6 +718,92 @@ class ApiService {
     return apiResponse.data.settings;
   }
 
+  // AI Agent System API (Admin only)
+  async getAiAgentConfig(): Promise<any> {
+    const response = await this.fetchWithAuth('/ai-agent/config');
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { config: any } }>(response);
+    return apiResponse.data.config;
+  }
+
+  async updateAiAgentConfig(config: any): Promise<any> {
+    const response = await this.fetchWithAuth('/ai-agent/config', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { config: any } }>(response);
+    return apiResponse.data.config;
+  }
+
+  async getAiDocuments(): Promise<any[]> {
+    const response = await this.fetchWithAuth('/ai-agent/documents');
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { documents: any[] } }>(response);
+    return apiResponse.data.documents;
+  }
+
+  async uploadAiDocument(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('document', file);
+    
+    const response = await fetch(`${this.baseURL}/ai-agent/documents`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.token}`
+      },
+      body: formData
+    });
+
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { document: any } }>(response);
+    return apiResponse.data.document;
+  }
+
+  async uploadAiDocuments(files: FileList): Promise<any> {
+    const formData = new FormData();
+    
+    // Append all files to the same field name 'documents'
+    for (let i = 0; i < files.length; i++) {
+      formData.append('documents', files[i]);
+    }
+    
+    const response = await fetch(`${this.baseURL}/ai-agent/documents`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.token}`
+      },
+      body: formData
+    });
+
+    const apiResponse = await this.handleResponse<{ 
+      success: boolean; 
+      data: { 
+        uploadedDocuments: any[]; 
+        failedDocuments: any[] 
+      } 
+    }>(response);
+    return apiResponse.data;
+  }
+
+  async deleteAiDocument(documentId: string): Promise<void> {
+    const response = await this.fetchWithAuth(`/ai-agent/documents/${documentId}`, {
+      method: 'DELETE'
+    });
+    await this.handleResponse<{ success: boolean }>(response);
+  }
+
+  async getAiStats(): Promise<any> {
+    const response = await this.fetchWithAuth('/ai-agent/stats');
+    const apiResponse = await this.handleResponse<{ success: boolean; data: { stats: any } }>(response);
+    return apiResponse.data.stats;
+  }
+
+  async toggleTicketAi(ticketId: string, enabled: boolean, reason?: string): Promise<any> {
+    const response = await this.fetchWithAuth(`/tickets/${ticketId}/toggle-ai`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled, reason })
+    });
+    const apiResponse = await this.handleResponse<{ success: boolean; data: any }>(response);
+    return apiResponse.data;
+  }
+
   // Dropdown Options Management APIs
   async getDropdownOptions(): Promise<{
     categories: Category[];

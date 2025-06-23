@@ -6,7 +6,8 @@ export interface SocketEvents {
   'new_message': (data: { message: Message }) => void;
   'ticket_updated': (ticket: Ticket) => void;
   'ticket_deleted': (data: { ticketId: string; deletedBy: string; deletedAt: string }) => void;
-  'ticket_claimed': (data: { ticketId: string; agent: any; claimedAt: string }) => void;
+  'ticket_claimed': (data: { ticketId: string; agent: any; claimedAt: string; handoffFromAI?: boolean }) => void;
+  'ai_to_human_handoff': (data: { ticketId: string; previousAgent: string; newAgent: any; handoffAt: string }) => void;
   'agent_joined': (data: { ticketId: string; agentName: string }) => void;
   'agent_left': (data: { ticketId: string; agentName: string }) => void;
   'user_typing': (data: { ticketId: string; isTyping: boolean }) => void;
@@ -14,6 +15,7 @@ export interface SocketEvents {
   'ticket_joined': (data: { ticketId: string; success: boolean }) => void;
   'customer_status_changed': (data: { ticketId: string; isOnline: boolean; lastSeen: string }) => void;
   'agent_status_changed': (data: { agentId: string; isOnline: boolean; lastSeen: string }) => void;
+  'ai_status_changed': (data: { ticketId: string; enabled: boolean; reason?: string; changedBy: string }) => void;
   'company_match_suggestion': (data: { pendingMatchId: string; ticketId: string; ticketNumber: string; customerName: string; inputCompanyName: string; suggestedCompany: string; confidence: number; message: string }) => void;
 }
 

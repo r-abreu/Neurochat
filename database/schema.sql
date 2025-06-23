@@ -124,7 +124,13 @@ CREATE TABLE Tickets (
     INDEX IX_Tickets_CustomerCity (customer_city),
     INDEX IX_Tickets_CustomerType (customer_type),
     INDEX IX_Tickets_DeviceModel (device_model),
-    INDEX IX_Tickets_DeviceSerialNumber (device_serial_number)
+    INDEX IX_Tickets_DeviceSerialNumber (device_serial_number),
+    
+    -- AI-related columns
+    ai_enabled BIT DEFAULT 1,
+    ai_disabled_reason NVARCHAR(100) NULL CHECK (ai_disabled_reason IN ('manual', 'customer_request', 'escalation')),
+    ai_disabled_at DATETIME2 NULL,
+    ai_disabled_by UNIQUEIDENTIFIER NULL
 );
 
 -- ==========================================
@@ -451,6 +457,81 @@ FROM Users u
 LEFT JOIN Tickets t ON u.user_id = t.agent_id
 WHERE u.user_type = 'agent'
 GROUP BY u.user_id, u.first_name, u.last_name, u.email;
+
+-- ==========================================
+-- 9. AI AGENT SYSTEM TABLES
+-- ==========================================
+
+-- AI Agent Configuration Table
+CREATE TABLE AiAgentConfig (
+    config_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    model NVARCHAR(50) DEFAULT 'gpt-4o',
+    agent_name NVARCHAR(100) DEFAULT 'NeuroAI',
+    response_tone NVARCHAR(50) DEFAULT 'Technical',
+    attitude_style NVARCHAR(50) DEFAULT 'Curious',
+    context_limitations NVARCHAR(MAX) DEFAULT 'Only provide support for NeuroVirtual products',
+    exceptions_behavior NVARCHAR(MAX) DEFAULT 'warranty,refund,billing',
+    confidence_threshold FLOAT DEFAULT 0.7,
+    enabled BIT DEFAULT 1,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE()
+);
+
+-- Insert default AI agent configuration
+INSERT INTO AiAgentConfig (model, agent_name, response_tone, attitude_style, context_limitations, exceptions_behavior, confidence_threshold, enabled)
+VALUES ('gpt-4o', 'NeuroAI', 'Technical', 'Curious', 'Only provide support for NeuroVirtual products and devices', 'warranty,refund,billing,escalate,human', 0.7, 1);
+
+-- AI Documents Table for Knowledge Base
+CREATE TABLE AiDocuments (
+    document_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    file_name NVARCHAR(255) NOT NULL,
+    file_type NVARCHAR(10) NOT NULL CHECK (file_type IN ('pdf', 'doc', 'docx', 'txt')),
+    file_path NVARCHAR(500) NOT NULL,
+    file_size INT NOT NULL,
+    parsed_text NVARCHAR(MAX) NOT NULL,
+    embedding NVARCHAR(MAX) NULL, -- JSON string of vector embedding
+    chunk_count INT DEFAULT 0,
+    is_active BIT DEFAULT 1,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE(),
+    
+    INDEX IX_AiDocuments_FileName (file_name),
+    INDEX IX_AiDocuments_FileType (file_type),
+    INDEX IX_AiDocuments_IsActive (is_active)
+);
+
+-- AI Document Chunks Table (for vector search)
+CREATE TABLE AiDocumentChunks (
+    chunk_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    document_id UNIQUEIDENTIFIER NOT NULL,
+    chunk_text NVARCHAR(MAX) NOT NULL,
+    chunk_index INT NOT NULL,
+    embedding NVARCHAR(MAX) NULL, -- JSON string of vector embedding
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    
+    FOREIGN KEY (document_id) REFERENCES AiDocuments(document_id) ON DELETE CASCADE,
+    INDEX IX_AiDocumentChunks_DocumentId (document_id),
+    INDEX IX_AiDocumentChunks_ChunkIndex (chunk_index)
+);
+
+-- AI Responses Table for tracking AI interactions
+CREATE TABLE AiResponses (
+    response_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    ticket_id UNIQUEIDENTIFIER NOT NULL,
+    message_id UNIQUEIDENTIFIER NULL,
+    source_doc_ids NVARCHAR(MAX) NULL, -- JSON array of document IDs used
+    user_message NVARCHAR(MAX) NOT NULL,
+    ai_response NVARCHAR(MAX) NOT NULL,
+    confidence_score FLOAT NOT NULL,
+    model_used NVARCHAR(50) NOT NULL,
+    response_time_ms INT NOT NULL,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    
+    FOREIGN KEY (ticket_id) REFERENCES Tickets(ticket_id) ON DELETE CASCADE,
+    INDEX IX_AiResponses_TicketId (ticket_id),
+    INDEX IX_AiResponses_CreatedAt (created_at),
+    INDEX IX_AiResponses_ConfidenceScore (confidence_score)
+);
 
 -- Grant permissions (adjust as needed for your security model)
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON Users TO [NeuroChat_App_User];

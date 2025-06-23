@@ -66,12 +66,36 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
   const [emailError, setEmailError] = useState('');
+  // AI related state
+  const [aiEnabled, setAiEnabled] = useState<boolean>(true);
+  const [aiToggling, setAiToggling] = useState(false);
+  const [aiStatus, setAiStatus] = useState<{
+    enabled: boolean;
+    reason: string | null;
+    changedBy: string | null;
+    disabledAt: string | null;
+  }>({
+    enabled: true,
+    reason: null,
+    changedBy: null,
+    disabledAt: null
+  });
 
   // Update local ticket state when prop changes
   useEffect(() => {
     console.log('🔧 Debug - useEffect triggered with initialTicket:', initialTicket);
     setTicket(initialTicket);
     if (initialTicket) {
+      // Initialize AI status from ticket
+      const ticketAiEnabled = initialTicket.aiEnabled !== false;
+      setAiEnabled(ticketAiEnabled);
+      setAiStatus({
+        enabled: ticketAiEnabled,
+        reason: initialTicket.aiDisabledReason || null,
+        changedBy: initialTicket.aiDisabledBy || null,
+        disabledAt: initialTicket.aiDisabledAt || null
+      });
+      
       setEditForm({
         title: initialTicket.title,
         description: initialTicket.description,
@@ -186,11 +210,26 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       });
     };
 
+    // Listen for AI status changes
+    const handleAiStatusChange = (data: { ticketId: string; enabled: boolean; reason?: string; changedBy: string }) => {
+      if (ticket?.id && data.ticketId === ticket.id) {
+        console.log('🤖 AI status changed:', data);
+        setAiEnabled(data.enabled);
+        setAiStatus({
+          enabled: data.enabled,
+          reason: data.reason || null,
+          changedBy: data.changedBy,
+          disabledAt: data.enabled ? null : new Date().toISOString()
+        });
+      }
+    };
+
     socketService.on('new_message', handleNewMessage);
     socketService.on('user_typing', handleTyping);
     socketService.on('ticket_updated', handleTicketUpdate);
     socketService.on('customer_status_changed', handleCustomerStatusChange);
     socketService.on('agent_status_changed', handleAgentStatusChange);
+    socketService.on('ai_status_changed', handleAiStatusChange);
 
     return () => {
       socketService.off('new_message', handleNewMessage);
@@ -198,6 +237,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       socketService.off('ticket_updated', handleTicketUpdate);
       socketService.off('customer_status_changed', handleCustomerStatusChange);
       socketService.off('agent_status_changed', handleAgentStatusChange);
+      socketService.off('ai_status_changed', handleAiStatusChange);
       if (ticket?.id) {
         socketService.leaveTicket(ticket.id);
       }
@@ -455,6 +495,29 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       alert('Failed to reassign ticket. Please try again.');
     } finally {
       setReassigning(false);
+    }
+  };
+
+  const handleToggleAi = async (enabled: boolean, reason?: string) => {
+    if (!ticket?.id) return;
+    
+    try {
+      setAiToggling(true);
+      console.log(`🤖 ${enabled ? 'Enabling' : 'Disabling'} AI for ticket ${ticket.ticketNumber}`);
+      
+      await apiService.toggleTicketAi(ticket.id, enabled, reason);
+      
+      // The socket event will update the state, but we can also update locally for immediate feedback
+      setAiEnabled(enabled);
+      console.log(`✅ AI ${enabled ? 'enabled' : 'disabled'} for ticket ${ticket.ticketNumber}`);
+      
+    } catch (error) {
+      console.error('Error toggling AI:', error);
+      alert(`Failed to ${enabled ? 'enable' : 'disable'} AI. Please try again.`);
+      // Revert local state on error
+      setAiEnabled(!enabled);
+    } finally {
+      setAiToggling(false);
     }
   };
 
@@ -1216,6 +1279,51 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                     Reopen Ticket
                   </button>
                 )}
+
+                {/* AI Toggle Section */}
+                {user?.permissions?.includes('tickets.edit') && (
+                  <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">AI Assistant</h4>
+                        <div className={`w-2 h-2 rounded-full ${aiEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      </div>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => handleToggleAi(!aiEnabled, aiEnabled ? 'manual' : undefined)}
+                          disabled={aiToggling}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                            aiEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'
+                          } ${aiToggling ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              aiEnabled ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {aiEnabled ? (
+                        <span className="text-green-600 dark:text-green-400">✓ AI will respond to customer messages</span>
+                      ) : (
+                        <div>
+                          <span className="text-red-600 dark:text-red-400">✗ AI responses disabled</span>
+                          {aiStatus.disabledAt && (
+                            <div className="mt-1">
+                              <span>Disabled {aiStatus.reason === 'escalation' ? 'due to escalation' : 'manually'}</span>
+                              {aiStatus.changedBy && (
+                                <span> by {aiStatus.changedBy}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1371,18 +1479,30 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                         return (
                           <div
                             key={message.id}
-                            className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                            className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} mb-2`}
                           >
                             <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                               isOwnMessage
-                                ? 'bg-primary-600 text-white'
-                                : 'bg-gray-100 text-gray-900'
+                                ? 'bg-blue-600 text-white rounded-br-sm'
+                                : (sender?.userType === 'customer')
+                                ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-900 dark:text-orange-100 border border-orange-200 dark:border-orange-800 rounded-bl-sm'
+                                : 'bg-green-100 dark:bg-green-900/30 text-green-900 dark:text-green-100 border border-green-200 dark:border-green-800 rounded-bl-sm'
                             }`}>
                               <p className="text-sm">{message.content}</p>
                               <p className={`text-xs mt-1 ${
-                                isOwnMessage ? 'text-primary-100' : 'text-gray-500'
+                                isOwnMessage 
+                                  ? 'text-blue-100' 
+                                  : (sender?.userType === 'customer')
+                                  ? 'text-orange-700 dark:text-orange-300'
+                                  : 'text-green-700 dark:text-green-300'
                               }`}>
-                                {senderName || (isOwnMessage ? 'You' : (sender?.userType === 'customer' || sender?.role === 'customer' ? 'Customer' : 'Support'))} • {formatMessageTime(message.createdAt)}
+                                {(() => {
+                                  if (senderName) return senderName;
+                                  if (isOwnMessage) return 'You';
+                                  if (sender?.userType === 'ai') return senderName || 'NeuroAI'; 
+                                  if (sender?.userType === 'customer' || sender?.role === 'customer') return 'Customer';
+                                  return 'Support Agent';
+                                })()} • {formatMessageTime(message.createdAt)}
                               </p>
                             </div>
                           </div>

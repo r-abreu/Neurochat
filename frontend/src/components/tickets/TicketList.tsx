@@ -467,12 +467,12 @@ const TicketList: React.FC<TicketListProps> = ({
     
     if (!ticket.messages || ticket.messages.length === 0) return null;
     
-    // Find the most recent message from an agent
+    // Find the most recent message from an agent or AI
     const agentMessages = ticket.messages
-      .filter(msg => msg.sender?.userType === 'agent')
+      .filter(msg => msg.sender?.userType === 'agent' || msg.sender?.userType === 'ai')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
-    console.log(`👨‍💼 Agent messages found:`, agentMessages.length);
+    console.log(`👨‍💼 Agent/AI messages found:`, agentMessages.length);
     return agentMessages.length > 0 ? agentMessages[0] : null;
   };
 

@@ -31,6 +31,8 @@ const UserList: React.FC<UserListProps> = ({
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200';
       case 'Viewer':
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900/50 dark:text-gray-200';
+      case 'AI Agent':
+        return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200';
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900/50 dark:text-gray-200';
     }
@@ -72,15 +74,28 @@ const UserList: React.FC<UserListProps> = ({
       render: (agent) => (
         <div className="flex items-center">
           <div className="flex-shrink-0 h-10 w-10">
-            <div className="h-10 w-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {agent.firstName.charAt(0)}{agent.lastName.charAt(0)}
-              </span>
-            </div>
+            {agent.isAIAgent ? (
+              <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                <svg className="w-6 h-6 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+            ) : (
+              <div className="h-10 w-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {agent.firstName.charAt(0)}{agent.lastName.charAt(0)}
+                </span>
+              </div>
+            )}
           </div>
           <div className="ml-4">
-            <div className="text-sm font-medium text-gray-900 dark:text-white">
+            <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center">
               {agent.firstName} {agent.lastName}
+              {agent.isAIAgent && (
+                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200">
+                  🤖 AI
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -166,7 +181,7 @@ const UserList: React.FC<UserListProps> = ({
     },
   ];
 
-  // Define actions
+  // Define actions - AI agents should not be editable or deletable
   const actions = [
     ...(canEdit ? [
       {
@@ -178,6 +193,7 @@ const UserList: React.FC<UserListProps> = ({
         ),
         onClick: onEdit,
         className: 'text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300',
+        show: (agent: AgentUser) => !agent.isAIAgent, // Hide for AI agents
       },
       {
         label: 'Reset Password',
@@ -188,6 +204,7 @@ const UserList: React.FC<UserListProps> = ({
         ),
         onClick: (agent: AgentUser) => onResetPassword(agent.id),
         className: 'text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300',
+        show: (agent: AgentUser) => !agent.isAIAgent, // Hide for AI agents
       },
     ] : []),
     ...(canDelete ? [
@@ -200,6 +217,7 @@ const UserList: React.FC<UserListProps> = ({
         ),
         onClick: (agent: AgentUser) => onDelete(agent.id, false),
         className: 'text-orange-600 hover:text-orange-900 dark:text-orange-400 dark:hover:text-orange-300',
+        show: (agent: AgentUser) => !agent.isAIAgent, // Hide for AI agents
       },
       {
         label: 'Delete Permanently',
@@ -210,6 +228,7 @@ const UserList: React.FC<UserListProps> = ({
         ),
         onClick: (agent: AgentUser) => onDelete(agent.id, true),
         className: 'text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300',
+        show: (agent: AgentUser) => !agent.isAIAgent, // Hide for AI agents
       },
     ] : []),
   ];

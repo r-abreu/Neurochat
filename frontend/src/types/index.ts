@@ -51,6 +51,11 @@ export interface Ticket {
   customer?: User;
   agent?: User;
   messages?: Message[];
+  // AI-related fields
+  aiEnabled?: boolean;
+  aiDisabledReason?: string;
+  aiDisabledBy?: string;
+  aiDisabledAt?: string;
 }
 
 export interface Message {
@@ -66,7 +71,7 @@ export interface Message {
     id: string | null;
     firstName: string;
     lastName: string;
-    userType: 'customer' | 'agent' | 'system';
+    userType: 'customer' | 'agent' | 'system' | 'ai';
   };
   // File attachment properties
   fileName?: string;
@@ -135,7 +140,7 @@ export interface AgentUser {
   firstName: string;
   lastName: string;
   name?: string; // Combined name for display
-  roleName: 'Admin' | 'Tier2' | 'Tier1' | 'Viewer';
+  roleName: 'Admin' | 'Tier2' | 'Tier1' | 'Viewer' | 'AI Agent';
   roleId: string;
   isActive: boolean;
   createdAt: string;
@@ -146,6 +151,7 @@ export interface AgentUser {
   maxConcurrentTickets: number;
   permissions: string[];
   mustChangePassword?: boolean;
+  isAIAgent?: boolean; // Flag to identify AI agent
 }
 
 export interface CreateAgentRequest {
