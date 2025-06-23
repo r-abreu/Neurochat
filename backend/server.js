@@ -47,10 +47,76 @@ let aiAgentConfig = {
   id: uuidv4(),
   model: 'gpt-4o',
   agent_name: 'NeuroAI',
-  response_tone: 'Technical',
-  attitude_style: 'Curious',
-  context_limitations: 'Only provide support for NeuroVirtual products and devices',
-  exceptions_behavior: 'warranty,refund,billing,escalate,human',
+  response_tone: 'Professional',
+  attitude_style: 'Helpful',
+  context_limitations: `Role: Technical Support AI Agent (Neurovirtual)
+Primary Objective:
+You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessary—all while ensuring a safe, focused, and friendly interaction.
+
+🎯 Supported Products
+Devices: BWMini, BWIII
+Software: BWAnalysis, BWCenter
+
+Always begin by identifying the product in question:
+"Is your question related to one of our devices (BWMini or BWIII), or our software (BWAnalysis or BWCenter)?"
+
+💬 User Interaction Guidelines
+Ask one question or provide one instruction at a time.
+Avoid overwhelming the user.
+
+For multi-step processes (3+ steps):
+- Provide the steps gradually.
+- Ask for user confirmation after each step before continuing.
+
+If the user stops responding, wait 15 seconds, then ask:
+"Just checking — did that help, or would you like more guidance?"
+
+Maintain professionalism and end each interaction with a positive tone.
+
+🔧 Special Case Handling
+🚫 Device Appears Damaged
+Ask: "Would you like to try a few troubleshooting steps to confirm if the device is damaged?"
+
+If the user is certain the device is defective:
+Ask for the serial number: "Please provide the device's serial number so I can escalate the issue to our support team."
+After receiving the serial number, escalate appropriately.
+
+⚠️ Sensor Not Working
+Refer the user to the relevant troubleshooting or learning documentation.
+If the issue persists or documentation does not resolve it, escalate the case.
+
+💵 Request for Quote or Pricing
+Do not provide any pricing directly. Instead, refer the user to sales:
+"For pricing or quotes, please contact our sales team through this link: https://neurovirtual.com/technicalsupport/"
+
+🔐 Data Safety & Support Protocols
+No Mention of Training Data
+Never reference internal or external data sources.
+
+Request Serial Number Only When Required
+Only ask for serial numbers in the case of hardware escalation.
+
+Do Not Request or Retain Personal Data
+Avoid asking for names, email addresses, or contact details unless required by support escalation protocol.
+
+Stay Within Scope
+If a user asks something unrelated to Neurovirtual devices or software, respond with:
+"I'm here to help with Neurovirtual hardware and software. For anything outside this scope, please contact our team directly."
+
+Graceful Fallback
+If you cannot answer:
+"I couldn't find the information in my support materials. I recommend reaching out to our support team directly for further help."
+
+✅ Support Flow Summary
+1. Identify the product (BWMini, BWIII, BWAnalysis, or BWCenter).
+2. Guide using one question or instruction at a time.
+3. For multi-step processes, give steps in parts, wait for confirmation.
+4. If user disengages, follow up once after 15 seconds.
+5. If device is defective, request the serial number, then escalate.
+6. Refer pricing requests to sales.
+7. For sensor issues, offer docs first, escalate if unresolved.
+8. Never expose or retain personal or internal data.`,
+  exceptions_behavior: 'warranty,refund,billing,escalate,human,pricing,sales,personal_data',
   confidence_threshold: 0.7,
   enabled: true,
   createdAt: new Date().toISOString(),
@@ -410,7 +476,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '1',
     roleName: 'Admin',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete', 'companies.assign'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 10,
@@ -1039,6 +1105,8 @@ app.post('/api/auth/login', async (req, res) => {
   res.json(response);
 });
 
+
+
 // Get categories
 app.get('/api/categories', (req, res) => {
   res.json({
@@ -1298,6 +1366,11 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
     category,
     messageCount: ticketMessages.length,
     lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt,
+    // AI Summary fields
+    resolutionSummary: ticket.resolutionSummary || null,
+    resolutionSummaryGeneratedAt: ticket.resolutionSummaryGeneratedAt || null,
+    resolutionSummaryModelVersion: ticket.resolutionSummaryModelVersion || null,
+    resolutionSummaryGeneratedBy: ticket.resolutionSummaryGeneratedBy || null,
     messages: ticketMessages.map(msg => {
       const sender = users.find(u => u.id === msg.senderId);
       
@@ -1931,6 +2004,14 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     console.log('🎯 Ticket closed/resolved, triggering company fuzzy matching...');
     performAutomaticCompanyMatching(ticket);
   }
+
+  // Trigger AI summarization when ticket is marked as resolved
+  if (updates.status === 'resolved' && ticket.status !== 'resolved') {
+    console.log('📝 Ticket resolved, triggering AI summarization...');
+    setImmediate(async () => {
+      await generateTicketSummary(ticket.id, req.user.sub);
+    });
+  }
   
   // Auto-create device if ticket was updated with device information
   if ((updates.deviceSerialNumber || updates.deviceModel) && ticket.deviceSerialNumber && ticket.deviceModel) {
@@ -2344,6 +2425,176 @@ app.get('/api/tickets/:ticketId/customer-status', authenticateToken, (req, res) 
   });
 });
 
+// Generate ticket summary (manual)
+app.post('/api/tickets/:ticketId/generate-summary', authenticateToken, async (req, res) => {
+  console.log('🔴 [DEBUG] Generate summary route hit!');
+  console.log('🔴 [DEBUG] Ticket ID:', req.params.ticketId);
+  console.log('🔴 [DEBUG] User:', req.user);
+  
+  try {
+    const ticket = tickets.find(t => t.id === req.params.ticketId);
+    if (!ticket) {
+      console.log('🔴 [DEBUG] Ticket not found');
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
+      });
+    }
+    
+    console.log('🔴 [DEBUG] Found ticket:', ticket.ticketNumber);
+    console.log('🔴 [DEBUG] User permissions:', req.user.permissions);
+    
+    // Check if user has permission to generate summaries
+    if (!req.user.permissions?.includes('tickets.edit')) {
+      console.log('🔴 [DEBUG] No permission to generate summaries');
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to generate ticket summaries' }
+      });
+    }
+    
+    console.log('🔴 [DEBUG] AI service enabled:', aiService.isEnabled());
+    
+    // Check if AI service is available
+    if (!aiService.isEnabled()) {
+      console.log('🔴 [DEBUG] AI service not available');
+      return res.status(503).json({
+        success: false,
+        error: { code: 'AI_SERVICE_UNAVAILABLE', message: 'AI service is not available. Please configure OpenAI API key.' }
+      });
+    }
+    
+    console.log('🔴 [DEBUG] Generating summary...');
+    
+    // Generate summary using the existing function (with manual generation flag)
+    await generateTicketSummary(ticket.id, req.user.sub);
+    
+    // Get the updated ticket with the new summary
+    const updatedTicket = tickets.find(t => t.id === req.params.ticketId);
+    
+    if (updatedTicket.resolutionSummary) {
+      res.json({
+        success: true,
+        data: {
+          summary: updatedTicket.resolutionSummary,
+          generatedAt: updatedTicket.resolutionSummaryGeneratedAt,
+          modelVersion: updatedTicket.resolutionSummaryModelVersion,
+          generatedBy: updatedTicket.resolutionSummaryGeneratedBy
+        }
+      });
+    } else {
+      throw new Error('Summary generation completed but no summary was saved');
+    }
+    
+  } catch (error) {
+    console.error('🔴 [DEBUG] Error in generate summary:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SUMMARY_GENERATION_FAILED', message: error.message }
+    });
+  }
+});
+
+// Generate AI summary for resolved ticket
+async function generateTicketSummary(ticketId, generatedBy = null) {
+  try {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      console.error('❌ Cannot generate summary: ticket not found');
+      return;
+    }
+
+    // Skip if summary already exists and is recent (within 1 hour), unless it's a manual regeneration
+    if (ticket.resolutionSummary && ticket.resolutionSummaryGeneratedAt && !generatedBy) {
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const summaryDate = new Date(ticket.resolutionSummaryGeneratedAt);
+      if (summaryDate > hourAgo) {
+        console.log('📝 Summary already exists and is recent, skipping automatic generation');
+        return;
+      }
+    }
+
+    // Get ticket messages for conversation transcript
+    const ticketMessages = messages
+      .filter(m => m.ticketId === ticketId)
+      .map(msg => {
+        const sender = users.find(u => u.id === msg.senderId);
+        return {
+          ...msg,
+          sender: sender ? {
+            id: sender.id,
+            firstName: sender.firstName,
+            lastName: sender.lastName,
+            userType: sender.id === ticket.customerId ? 'customer' : sender.userType
+          } : {
+            id: null,
+            firstName: ticket.customerName?.split(' ')[0] || 'Customer',
+            lastName: ticket.customerName?.split(' ').slice(1).join(' ') || '',
+            userType: 'customer'
+          }
+        };
+      });
+
+    // Get category info
+    const category = categories.find(c => c.id === ticket.categoryId);
+    const ticketWithCategory = { ...ticket, category };
+
+    console.log('📝 Generating AI summary for ticket:', ticket.ticketNumber);
+
+    // Generate summary using AI service
+    const summaryResult = await aiService.generateResolutionSummary(
+      ticketWithCategory,
+      ticketMessages
+    );
+
+    // Save summary to ticket
+    ticket.resolutionSummary = summaryResult.summary;
+    ticket.resolutionSummaryGeneratedAt = new Date().toISOString();
+    ticket.resolutionSummaryModelVersion = summaryResult.modelUsed;
+    ticket.resolutionSummaryGeneratedBy = generatedBy;
+
+    console.log('✅ AI summary generated successfully for ticket:', ticket.ticketNumber);
+    console.log('📝 Summary:', summaryResult.summary);
+
+    // Notify connected clients about the summary update
+    io.to(`ticket_${ticketId}`).emit('ticket_summary_generated', {
+      ticketId: ticketId,
+      summary: summaryResult.summary,
+      generatedAt: ticket.resolutionSummaryGeneratedAt,
+      modelVersion: summaryResult.modelUsed,
+      confidence: summaryResult.confidence
+    });
+
+    // Log audit trail
+    logAudit({
+      userId: generatedBy,
+      userName: generatedBy ? (users.find(u => u.id === generatedBy)?.firstName + ' ' + users.find(u => u.id === generatedBy)?.lastName) : 'System',
+      userType: 'system',
+      action: 'ticket_summary_generated',
+      ticketNumber: ticket.ticketNumber,
+      targetType: 'ticket',
+      targetId: ticket.id,
+      details: `AI summary generated (${summaryResult.modelUsed}, confidence: ${summaryResult.confidence})`
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating ticket summary:', error);
+    
+    // Log the error in audit trail
+    logAudit({
+      userId: generatedBy,
+      userName: generatedBy ? (users.find(u => u.id === generatedBy)?.firstName + ' ' + users.find(u => u.id === generatedBy)?.lastName) : 'System',
+      userType: 'system',
+      action: 'ticket_summary_failed',
+      ticketNumber: tickets.find(t => t.id === ticketId)?.ticketNumber,
+      targetType: 'ticket',
+      targetId: ticketId,
+      details: `AI summary generation failed: ${error.message}`,
+      status: 'failed'
+    });
+  }
+}
+
 // Close ticket (for customers - no authentication required)
 app.post('/api/tickets/:ticketId/close', (req, res) => {
   const ticket = tickets.find(t => t.id === req.params.ticketId);
@@ -2368,6 +2619,12 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
   ticket.resolvedAt = new Date().toISOString();
 
   console.log(`🎫 Ticket ${req.params.ticketId} closed by customer`);
+
+  // Trigger AI summarization when customer closes ticket
+  console.log('📝 Customer closed ticket, triggering AI summarization...');
+  setImmediate(async () => {
+    await generateTicketSummary(req.params.ticketId);
+  });
 
   // Clean up customer session when ticket is closed
   const session = customerSessions.get(req.params.ticketId);
@@ -2532,6 +2789,12 @@ app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
 
   console.log(`🎫 Ticket ${req.params.ticketId} closed by customer with resolution: ${resolution}`);
 
+  // Trigger AI summarization when customer closes ticket with feedback
+  console.log('📝 Customer closed ticket with feedback, triggering AI summarization...');
+  setImmediate(async () => {
+    await generateTicketSummary(req.params.ticketId);
+  });
+
   // Clean up customer session when ticket is closed
   const session = customerSessions.get(req.params.ticketId);
   if (session) {
@@ -2663,6 +2926,8 @@ app.post('/api/tickets/:ticketId/abandon', (req, res) => {
   });
 });
 
+// Old route removed - moved to earlier position in file to avoid conflicts
+
 // Send message (supports both authenticated and anonymous)
 app.post('/api/tickets/:ticketId/messages', (req, res) => {
   const { content, messageType = 'text' } = req.body;
@@ -2739,9 +3004,9 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   });
 
   // Check if we should generate AI response
-  // For anonymous tickets, only unauthenticated users (no token) are customers
+  // For anonymous tickets, only non-agent messages are customer messages  
   // For registered tickets, check if user ID matches customer ID
-  const isCustomerMessage = ticket.isAnonymous ? !user : (user && user.id === ticket.customerId);
+  const isCustomerMessage = ticket.isAnonymous ? (!user || user.userType !== 'agent') : (user && user.id === ticket.customerId);
   const shouldGenerateAI = isCustomerMessage && 
                           aiAgentConfig.enabled && 
                           aiService.isEnabled() && 
@@ -2899,7 +3164,26 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     });
   }
 
-  const sender = user ? users.find(u => u.id === user.id) : null;
+  // For anonymous tickets, treat all non-agent messages as customer messages
+  // This prevents admin tokens from interfering with customer message classification
+  let sender = null;
+  let senderUserType = 'customer';
+  
+  if (ticket.isAnonymous) {
+    // For anonymous tickets, only agents should have sender info
+    if (user && user.userType === 'agent') {
+      sender = users.find(u => u.id === user.id);
+      senderUserType = 'agent';
+    } else {
+      // All other messages in anonymous tickets are from customers
+      sender = null;
+      senderUserType = 'customer';
+    }
+  } else {
+    // For registered tickets, use normal logic
+    sender = user ? users.find(u => u.id === user.id) : null;
+    senderUserType = sender ? (sender.id === ticket.customerId ? 'customer' : sender.userType) : 'customer';
+  }
   
   console.log('🔍 SENDER DEBUG:');
   console.log('  - user:', user);
@@ -2907,8 +3191,8 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   console.log('  - ticket.customerName:', ticket.customerName);
   console.log('  - ticket.customerId:', ticket.customerId);
   console.log('  - ticket.isAnonymous:', ticket.isAnonymous);
-  console.log('  - isCustomerMessage:', ticket.isAnonymous ? !user : (user && user.id === ticket.customerId));
-  console.log('  - determined userType:', sender ? (ticket.isAnonymous ? sender.userType : (sender.id === ticket.customerId ? 'customer' : sender.userType)) : 'customer');
+  console.log('  - isCustomerMessage:', ticket.isAnonymous ? !user || user.userType !== 'agent' : (user && user.id === ticket.customerId));
+  console.log('  - determined userType:', senderUserType);
   
   const messageWithSender = {
     ...message,
@@ -2916,7 +3200,7 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
       id: sender.id,
       firstName: sender.firstName,
       lastName: sender.lastName,
-      userType: ticket.isAnonymous ? sender.userType : (sender.id === ticket.customerId ? 'customer' : sender.userType)
+      userType: senderUserType
     } : {
       id: null,
       firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
@@ -3793,7 +4077,7 @@ app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
 });
 
 // ==========================================
-// USER MANAGEMENT ENDPOINTS
+// SYSTEM MANAGEMENT ENDPOINTS
 // ==========================================
 
 // Store roles configuration
@@ -3808,6 +4092,9 @@ let rolesConfig = [
       'tickets.delete': true,
       'tickets.message': true,
       'users.access': true,
+      'users.create': true,
+      'users.edit': true,
+      'users.delete': true,
       'audit.view': true,
       'insights.view': true,
       'customers.view': true,
@@ -8921,7 +9208,22 @@ app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
 });
 
 // Upload AI knowledge base document (Admin only)
-app.post('/api/ai-agent/documents', authenticateToken, uploadMultiple.array('documents'), async (req, res) => {
+app.post('/api/ai-agent/documents', authenticateToken, (req, res) => {
+  uploadMultiple.array('documents')(req, res, async (err) => {
+    if (err) {
+      console.error('❌ Multer error in AI document upload:', err.message);
+      return res.status(400).json({
+        success: false,
+        error: { code: 'UPLOAD_ERROR', message: err.message }
+      });
+    }
+    
+    await handleAiDocumentUpload(req, res);
+  });
+});
+
+// Handle AI document upload
+async function handleAiDocumentUpload(req, res) {
   try {
     console.log('📄 AI Document Upload Request Started');
     console.log('User:', req.user.email, 'Role:', req.user.roleName);
@@ -9099,7 +9401,7 @@ app.post('/api/ai-agent/documents', authenticateToken, uploadMultiple.array('doc
       error: { code: 'INTERNAL_ERROR', message: 'Document upload failed: ' + error.message }
     });
   }
-});
+}
 
 // Get AI knowledge base documents (Admin only)
 app.get('/api/ai-agent/documents', authenticateToken, (req, res) => {

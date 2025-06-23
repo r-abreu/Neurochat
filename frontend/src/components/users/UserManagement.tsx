@@ -224,8 +224,8 @@ const UserManagement: React.FC<UserManagementProps> = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">User Management</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">Manage agent accounts and roles</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">System Management</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">Manage agent accounts, roles, and system settings</p>
         </div>
         {activeTab === 'agents' && canCreateUsers && (
           <button

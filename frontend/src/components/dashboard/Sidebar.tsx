@@ -342,24 +342,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Audit Trail, User Management, My Account and Logout buttons */}
       <div className="px-2 pb-4 space-y-1">
-        {/* Audit Trail button - only for agents with audit.view permission */}
-        {user?.role === 'agent' && user.permissions?.includes('audit.view') && (
-          <button
-            onClick={() => handleItemClick('audit')}
-            className={`w-full group flex items-center ${collapsed && !isMobile ? 'justify-center' : 'px-2'} py-2 text-sm font-medium rounded-md transition-colors ${
-              currentView === 'audit'
-                ? 'bg-primary-100 dark:bg-primary-900 text-primary-900 dark:text-primary-100 border-r-2 border-primary-600'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100'
-            }`}
-            title={collapsed ? "Audit Trail" : ""}
-          >
-            <svg className={`h-5 w-5 ${collapsed && !isMobile ? '' : 'mr-3'} ${currentView === 'audit' ? 'text-primary-600' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            {!collapsed && "Audit Trail"}
-          </button>
-        )}
-
         {/* User Management button - only for agents with access */}
         {user?.role === 'agent' && user.permissions?.includes('users.access') && (
           <button
@@ -369,12 +351,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                 ? 'bg-primary-100 dark:bg-primary-900 text-primary-900 dark:text-primary-100 border-r-2 border-primary-600'
                 : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100'
             }`}
-            title={collapsed ? "User Management" : ""}
+            title={collapsed ? "System Management" : ""}
           >
             <svg className={`h-5 w-5 ${collapsed && !isMobile ? '' : 'mr-3'} ${currentView === 'users' ? 'text-primary-600' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
             </svg>
-            {!collapsed && "User Management"}
+            {!collapsed && "System Management"}
           </button>
         )}
 
