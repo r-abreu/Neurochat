@@ -420,7 +420,7 @@ const Dashboard: React.FC = () => {
         ) : null;
       case 'users':
         // Check if user has permission to access user management
-        if (user?.role === 'agent' && user.permissions?.includes('users.access')) {
+        if (user?.role === 'agent' && (user.permissions?.includes('users.access') || user.permissions?.includes('system.user_management') || user.permissions?.includes('system.management') || user.roleName === 'Admin')) {
           return <UserManagement />;
         } else {
           // Redirect to default view if no permission
@@ -538,7 +538,7 @@ const Dashboard: React.FC = () => {
           currentView={currentView}
           onViewChange={(view: string) => {
             // Check permissions before allowing view change
-            if (view === 'users' && !(user?.role === 'agent' && user.permissions?.includes('users.access'))) {
+            if (view === 'users' && !(user?.role === 'agent' && (user.permissions?.includes('users.access') || user.permissions?.includes('system.user_management') || user.permissions?.includes('system.management') || user.roleName === 'Admin'))) {
               return; // Don't allow view change if no permission
             }
             if (view === 'audit' && !(user?.role === 'agent' && user.permissions?.includes('audit.view'))) {
@@ -575,7 +575,7 @@ const Dashboard: React.FC = () => {
           currentView={currentView}
           onViewChange={(view: string) => {
             // Check permissions before allowing view change
-            if (view === 'users' && !(user?.role === 'agent' && user.permissions?.includes('users.access'))) {
+            if (view === 'users' && !(user?.role === 'agent' && (user.permissions?.includes('users.access') || user.permissions?.includes('system.user_management') || user.permissions?.includes('system.management') || user.roleName === 'Admin'))) {
               return; // Don't allow view change if no permission
             }
             if (view === 'audit' && !(user?.role === 'agent' && user.permissions?.includes('audit.view'))) {

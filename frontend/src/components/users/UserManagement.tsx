@@ -21,20 +21,24 @@ const UserManagement: React.FC<UserManagementProps> = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentUser | null>(null);
 
-  // Check if user has access to user management
-  const hasUserAccess = user?.permissions?.includes('users.access') ?? false;
-  const canCreateUsers = user?.permissions?.includes('users.create') ?? false;
-  const canEditUsers = user?.permissions?.includes('users.edit') ?? false;
-  const canDeleteUsers = user?.permissions?.includes('users.delete') ?? false;
-  const canViewAudit = user?.permissions?.includes('audit.view') ?? false;
+  // Check if user has access to system management functions
+  const hasSystemAccess = user?.permissions?.includes('system.management') ?? false;
+  const hasUserManagementAccess = (user?.permissions?.includes('system.user_management') || user?.roleName === 'Admin') ?? false;
+  const hasRoleManagementAccess = (user?.permissions?.includes('system.role_management') || user?.roleName === 'Admin') ?? false;
+  const canCreateUsers = (user?.permissions?.includes('users.create') || user?.roleName === 'Admin') ?? false;
+  const canEditUsers = (user?.permissions?.includes('users.edit') || user?.roleName === 'Admin') ?? false;
+  const canDeleteUsers = (user?.permissions?.includes('users.delete') || user?.roleName === 'Admin') ?? false;
+  const canViewAudit = (user?.permissions?.includes('audit.view') || user?.roleName === 'Admin') ?? false;
+  const hasSystemSettings = (user?.permissions?.includes('system.settings') || user?.permissions?.includes('system.management') || user?.roleName === 'Admin') ?? false;
+  const hasAiSettings = (user?.permissions?.includes('system.ai_settings') || user?.permissions?.includes('system.management') || user?.roleName === 'Admin') ?? false;
   const isAdmin = user?.roleName === 'Admin';
 
   useEffect(() => {
-    if (hasUserAccess) {
+    if (hasSystemAccess || hasUserManagementAccess || isAdmin) {
       fetchAgents();
       fetchRoles();
     }
-  }, [hasUserAccess]);
+  }, [hasSystemAccess, hasUserManagementAccess, isAdmin]);
 
   const fetchAgents = async () => {
     try {
@@ -201,7 +205,7 @@ const UserManagement: React.FC<UserManagementProps> = () => {
     }
   };
 
-  if (!hasUserAccess) {
+  if (!hasSystemAccess && !hasUserManagementAccess && !isAdmin) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -243,26 +247,30 @@ const UserManagement: React.FC<UserManagementProps> = () => {
       {/* Tab Navigation */}
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setActiveTab('agents')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'agents'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            Agents
-          </button>
-          <button
-            onClick={() => setActiveTab('roles')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'roles'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            Roles
-          </button>
+          {hasUserManagementAccess && (
+            <button
+              onClick={() => setActiveTab('agents')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'agents'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              User Management
+            </button>
+          )}
+          {hasRoleManagementAccess && (
+            <button
+              onClick={() => setActiveTab('roles')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'roles'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              Role Management
+            </button>
+          )}
           {canViewAudit && (
             <button
               onClick={() => setActiveTab('audit')}
@@ -275,7 +283,7 @@ const UserManagement: React.FC<UserManagementProps> = () => {
               Audit Trail
             </button>
           )}
-          {isAdmin && (
+          {hasSystemSettings && (
             <button
               onClick={() => setActiveTab('settings')}
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
@@ -287,7 +295,7 @@ const UserManagement: React.FC<UserManagementProps> = () => {
               System Settings
             </button>
           )}
-          {isAdmin && (
+          {hasAiSettings && (
             <button
               onClick={() => setActiveTab('ai-agent')}
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
@@ -309,7 +317,7 @@ const UserManagement: React.FC<UserManagementProps> = () => {
       )}
 
       {/* Tab Content */}
-      {activeTab === 'agents' && (
+      {activeTab === 'agents' && hasUserManagementAccess && (
         <>
           {showCreateForm && (
             <CreateUserForm
@@ -340,7 +348,7 @@ const UserManagement: React.FC<UserManagementProps> = () => {
         </>
       )}
 
-      {activeTab === 'roles' && (
+      {activeTab === 'roles' && hasRoleManagementAccess && (
         <RoleManagement />
       )}
 
@@ -348,11 +356,11 @@ const UserManagement: React.FC<UserManagementProps> = () => {
         <AuditTrail />
       )}
 
-      {activeTab === 'settings' && isAdmin && (
+      {activeTab === 'settings' && hasSystemSettings && (
         <SystemSettings />
       )}
 
-      {activeTab === 'ai-agent' && isAdmin && (
+      {activeTab === 'ai-agent' && hasAiSettings && (
         <AiAgentSettings />
       )}
     </div>

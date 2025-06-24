@@ -11,7 +11,14 @@ interface Role {
     'tickets.edit': boolean;
     'tickets.delete': boolean;
     'tickets.message': boolean;
-    'users.access': boolean;
+    'system.management': boolean;
+    'system.settings': boolean;
+    'system.ai_settings': boolean;
+    'system.user_management': boolean;
+    'system.role_management': boolean;
+    'users.create': boolean;
+    'users.edit': boolean;
+    'users.delete': boolean;
     'audit.view': boolean;
     'insights.view': boolean;
     'customers.view': boolean;
@@ -23,8 +30,6 @@ interface Role {
     'companies.create': boolean;
     'companies.edit': boolean;
     'companies.delete': boolean;
-    'system.settings': boolean;
-    'system.ai_settings': boolean;
   };
 }
 
@@ -46,7 +51,14 @@ const RoleManagement: React.FC = () => {
       'tickets.edit': false,
       'tickets.delete': false,
       'tickets.message': false,
-      'users.access': false,
+      'system.management': false,
+      'system.settings': false,
+      'system.ai_settings': false,
+      'system.user_management': false,
+      'system.role_management': false,
+      'users.create': false,
+      'users.edit': false,
+      'users.delete': false,
       'audit.view': false,
       'insights.view': false,
       'customers.view': false,
@@ -58,8 +70,6 @@ const RoleManagement: React.FC = () => {
       'companies.create': false,
       'companies.edit': false,
       'companies.delete': false,
-      'system.settings': false,
-      'system.ai_settings': false,
     }
   });
 
@@ -193,7 +203,14 @@ const RoleManagement: React.FC = () => {
         'tickets.edit': false,
         'tickets.delete': false,
         'tickets.message': false,
-        'users.access': false,
+        'system.management': false,
+        'system.settings': false,
+        'system.ai_settings': false,
+        'system.user_management': false,
+        'system.role_management': false,
+        'users.create': false,
+        'users.edit': false,
+        'users.delete': false,
         'audit.view': false,
         'insights.view': false,
         'customers.view': false,
@@ -205,8 +222,6 @@ const RoleManagement: React.FC = () => {
         'companies.create': false,
         'companies.edit': false,
         'companies.delete': false,
-        'system.settings': false,
-        'system.ai_settings': false,
       }
     });
   };
@@ -221,7 +236,14 @@ const RoleManagement: React.FC = () => {
         'tickets.edit': role.permissions?.['tickets.edit'] || false,
         'tickets.delete': role.permissions?.['tickets.delete'] || false,
         'tickets.message': role.permissions?.['tickets.message'] || false,
-        'users.access': role.permissions?.['users.access'] || false,
+        'system.management': role.permissions?.['system.management'] || false,
+        'system.settings': role.permissions?.['system.settings'] || false,
+        'system.ai_settings': role.permissions?.['system.ai_settings'] || false,
+        'system.user_management': role.permissions?.['system.user_management'] || false,
+        'system.role_management': role.permissions?.['system.role_management'] || false,
+        'users.create': role.permissions?.['users.create'] || false,
+        'users.edit': role.permissions?.['users.edit'] || false,
+        'users.delete': role.permissions?.['users.delete'] || false,
         'audit.view': role.permissions?.['audit.view'] || false,
         'insights.view': role.permissions?.['insights.view'] || false,
         'customers.view': role.permissions?.['customers.view'] || false,
@@ -233,8 +255,6 @@ const RoleManagement: React.FC = () => {
         'companies.create': role.permissions?.['companies.create'] || false,
         'companies.edit': role.permissions?.['companies.edit'] || false,
         'companies.delete': role.permissions?.['companies.delete'] || false,
-        'system.settings': role.permissions?.['system.settings'] || false,
-        'system.ai_settings': role.permissions?.['system.ai_settings'] || false,
       }
     });
   };
@@ -331,22 +351,82 @@ const RoleManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <h4 className="font-medium text-sm mb-2">User Management</h4>
+                  <h4 className="font-medium text-sm mb-2">System Management</h4>
                   <div className="space-y-2">
                     <label className="flex items-center space-x-2">
                       <input
                         type="checkbox"
-                        checked={formData.permissions['users.access']}
+                        checked={formData.permissions['system.management']}
                         onChange={(e) => setFormData(prev => ({
                           ...prev,
                           permissions: {
                             ...prev.permissions,
-                            'users.access': e.target.checked
+                            'system.management': e.target.checked
                           }
                         }))}
                         className="rounded"
                       />
-                      <span className="text-sm">Access User Management</span>
+                      <span className="text-sm">Access System Management</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['system.settings']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'system.settings': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">System Settings</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['system.ai_settings']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'system.ai_settings': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">AI Agent Settings</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['system.user_management']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'system.user_management': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">User Management</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions['system.role_management']}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          permissions: {
+                            ...prev.permissions,
+                            'system.role_management': e.target.checked
+                          }
+                        }))}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Role Management</span>
                     </label>
                     <label className="flex items-center space-x-2">
                       <input
@@ -361,8 +441,14 @@ const RoleManagement: React.FC = () => {
                         }))}
                         className="rounded"
                       />
-                      <span className="text-sm">View Audit Trail</span>
+                      <span className="text-sm">Audit Trail</span>
                     </label>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-sm mb-2">Other Management</h4>
+                  <div className="space-y-2">
                     <label className="flex items-center space-x-2">
                       <input
                         type="checkbox"
@@ -376,7 +462,7 @@ const RoleManagement: React.FC = () => {
                         }))}
                         className="rounded"
                       />
-                      <span className="text-sm">View Insights Dashboard</span>
+                      <span className="text-sm">Insights Dashboard</span>
                     </label>
                     <label className="flex items-center space-x-2">
                       <input
@@ -391,7 +477,7 @@ const RoleManagement: React.FC = () => {
                         }))}
                         className="rounded"
                       />
-                      <span className="text-sm">View Customer Management</span>
+                      <span className="text-sm">Customer Management</span>
                     </label>
                   </div>
                 </div>
@@ -452,31 +538,7 @@ const RoleManagement: React.FC = () => {
                   </div>
                 </div>
 
-                <div>
-                  <h4 className="font-medium text-sm mb-2">System Management</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { key: 'system.settings', label: 'System Settings' },
-                      { key: 'system.ai_settings', label: 'AI Agent Settings' },
-                    ].map(perm => (
-                      <label key={perm.key} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={formData.permissions[perm.key as keyof typeof formData.permissions]}
-                          onChange={(e) => setFormData(prev => ({
-                            ...prev,
-                            permissions: {
-                              ...prev.permissions,
-                              [perm.key]: e.target.checked
-                            }
-                          }))}
-                          className="rounded"
-                        />
-                        <span className="text-sm">{perm.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+
               </div>
             </div>
 
@@ -559,8 +621,8 @@ const RoleManagement: React.FC = () => {
                   </td>
                   <td className="px-6 py-4">
                     <div className="space-y-1">
-                      {role.permissions?.['users.access'] ? (
-                        <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">User Mgmt</span>
+                      {role.permissions?.['system.management'] ? (
+                        <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">System Access</span>
                       ) : (
                         <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">No Access</span>
                       )}

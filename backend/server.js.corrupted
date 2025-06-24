@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
@@ -16,8 +16,6 @@ const { startEmailReceiver, stopEmailReceiver, setTickets, setMessages, processI
 
 // Import AI services
 const aiService = require('./services/aiService');
-const enhancedAiService = require('./services/enhancedAiService');
-const enhancedAiRoutes = require('./services/enhancedAiRoutes');
 const documentService = require('./services/documentService');
 
 const app = express();
@@ -53,16 +51,16 @@ let aiAgentConfig = {
   attitude_style: 'Helpful',
   context_limitations: `Role: Technical Support AI Agent (Neurovirtual)
 Primary Objective:
-You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessaryâ€”all while ensuring a safe, focused, and friendly interaction.
+You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessary—all while ensuring a safe, focused, and friendly interaction.
 
-ðŸŽ¯ Supported Products
+🎯 Supported Products
 Devices: BWMini, BWIII
 Software: BWAnalysis, BWCenter
 
 Always begin by identifying the product in question:
 "Is your question related to one of our devices (BWMini or BWIII), or our software (BWAnalysis or BWCenter)?"
 
-ðŸ’¬ User Interaction Guidelines
+💬 User Interaction Guidelines
 Ask one question or provide one instruction at a time.
 Avoid overwhelming the user.
 
@@ -71,27 +69,27 @@ For multi-step processes (3+ steps):
 - Ask for user confirmation after each step before continuing.
 
 If the user stops responding, wait 15 seconds, then ask:
-"Just checking â€” did that help, or would you like more guidance?"
+"Just checking — did that help, or would you like more guidance?"
 
 Maintain professionalism and end each interaction with a positive tone.
 
-ðŸ”§ Special Case Handling
-ðŸš« Device Appears Damaged
+🔧 Special Case Handling
+🚫 Device Appears Damaged
 Ask: "Would you like to try a few troubleshooting steps to confirm if the device is damaged?"
 
 If the user is certain the device is defective:
 Ask for the serial number: "Please provide the device's serial number so I can escalate the issue to our support team."
 After receiving the serial number, escalate appropriately.
 
-âš ï¸ Sensor Not Working
+⚠️ Sensor Not Working
 Refer the user to the relevant troubleshooting or learning documentation.
 If the issue persists or documentation does not resolve it, escalate the case.
 
-ðŸ’µ Request for Quote or Pricing
+💵 Request for Quote or Pricing
 Do not provide any pricing directly. Instead, refer the user to sales:
 "For pricing or quotes, please contact our sales team through this link: https://neurovirtual.com/technicalsupport/"
 
-ðŸ” Data Safety & Support Protocols
+🔐 Data Safety & Support Protocols
 No Mention of Training Data
 Never reference internal or external data sources.
 
@@ -109,7 +107,7 @@ Graceful Fallback
 If you cannot answer:
 "I couldn't find the information in my support materials. I recommend reaching out to our support team directly for further help."
 
-âœ… Support Flow Summary
+✅ Support Flow Summary
 1. Identify the product (BWMini, BWIII, BWAnalysis, or BWCenter).
 2. Guide using one question or instruction at a time.
 3. For multi-step processes, give steps in parts, wait for confirmation.
@@ -145,7 +143,7 @@ function loadAIDocuments() {
     if (fs.existsSync(AI_DOCUMENTS_FILE)) {
       const data = fs.readFileSync(AI_DOCUMENTS_FILE, 'utf8');
       aiDocuments = JSON.parse(data);
-      console.log(`ðŸ“ Loaded ${aiDocuments.length} AI documents from persistent storage`);
+      console.log(`📁 Loaded ${aiDocuments.length} AI documents from persistent storage`);
     }
   } catch (error) {
     console.error('Error loading AI documents:', error);
@@ -156,7 +154,7 @@ function loadAIDocuments() {
     if (fs.existsSync(AI_CHUNKS_FILE)) {
       const data = fs.readFileSync(AI_CHUNKS_FILE, 'utf8');
       aiDocumentChunks = JSON.parse(data);
-      console.log(`ðŸ“ Loaded ${aiDocumentChunks.length} AI document chunks from persistent storage`);
+      console.log(`📁 Loaded ${aiDocumentChunks.length} AI document chunks from persistent storage`);
     }
   } catch (error) {
     console.error('Error loading AI document chunks:', error);
@@ -168,14 +166,14 @@ function loadAIDocuments() {
 function saveAIDocuments() {
   try {
     fs.writeFileSync(AI_DOCUMENTS_FILE, JSON.stringify(aiDocuments, null, 2));
-    console.log(`ðŸ’¾ Saved ${aiDocuments.length} AI documents to persistent storage`);
+    console.log(`💾 Saved ${aiDocuments.length} AI documents to persistent storage`);
   } catch (error) {
     console.error('Error saving AI documents:', error);
   }
 
   try {
     fs.writeFileSync(AI_CHUNKS_FILE, JSON.stringify(aiDocumentChunks, null, 2));
-    console.log(`ðŸ’¾ Saved ${aiDocumentChunks.length} AI document chunks to persistent storage`);
+    console.log(`💾 Saved ${aiDocumentChunks.length} AI document chunks to persistent storage`);
   } catch (error) {
     console.error('Error saving AI document chunks:', error);
   }
@@ -186,13 +184,13 @@ setInterval(saveAIDocuments, 5 * 60 * 1000);
 
 // Save on process exit
 process.on('SIGINT', () => {
-  console.log('\nðŸ”„ Saving AI documents before exit...');
+  console.log('\n🔄 Saving AI documents before exit...');
   saveAIDocuments();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('\nðŸ”„ Saving AI documents before exit...');
+  console.log('\n🔄 Saving AI documents before exit...');
   saveAIDocuments();
   process.exit(0);
 });
@@ -236,18 +234,18 @@ const createNeuroAIAgent = () => {
   const existingAI = users.find(u => u.email === 'neuroai@neurovirtual.com' || u.isAIAgent);
   if (!existingAI) {
     users.push(neuroAIAgent);
-    console.log('ðŸ¤– Created NeuroAI agent with ID:', aiAgentId);
+    console.log('🤖 Created NeuroAI agent with ID:', aiAgentId);
     
     // Sync permissions with AI Agent role
     const aiRole = rolesConfig.find(r => r.id === '5');
     if (aiRole) {
       const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
       neuroAIAgent.permissions = rolePermissions;
-      console.log('ðŸ”„ Synced NeuroAI agent permissions with AI Agent role:', rolePermissions);
+      console.log('🔄 Synced NeuroAI agent permissions with AI Agent role:', rolePermissions);
     }
   } else {
     neuroAIAgentId = existingAI.id;
-    console.log('ðŸ¤– NeuroAI agent already exists with ID:', existingAI.id);
+    console.log('🤖 NeuroAI agent already exists with ID:', existingAI.id);
     
     // Update existing AI agent to use role ID 5 and sync permissions
     existingAI.roleId = '5';
@@ -256,7 +254,7 @@ const createNeuroAIAgent = () => {
     if (aiRole) {
       const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
       existingAI.permissions = rolePermissions;
-      console.log('ðŸ”„ Updated existing NeuroAI agent with role ID 5 and permissions:', rolePermissions);
+      console.log('🔄 Updated existing NeuroAI agent with role ID 5 and permissions:', rolePermissions);
     }
   }
 
@@ -295,7 +293,7 @@ const assignTicketToNeuroAI = (ticketId) => {
       updatedAt: new Date().toISOString()
     };
 
-    console.log(`ðŸ¤– Assigned ticket ${ticket.ticketNumber} to NeuroAI`);
+    console.log(`🤖 Assigned ticket ${ticket.ticketNumber} to NeuroAI`);
     
     // Broadcast assignment change
     io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
@@ -333,7 +331,7 @@ const unassignTicketFromNeuroAI = (ticketId, newAgentId = null) => {
       updatedAt: new Date().toISOString()
     };
 
-    console.log(`ðŸ¤– Unassigned ticket ${ticket.ticketNumber} from NeuroAI${newAgentId ? ` and assigned to ${newAgentId}` : ''}`);
+    console.log(`🤖 Unassigned ticket ${ticket.ticketNumber} from NeuroAI${newAgentId ? ` and assigned to ${newAgentId}` : ''}`);
     
     // Broadcast assignment change
     io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
@@ -426,7 +424,7 @@ const addDemoMessages = () => {
   ];
   
   messages.push(...demoMessages);
-  console.log('ðŸ“¨ Added demo messages:', demoMessages.length);
+  console.log('📨 Added demo messages:', demoMessages.length);
 };
 
 // Initialize categories
@@ -478,7 +476,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '1',
     roleName: 'Admin',
-    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'system.management', 'system.settings', 'system.ai_settings', 'system.user_management', 'system.role_management', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete'],
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 10,
@@ -495,7 +493,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '2',
     roleName: 'Tier2',
-    permissions: [], // Will be synced from role configuration
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 8,
@@ -512,7 +510,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '3',
     roleName: 'Tier1',
-    permissions: [], // Will be synced from role configuration
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 5,
@@ -529,7 +527,7 @@ const demoUsers = [
     userType: 'agent',
     roleId: '4',
     roleName: 'Viewer',
-    permissions: [], // Will be synced from role configuration
+    permissions: ['tickets.view'],
     isActive: true,
     agentStatus: 'online',
     maxConcurrentTickets: 3,
@@ -549,7 +547,7 @@ const syncAllUserPermissions = () => {
       if (role) {
         const rolePermissions = Object.keys(role.permissions).filter(key => role.permissions[key]);
         user.permissions = rolePermissions;
-        console.log(`ðŸ”„ Synced permissions for user ${user.email} with role ${role.name}:`, rolePermissions);
+        console.log(`🔄 Synced permissions for user ${user.email} with role ${role.name}:`, rolePermissions);
       }
     }
   });
@@ -792,7 +790,7 @@ tickets.forEach((ticket, index) => {
 });
 
 // Debug: Log the ticket data to verify customerCity is set
-console.log('ðŸ”§ DEBUG: Checking demo tickets after initialization:');
+console.log('🔧 DEBUG: Checking demo tickets after initialization:');
 tickets.forEach((ticket, index) => {
   console.log(`  Ticket ${index + 1}: ${ticket.title}`);
   console.log(`    - customerCity: "${ticket.customerCity}"`);
@@ -802,6 +800,820 @@ tickets.forEach((ticket, index) => {
   console.log(`    - deviceSerialNumber: "${ticket.deviceSerialNumber}"`);
 });
 
+// Initialize demo devices first
+const initializeDemoDevices = () => {
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// In-memory storage (for demo - replace with real database)
+let users = [];
+let tickets = [];
+let messages = [];
+let internalComments = []; // New: Internal comments for tickets
+let categories = [];
+let ticketDevices = []; // Ticket-device relationships
+
+// AI Agent storage
+let aiAgentConfig = {
+  id: uuidv4(),
+  model: 'gpt-4o',
+  agent_name: 'NeuroAI',
+  response_tone: 'Professional',
+  attitude_style: 'Helpful',
+  context_limitations: `Role: Technical Support AI Agent (Neurovirtual)
+Primary Objective:
+You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessary—all while ensuring a safe, focused, and friendly interaction.
+
+🎯 Supported Products
+Devices: BWMini, BWIII
+Software: BWAnalysis, BWCenter
+
+Always begin by identifying the product in question:
+"Is your question related to one of our devices (BWMini or BWIII), or our software (BWAnalysis or BWCenter)?"
+
+💬 User Interaction Guidelines
+Ask one question or provide one instruction at a time.
+Avoid overwhelming the user.
+
+For multi-step processes (3+ steps):
+- Provide the steps gradually.
+- Ask for user confirmation after each step before continuing.
+
+If the user stops responding, wait 15 seconds, then ask:
+"Just checking — did that help, or would you like more guidance?"
+
+Maintain professionalism and end each interaction with a positive tone.
+
+🔧 Special Case Handling
+🚫 Device Appears Damaged
+Ask: "Would you like to try a few troubleshooting steps to confirm if the device is damaged?"
+
+If the user is certain the device is defective:
+Ask for the serial number: "Please provide the device's serial number so I can escalate the issue to our support team."
+After receiving the serial number, escalate appropriately.
+
+⚠️ Sensor Not Working
+Refer the user to the relevant troubleshooting or learning documentation.
+If the issue persists or documentation does not resolve it, escalate the case.
+
+💵 Request for Quote or Pricing
+Do not provide any pricing directly. Instead, refer the user to sales:
+"For pricing or quotes, please contact our sales team through this link: https://neurovirtual.com/technicalsupport/"
+
+🔐 Data Safety & Support Protocols
+No Mention of Training Data
+Never reference internal or external data sources.
+
+Request Serial Number Only When Required
+Only ask for serial numbers in the case of hardware escalation.
+
+Do Not Request or Retain Personal Data
+Avoid asking for names, email addresses, or contact details unless required by support escalation protocol.
+
+Stay Within Scope
+If a user asks something unrelated to Neurovirtual devices or software, respond with:
+"I'm here to help with Neurovirtual hardware and software. For anything outside this scope, please contact our team directly."
+
+Graceful Fallback
+If you cannot answer:
+"I couldn't find the information in my support materials. I recommend reaching out to our support team directly for further help."
+
+✅ Support Flow Summary
+1. Identify the product (BWMini, BWIII, BWAnalysis, or BWCenter).
+2. Guide using one question or instruction at a time.
+3. For multi-step processes, give steps in parts, wait for confirmation.
+4. If user disengages, follow up once after 15 seconds.
+5. If device is defective, request the serial number, then escalate.
+6. Refer pricing requests to sales.
+7. For sensor issues, offer docs first, escalate if unresolved.
+8. Never expose or retain personal or internal data.`,
+  exceptions_behavior: 'warranty,refund,billing,escalate,human,pricing,sales,personal_data',
+  confidence_threshold: 0.7,
+  enabled: true,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+};
+
+let aiDocuments = [];
+let aiDocumentChunks = [];
+let aiResponses = [];
+
+// Data persistence for AI documents
+const AI_DOCUMENTS_FILE = path.join(__dirname, '../data/ai-documents.json');
+const AI_CHUNKS_FILE = path.join(__dirname, '../data/ai-document-chunks.json');
+
+// Ensure data directory exists
+const dataDir = path.join(__dirname, '../data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+// Load AI documents from persistent storage
+function loadAIDocuments() {
+  try {
+    if (fs.existsSync(AI_DOCUMENTS_FILE)) {
+      const data = fs.readFileSync(AI_DOCUMENTS_FILE, 'utf8');
+      aiDocuments = JSON.parse(data);
+      console.log(`📁 Loaded ${aiDocuments.length} AI documents from persistent storage`);
+    }
+  } catch (error) {
+    console.error('Error loading AI documents:', error);
+    aiDocuments = [];
+  }
+
+  try {
+    if (fs.existsSync(AI_CHUNKS_FILE)) {
+      const data = fs.readFileSync(AI_CHUNKS_FILE, 'utf8');
+      aiDocumentChunks = JSON.parse(data);
+      console.log(`📁 Loaded ${aiDocumentChunks.length} AI document chunks from persistent storage`);
+    }
+  } catch (error) {
+    console.error('Error loading AI document chunks:', error);
+    aiDocumentChunks = [];
+  }
+}
+
+// Save AI documents to persistent storage
+function saveAIDocuments() {
+  try {
+    fs.writeFileSync(AI_DOCUMENTS_FILE, JSON.stringify(aiDocuments, null, 2));
+    console.log(`💾 Saved ${aiDocuments.length} AI documents to persistent storage`);
+  } catch (error) {
+    console.error('Error saving AI documents:', error);
+  }
+
+  try {
+    fs.writeFileSync(AI_CHUNKS_FILE, JSON.stringify(aiDocumentChunks, null, 2));
+    console.log(`💾 Saved ${aiDocumentChunks.length} AI document chunks to persistent storage`);
+  } catch (error) {
+    console.error('Error saving AI document chunks:', error);
+  }
+}
+
+// Auto-save AI documents periodically (every 5 minutes)
+setInterval(saveAIDocuments, 5 * 60 * 1000);
+
+// Save on process exit
+process.on('SIGINT', () => {
+  console.log('\n🔄 Saving AI documents before exit...');
+  saveAIDocuments();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🔄 Saving AI documents before exit...');
+  saveAIDocuments();
+  process.exit(0);
+});
+
+// Customer session tracking
+let customerSessions = new Map(); // ticketId -> { customerId, socketId, isOnline, lastSeen }
+let socketToTicketMap = new Map(); // socketId -> ticketId (for disconnect cleanup)
+
+// Agent session tracking for presence indicators
+let agentSessions = new Map(); // agentId -> { socketId, isOnline, lastSeen, joinedAt }
+let socketToAgentMap = new Map(); // socketId -> agentId (for disconnect cleanup)
+
+// NeuroAI Agent ID - will be created during initialization
+let neuroAIAgentId = null;
+
+// Create NeuroAI agent
+const createNeuroAIAgent = () => {
+  const aiAgentId = uuidv4();
+  neuroAIAgentId = aiAgentId;
+  
+  const neuroAIAgent = {
+    id: aiAgentId,
+    email: 'neuroai@neurovirtual.com',
+    password: bcrypt.hashSync('neuroai-secure-password', 10),
+    firstName: 'NeuroAI',
+    lastName: 'Assistant',
+    userType: 'agent',
+    roleId: '5', // Special AI agent role
+    roleName: 'AI Agent',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message', 'customers.view', 'devices.view', 'companies.view'],
+    isActive: true,
+    agentStatus: 'online', // AI is always online when enabled
+    maxConcurrentTickets: 1000, // AI can handle many tickets
+    lastLogin: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    avatarUrl: null,
+    isAIAgent: true // Special flag to identify AI agent
+  };
+
+  // Check if NeuroAI agent already exists
+  const existingAI = users.find(u => u.email === 'neuroai@neurovirtual.com' || u.isAIAgent);
+  if (!existingAI) {
+    users.push(neuroAIAgent);
+    console.log('🤖 Created NeuroAI agent with ID:', aiAgentId);
+    
+    // Sync permissions with AI Agent role
+    const aiRole = rolesConfig.find(r => r.id === '5');
+    if (aiRole) {
+      const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
+      neuroAIAgent.permissions = rolePermissions;
+      console.log('🔄 Synced NeuroAI agent permissions with AI Agent role:', rolePermissions);
+    }
+  } else {
+    neuroAIAgentId = existingAI.id;
+    console.log('🤖 NeuroAI agent already exists with ID:', existingAI.id);
+    
+    // Update existing AI agent to use role ID 5 and sync permissions
+    existingAI.roleId = '5';
+    existingAI.roleName = 'AI Agent';
+    const aiRole = rolesConfig.find(r => r.id === '5');
+    if (aiRole) {
+      const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
+      existingAI.permissions = rolePermissions;
+      console.log('🔄 Updated existing NeuroAI agent with role ID 5 and permissions:', rolePermissions);
+    }
+  }
+
+  // Ensure AI agent is always marked as online when AI is enabled
+  if (aiAgentConfig.enabled) {
+    agentSessions.set(neuroAIAgentId, {
+      socketId: 'ai-virtual-session',
+      isOnline: true,
+      lastSeen: new Date().toISOString(),
+      joinedAt: new Date().toISOString()
+    });
+  }
+
+  return neuroAIAgentId;
+};
+
+// Function to assign ticket to NeuroAI when AI responds
+const assignTicketToNeuroAI = (ticketId) => {
+  if (!neuroAIAgentId || !aiAgentConfig.enabled) {
+    return false;
+  }
+
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+  if (ticketIndex === -1) {
+    return false;
+  }
+
+  const ticket = tickets[ticketIndex];
+  
+  // Only assign if ticket is not already assigned to a human agent or if it's unassigned
+  if (!ticket.agentId || ticket.agentId === neuroAIAgentId) {
+    tickets[ticketIndex] = {
+      ...ticket,
+      agentId: neuroAIAgentId,
+      assignedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`🤖 Assigned ticket ${ticket.ticketNumber} to NeuroAI`);
+    
+    // Broadcast assignment change
+    io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
+      ticketId: ticketId,
+      agentId: neuroAIAgentId,
+      agentName: 'NeuroAI Assistant',
+      assignedAt: new Date().toISOString()
+    });
+
+    return true;
+  }
+
+  return false;
+};
+
+// Function to unassign ticket from NeuroAI when human agent takes over
+const unassignTicketFromNeuroAI = (ticketId, newAgentId = null) => {
+  if (!neuroAIAgentId) {
+    return false;
+  }
+
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId);
+  if (ticketIndex === -1) {
+    return false;
+  }
+
+  const ticket = tickets[ticketIndex];
+  
+  // Only unassign if currently assigned to NeuroAI
+  if (ticket.agentId === neuroAIAgentId) {
+    tickets[ticketIndex] = {
+      ...ticket,
+      agentId: newAgentId,
+      assignedAt: newAgentId ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`🤖 Unassigned ticket ${ticket.ticketNumber} from NeuroAI${newAgentId ? ` and assigned to ${newAgentId}` : ''}`);
+    
+    // Broadcast assignment change
+    io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
+      ticketId: ticketId,
+      agentId: newAgentId,
+      agentName: newAgentId ? users.find(u => u.id === newAgentId)?.firstName + ' ' + users.find(u => u.id === newAgentId)?.lastName : null,
+      assignedAt: newAgentId ? new Date().toISOString() : null,
+      previousAgent: 'NeuroAI Assistant'
+    });
+
+    return true;
+  }
+
+  return false;
+};
+
+// Add some demo messages for testing
+const addDemoMessages = () => {
+  const demoMessages = [
+    {
+      id: uuidv4(),
+      ticketId: tickets[0]?.id, // First ticket (Login Issues)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I cannot login to my account. It keeps saying invalid credentials.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 4 * 60 * 1000).toISOString() // 4 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'The application crashed again while I was working on my project.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString() // 20 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[1].id, // agent@demo.com
+      content: 'Hi! I can help you with this issue. Can you tell me what version of the application you are using?',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString() // 15 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[1]?.id, // Second ticket (Application Crash)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I am using version 2.1.4. The crash happens when I click Save.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() // 10 minutes ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[2]?.id, // Third ticket (Billing Question)
+      senderId: demoUsers[0].id, // customer@demo.com
+      content: 'I was charged twice for my subscription this month. Can you help?',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() // 2 days ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[2]?.id, // Third ticket (Billing Question)
+      senderId: demoUsers[2].id, // agent2@demo.com
+      content: 'I have reviewed your account and processed a refund for the duplicate charge. You should see it in 3-5 business days.',
+      messageType: 'text',
+      isAnonymous: false,
+      senderName: null,
+      createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+    },
+    {
+      id: uuidv4(),
+      ticketId: tickets[4]?.id, // Anonymous ticket (Feature Request)
+      senderId: null,
+      content: 'I would really love to see a dark mode option in the application. It would be much easier on the eyes.',
+      messageType: 'text',
+      isAnonymous: true,
+      senderName: 'Anonymous User',
+      createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 minutes ago
+    }
+  ];
+  
+  messages.push(...demoMessages);
+  console.log('📨 Added demo messages:', demoMessages.length);
+};
+
+// Initialize categories
+categories = [
+  { id: uuidv4(), name: 'Software', description: 'Software-related issues', colorCode: '#28a745' },
+  { id: uuidv4(), name: 'Hardware', description: 'Hardware problems', colorCode: '#dc3545' },
+  { id: uuidv4(), name: 'Billing', description: 'Billing inquiries', colorCode: '#ffc107' },
+  { id: uuidv4(), name: 'Account', description: 'Account management', colorCode: '#17a2b8' },
+  { id: uuidv4(), name: 'General', description: 'General support', colorCode: '#6c757d' }
+];
+
+// Initialize device models
+let deviceModels = [
+  { id: uuidv4(), name: 'BWIII', description: 'BrainWave III Device', isActive: true, displayOrder: 1 },
+  { id: uuidv4(), name: 'BWMini', description: 'BrainWave Mini Device', isActive: true, displayOrder: 2 },
+  { id: uuidv4(), name: 'Compass', description: 'Compass Navigation Device', isActive: true, displayOrder: 3 },
+  { id: uuidv4(), name: 'Maxxi', description: 'Maxxi Advanced Device', isActive: true, displayOrder: 4 }
+];
+
+// Initialize customer types
+let customerTypes = [
+  { id: uuidv4(), name: 'Standard', description: 'Standard support level customer', colorCode: '#6c757d', isActive: true, displayOrder: 1 },
+  { id: uuidv4(), name: 'VIP', description: 'VIP customer with priority support', colorCode: '#ffc107', isActive: true, displayOrder: 2 },
+  { id: uuidv4(), name: 'Distributor', description: 'Product distributor with special support', colorCode: '#6f42c1', isActive: true, displayOrder: 3 }
+];
+
+// Demo messages will be initialized after tickets are created
+const demoUsers = [
+  {
+    id: uuidv4(),
+    email: 'customer@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'John',
+    lastName: 'Customer',
+    userType: 'customer',
+    isActive: true,
+    lastLogin: null,
+    createdAt: new Date().toISOString(),
+    avatarUrl: null,
+    companyId: null, // Will be set after companies are initialized
+    company: 'Acme Corporation' // For display purposes
+  },
+  {
+    id: uuidv4(),
+    email: 'admin@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Jane',
+    lastName: 'Admin',
+    userType: 'agent',
+    roleId: '1',
+    roleName: 'Admin',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.delete', 'tickets.message', 'users.access', 'users.create', 'users.edit', 'users.delete', 'audit.view', 'insights.view', 'customers.view', 'devices.view', 'devices.create', 'devices.edit', 'devices.delete', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 10,
+    lastLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  },
+  {
+    id: uuidv4(),
+    email: 'tier2@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Mike',
+    lastName: 'Senior',
+    userType: 'agent',
+    roleId: '2',
+    roleName: 'Tier2',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 8,
+    lastLogin: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), // 4 hours ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  },
+  {
+    id: uuidv4(),
+    email: 'agent@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Sarah',
+    lastName: 'Agent',
+    userType: 'agent',
+    roleId: '3',
+    roleName: 'Tier1',
+    permissions: ['tickets.create', 'tickets.edit', 'tickets.message'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 5,
+    lastLogin: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  },
+  {
+    id: uuidv4(),
+    email: 'viewer@demo.com',
+    password: bcrypt.hashSync('demo123', 10),
+    firstName: 'Bob',
+    lastName: 'Viewer',
+    userType: 'agent',
+    roleId: '4',
+    roleName: 'Viewer',
+    permissions: ['tickets.view'],
+    isActive: true,
+    agentStatus: 'online',
+    maxConcurrentTickets: 3,
+    lastLogin: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+    createdAt: new Date().toISOString(),
+    avatarUrl: null
+  }
+];
+
+users.push(...demoUsers);
+
+// Sync all users with their role permissions
+const syncAllUserPermissions = () => {
+  users.forEach(user => {
+    if (user.roleId) {
+      const role = rolesConfig.find(r => r.id === user.roleId);
+      if (role) {
+        const rolePermissions = Object.keys(role.permissions).filter(key => role.permissions[key]);
+        user.permissions = rolePermissions;
+        console.log(`🔄 Synced permissions for user ${user.email} with role ${role.name}:`, rolePermissions);
+      }
+    }
+  });
+};
+
+// Call sync function after users are initialized - moved after rolesConfig declaration
+
+// Create demo tickets
+// Helper function to parse address into components
+const parseAddress = (fullAddress) => {
+  if (!fullAddress) {
+    return {
+      street: null,
+      state: null,
+      zipCode: null,
+      country: 'United States'
+    };
+  }
+  
+  // Simple parsing logic for demo addresses
+  const parts = fullAddress.split(',').map(part => part.trim());
+  if (parts.length >= 3) {
+    const lastPart = parts[parts.length - 1]; // "NY 10001" or "CA 94102"
+    const stateParts = lastPart.split(' ');
+    const state = stateParts[0];
+    const zipCode = stateParts[1];
+    const street = parts.slice(0, -1).join(', ');
+    
+    return {
+      street: street || null,
+      state: state || null,
+      zipCode: zipCode || null,
+      country: 'United States'
+    };
+  }
+  
+  return {
+    street: fullAddress,
+    state: null,
+    zipCode: null,
+    country: 'United States'
+  };
+};
+
+const demoTickets = [
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190001', // Today's first ticket
+    title: 'Login Issues',
+    description: 'Cannot login to my account',
+    status: 'new',
+    priority: 'high',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: null,
+    categoryId: categories[3].id, // Account
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: '+1-555-0101',
+    customerCompany: 'Acme Corporation',
+    customerAddress: '456 Main Street, Downtown, NY 10001',
+    customerStreetAddress: '456 Main Street',
+    customerCity: 'Downtown',
+    customerState: 'NY',
+    customerZipCode: '10001',
+    customerCountry: 'United States',
+    customerType: 'Standard',
+    deviceModel: 'BWIII',
+    deviceSerialNumber: 'BW3-2024-001234',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+    updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190002', // Today's second ticket
+    title: 'Application Crash',
+    description: 'The application keeps crashing when I try to save my work',
+    status: 'in_progress',
+    priority: 'high',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[1].id, // agent@demo.com
+    categoryId: categories[0].id, // Software
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: '+1-555-0202',
+    customerCompany: 'Innovative Solutions Ltd',
+    customerAddress: '789 Oak Avenue\nSuite 200\nTech City, CA 94102',
+    customerStreetAddress: '789 Oak Avenue, Suite 200',
+    customerCity: 'Tech City',
+    customerState: 'CA',
+    customerZipCode: '94102',
+    customerCountry: 'United States',
+    customerType: 'VIP',
+    deviceModel: 'BWMini',
+    deviceSerialNumber: 'BWM-2024-005678',
+    aiEnabled: false, // AI disabled manually for this ticket
+    aiDisabledReason: 'manual',
+    aiDisabledAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    aiDisabledBy: demoUsers[1].id,
+    createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 minutes ago
+    updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506170001', // 2 days ago, first ticket
+    title: 'Billing Question',
+    description: 'I was charged twice for my subscription',
+    status: 'resolved',
+    priority: 'medium',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[2].id, // agent2@demo.com
+    categoryId: categories[2].id, // Billing
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: null,
+    customerCompany: null,
+    customerAddress: null,
+    customerStreetAddress: null,
+    customerCity: null,
+    customerState: null,
+    customerZipCode: null,
+    customerCountry: null,
+    customerType: 'Standard',
+    deviceModel: null,
+    deviceSerialNumber: null,
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    resolvedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506120001', // 7 days ago, first ticket
+    title: 'Hardware Replacement',
+    description: 'My keyboard is not working properly',
+    status: 'resolved',
+    priority: 'low',
+    customerId: demoUsers[0].id, // customer@demo.com
+    agentId: demoUsers[3].id, // agent3@demo.com
+    categoryId: categories[1].id, // Hardware
+    isAnonymous: false,
+    customerName: null,
+    customerEmail: null,
+    customerPhone: null,
+    customerCompany: null,
+    customerAddress: null,
+    customerStreetAddress: null,
+    customerCity: null,
+    customerState: null,
+    customerZipCode: null,
+    customerCountry: null,
+    customerType: 'Standard',
+    deviceModel: 'Compass',
+    deviceSerialNumber: 'CMP-2023-009876',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
+    updatedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), // 6 days ago
+    resolvedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() // 6 days ago
+  },
+  {
+    id: uuidv4(),
+    ticketNumber: '2506190003', // Today's third ticket
+    title: 'Feature Request',
+    description: 'Can you add dark mode to the application?',
+    status: 'new',
+    priority: 'low',
+    customerId: null,
+    agentId: null,
+    categoryId: categories[4].id, // General
+    isAnonymous: true,
+    customerName: 'Anonymous User',
+    customerEmail: 'anonymous@example.com',
+    customerPhone: '+1-555-0123',
+    customerCompany: 'Tech Startup Inc.',
+    customerAddress: '123 Tech Street, Innovation City, CA 94105',
+    customerStreetAddress: '123 Tech Street',
+    customerCity: 'Innovation City',
+    customerState: 'CA',
+    customerZipCode: '94105',
+    customerCountry: 'United States',
+    customerType: 'Distributor',
+    deviceModel: 'Maxxi',
+    deviceSerialNumber: 'MXX-2024-012345',
+    aiEnabled: true,
+    aiDisabledReason: null,
+    aiDisabledAt: null,
+    aiDisabledBy: null,
+    createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
+    updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
+  }
+];
+
+// Ticket counter for sequential numbering
+let ticketCounters = {};
+
+// Initialize the ticket counter based on existing demo tickets
+ticketCounters['250619'] = 3; // Today has 3 tickets
+ticketCounters['250617'] = 1; // 2 days ago has 1 ticket
+ticketCounters['250612'] = 1; // 7 days ago has 1 ticket
+
+tickets.push(...demoTickets);
+
+// CRITICAL FIX: Ensure all demo tickets have the customerCity field properly set
+// This fixes the issue where customerCity was showing as null
+tickets.forEach((ticket, index) => {
+  if (!ticket.customerCity && ticket.customerAddress) {
+    // Extract city from the address for tickets that don't have explicit city
+    if (ticket.id === demoTickets[0].id) {
+      ticket.customerCity = 'Downtown';
+      ticket.customerStreetAddress = '456 Main Street';
+      ticket.customerState = 'NY';
+      ticket.customerZipCode = '10001';
+      ticket.customerCountry = 'United States';
+    } else if (ticket.id === demoTickets[1].id) {
+      ticket.customerCity = 'Tech City';
+      ticket.customerStreetAddress = '789 Oak Avenue, Suite 200';
+      ticket.customerState = 'CA';
+      ticket.customerZipCode = '94102';
+      ticket.customerCountry = 'United States';
+    } else if (ticket.id === demoTickets[4].id) {
+      ticket.customerCity = 'Innovation City';
+      ticket.customerStreetAddress = '123 Tech Street';
+      ticket.customerState = 'CA';
+      ticket.customerZipCode = '94105';
+      ticket.customerCountry = 'United States';
+    }
+  }
+});
+
+// Debug: Log the ticket data to verify customerCity is set
+console.log('🔧 DEBUG: Checking demo tickets after initialization:');
+tickets.forEach((ticket, index) => {
+  console.log(`  Ticket ${index + 1}: ${ticket.title}`);
+  console.log(`    - customerCity: "${ticket.customerCity}"`);
+  console.log(`    - customerAddress: "${ticket.customerAddress}"`);
+  console.log(`    - customerStreetAddress: "${ticket.customerStreetAddress}"`);
+  console.log(`    - deviceModel: "${ticket.deviceModel}"`);
+  console.log(`    - deviceSerialNumber: "${ticket.deviceSerialNumber}"`);
+});
+
+// Add demo internal comments
+const demoInternalComments = [
+  {
+    id: uuidv4(),
+    ticketId: demoTickets[1].id, // Application Crash ticket
+    agentId: demoUsers[1].id, // agent@demo.com
+    content: 'Customer confirmed they are using version 2.1.4. Need to check known issues for this version.',
+    createdAt: new Date(Date.now() - 8 * 60 * 1000).toISOString(), // 8 minutes ago
+    agentName: 'Jane Agent'
+  },
+  {
+    id: uuidv4(),
+    ticketId: demoTickets[1].id, // Application Crash ticket
+    agentId: demoUsers[1].id, // agent@demo.com
+    content: 'Found similar issue in bug tracker #BUG-2145. Escalating to development team.',
+    createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+    agentName: 'Jane Agent'
+  },
+  {
+    id: uuidv4(),
+    ticketId: demoTickets[2].id, // Billing Question ticket
+    agentId: demoUsers[2].id, // agent2@demo.com
+    content: 'Verified duplicate charge in billing system. Processing refund now.',
+    createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    agentName: 'Mike Support'
+  }
+];
+
+internalComments.push(...demoInternalComments);
+
+// Initialize demo devices first
 const initializeDemoDevices = () => {
   // Get the customer's company ID for proper device association
   const customer = demoUsers[0]; // customer@demo.com
@@ -850,8 +1662,8 @@ const initializeDemoDevices = () => {
   ];
   
   devices.push(...demoDevices);
-  console.log('ðŸ”§ Added demo devices:', demoDevices.length);
-  console.log('ðŸ¢ Devices associated with company ID:', customerCompanyId);
+  console.log('🔧 Added demo devices:', demoDevices.length);
+  console.log('🏢 Devices associated with company ID:', customerCompanyId);
 };
 
 // Initialize devices array before using it
@@ -871,7 +1683,7 @@ const linkCustomersToCompanies = () => {
     const acmeCompany = companies.find(c => c.name === 'Acme Corporation');
     if (acmeCompany) {
       customer.companyId = acmeCompany.id;
-      console.log('ðŸ¢ Linked customer', customer.email, 'to company', acmeCompany.name);
+      console.log('🏢 Linked customer', customer.email, 'to company', acmeCompany.name);
     }
   }
 };
@@ -925,7 +1737,7 @@ const generateDemoAuditLogs = () => {
     auditLogs.push(auditEntry);
   }
   
-  console.log('ðŸ“ Generated demo audit logs:', auditLogs.length);
+  console.log('📝 Generated demo audit logs:', auditLogs.length);
 };
 
 generateDemoAuditLogs();
@@ -968,16 +1780,16 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    console.log('ðŸ” Authentication failed: No token provided');
+    console.log('🔐 Authentication failed: No token provided');
     return res.status(401).json({ success: false, error: { code: 'NO_TOKEN', message: 'Access token required' }});
   }
 
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
-      console.log('ðŸ” Authentication failed: Token validation error:', err.message);
+      console.log('🔐 Authentication failed: Token validation error:', err.message);
       return res.status(403).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid token' }});
     }
-    console.log('ðŸ” Authentication successful for user:', decoded.sub, decoded.email);
+    console.log('🔐 Authentication successful for user:', decoded.sub, decoded.email);
     req.user = decoded;
     next();
   });
@@ -987,7 +1799,7 @@ const authenticateToken = (req, res, next) => {
 
 // Authentication
 app.post('/api/auth/login', async (req, res) => {
-  console.log('\nðŸ” LOGIN REQUEST RECEIVED');
+  console.log('\n🔐 LOGIN REQUEST RECEIVED');
   console.log('Body:', req.body);
   console.log('Available users:', users.map(u => ({ email: u.email, userType: u.userType })));
   
@@ -998,7 +1810,7 @@ app.post('/api/auth/login', async (req, res) => {
   console.log('Found user:', user ? 'YES' : 'NO');
   
   if (!user || !bcrypt.compareSync(password, user.password)) {
-    console.log('âŒ Authentication failed');
+    console.log('❌ Authentication failed');
     
     // Log failed login attempt
     logAudit({
@@ -1018,11 +1830,11 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  console.log('âœ… Authentication successful for:', user.email);
+  console.log('✅ Authentication successful for:', user.email);
   
   // Update lastLogin timestamp
   user.lastLogin = new Date().toISOString();
-  console.log('ðŸ•’ Updated lastLogin for', user.email, 'to:', user.lastLogin);
+  console.log('🕒 Updated lastLogin for', user.email, 'to:', user.lastLogin);
   
   // Log successful login
   logAudit({
@@ -1072,7 +1884,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
   };
 
-  console.log('ðŸ“¤ Sending response:', JSON.stringify(response, null, 2));
+  console.log('📤 Sending response:', JSON.stringify(response, null, 2));
   res.json(response);
 });
 
@@ -1136,11 +1948,11 @@ app.get('/api/system-settings/public', authenticateToken, (req, res) => {
 app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`ðŸ” Getting customer status for ticket ${id}`);
-    console.log(`ðŸ” All customer sessions:`, Array.from(customerSessions.entries()));
+    console.log(`🔍 Getting customer status for ticket ${id}`);
+    console.log(`🔍 All customer sessions:`, Array.from(customerSessions.entries()));
     
     const session = customerSessions.get(id);
-    console.log(`ðŸ” Found session for ticket ${id}:`, session);
+    console.log(`🔍 Found session for ticket ${id}:`, session);
     
     if (session) {
       const responseData = {
@@ -1148,7 +1960,7 @@ app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
         lastSeen: session.lastSeen,
         customerId: session.customerId
       };
-      console.log(`ðŸ” Returning session data:`, responseData);
+      console.log(`🔍 Returning session data:`, responseData);
       
       res.json({
         success: true,
@@ -1160,7 +1972,7 @@ app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
         lastSeen: null,
         customerId: null
       };
-      console.log(`ðŸ” No session found, returning default:`, responseData);
+      console.log(`🔍 No session found, returning default:`, responseData);
       
       res.json({
         success: true,
@@ -1287,13 +2099,13 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
 
 // Get single ticket by ID
 app.get('/api/tickets/:id', authenticateToken, (req, res) => {
-  console.log('ðŸ” GET SINGLE TICKET REQUEST');
+  console.log('🔍 GET SINGLE TICKET REQUEST');
   console.log('  - ticketId:', req.params.id);
   console.log('  - user:', req.user.sub, req.user.userType);
   
   const ticket = tickets.find(t => t.id === req.params.id);
   if (!ticket) {
-    console.log('âŒ Ticket not found');
+    console.log('❌ Ticket not found');
     return res.status(404).json({
       success: false,
       error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
@@ -1302,7 +2114,7 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
   
   // Check permissions
   if (req.user.userType === 'customer' && ticket.customerId !== req.user.sub) {
-    console.log('âŒ Permission denied - customer can only view own tickets');
+    console.log('❌ Permission denied - customer can only view own tickets');
     return res.status(403).json({
       success: false,
       error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You can only view your own tickets' }
@@ -1401,7 +2213,7 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
     })
   };
   
-  console.log('âœ… Returning single ticket:', enrichedTicket.id);
+  console.log('✅ Returning single ticket:', enrichedTicket.id);
   console.log('  - customerAddress:', enrichedTicket.customerAddress);
   
   res.json({
@@ -1414,7 +2226,7 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
 
 // Create ticket (supports both authenticated and anonymous)
 app.post('/api/tickets', (req, res) => {
-  console.log('\nðŸŽ« CREATE TICKET REQUEST RECEIVED');
+  console.log('\n🎫 CREATE TICKET REQUEST RECEIVED');
   console.log('Body:', req.body);
   
   const { title, description, categoryId, priority = 'medium', customerInfo } = req.body;
@@ -1445,7 +2257,7 @@ app.post('/api/tickets', (req, res) => {
 
   // Validate required fields
   if (!title || !description || !categoryId) {
-    console.log('âŒ Validation failed - missing required fields');
+    console.log('❌ Validation failed - missing required fields');
     return res.status(400).json({
       success: false,
       error: { code: 'VALIDATION_ERROR', message: 'Title, description, and category are required' }
@@ -1454,7 +2266,7 @@ app.post('/api/tickets', (req, res) => {
 
   // For anonymous users, require customer info
   if (!user && (!customerInfo || !customerInfo.name || !customerInfo.email)) {
-    console.log('âŒ Validation failed - customer info required for anonymous users');
+    console.log('❌ Validation failed - customer info required for anonymous users');
     return res.status(400).json({
       success: false,
       error: { code: 'VALIDATION_ERROR', message: 'Customer name and email are required' }
@@ -1490,7 +2302,7 @@ app.post('/api/tickets', (req, res) => {
     updatedAt: new Date().toISOString()
   };
 
-  console.log('âœ… Created ticket:', ticket);
+  console.log('✅ Created ticket:', ticket);
   tickets.push(ticket);
   console.log('Total tickets now:', tickets.length);
   
@@ -1501,14 +2313,14 @@ app.post('/api/tickets', (req, res) => {
   
   // Perform immediate company fuzzy matching for new tickets (including auto-creation)
   if (ticket.customerCompany && !ticket.companyId) {
-    console.log('ðŸ” Triggering immediate fuzzy matching for new ticket...');
+    console.log('🔍 Triggering immediate fuzzy matching for new ticket...');
     // First try fuzzy matching
     performAutomaticCompanyMatching(ticket);
     
     // If no match found after fuzzy matching, auto-create the company
     const ticketAfterMatching = tickets.find(t => t.id === ticket.id);
     if (ticketAfterMatching && !ticketAfterMatching.companyId) {
-      console.log('ðŸ¢ No fuzzy match found, auto-creating company:', ticket.customerCompany);
+      console.log('🏢 No fuzzy match found, auto-creating company:', ticket.customerCompany);
       const newCompany = {
         id: uuidv4(),
         name: ticket.customerCompany,
@@ -1534,10 +2346,10 @@ app.post('/api/tickets', (req, res) => {
       const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
       if (ticketIndex !== -1) {
         tickets[ticketIndex].companyId = newCompany.id;
-        console.log('ðŸ”— Associated ticket with newly created company:', newCompany.name);
+        console.log('🔗 Associated ticket with newly created company:', newCompany.name);
       }
       
-      console.log('ðŸ¢ Auto-created company:', newCompany.name, 'ID:', newCompany.id);
+      console.log('🏢 Auto-created company:', newCompany.name, 'ID:', newCompany.id);
     }
   }
   
@@ -1567,7 +2379,7 @@ app.post('/api/tickets', (req, res) => {
   };
 
   messages.push(initialMessage);
-  console.log('âœ… Created initial message:', initialMessage);
+  console.log('✅ Created initial message:', initialMessage);
 
   // Check if we should generate AI response for the initial message
   const isCustomerInitialMessage = !user || user.id === ticket.customerId;
@@ -1576,7 +2388,7 @@ app.post('/api/tickets', (req, res) => {
                                    aiService.isEnabled() && 
                                    ticket.aiEnabled !== false;
 
-  console.log('ðŸ” AI DECISION DEBUG for initial message:');
+  console.log('🔍 AI DECISION DEBUG for initial message:');
   console.log('  - user:', user ? `${user.firstName} ${user.lastName} (${user.id})` : 'null');
   console.log('  - ticket.customerId:', ticket.customerId);
   console.log('  - isCustomerInitialMessage:', isCustomerInitialMessage);
@@ -1587,30 +2399,22 @@ app.post('/api/tickets', (req, res) => {
 
   // Generate AI response for the initial message if conditions are met
   if (shouldGenerateAIForInitial) {
-    console.log('ðŸ¤– Generating AI response for initial customer message');
+    console.log('🤖 Generating AI response for initial customer message');
     
     // Run AI generation asynchronously to avoid blocking the response
     setImmediate(async () => {
       try {
         // Find relevant documents for the user's message
         const relevantDocs = await aiService.findRelevantDocuments(description, aiDocumentChunks);
-        console.log(`ðŸ” Found ${relevantDocs.length} relevant document chunks for initial message`);
+        console.log(`🔍 Found ${relevantDocs.length} relevant document chunks for initial message`);
 
-        // Generate enhanced AI response with context
-        const ticketMessages = messages.filter(m => m.ticketId === ticket.id);
-        const aiResponse = await enhancedAiService.generateEnhancedResponse(
-          description, 
-          aiAgentConfig, 
-          ticket.id, 
-          ticketMessages, 
-          ticket, 
-          relevantDocs
-        );
-        console.log(`ðŸ¤– AI response generated for initial message with confidence: ${aiResponse.confidence}`);
+        // Generate AI response
+        const aiResponse = await aiService.generateResponse(description, aiAgentConfig, relevantDocs);
+        console.log(`🤖 AI response generated for initial message with confidence: ${aiResponse.confidence}`);
 
         // Check if we should escalate based on confidence
         if (aiResponse.shouldEscalate) {
-          console.log('ðŸ“ˆ AI confidence too low for initial message, escalating to human agent');
+          console.log('📈 AI confidence too low for initial message, escalating to human agent');
           
           // Disable AI for this ticket and mark for escalation
           const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
@@ -1708,11 +2512,11 @@ app.post('/api/tickets', (req, res) => {
             message: aiMessageWithSender
           });
 
-          console.log('ðŸ¤– AI response sent successfully for initial message');
+          console.log('🤖 AI response sent successfully for initial message');
         }
 
       } catch (error) {
-        console.error('âŒ Error generating AI response for initial message:', error);
+        console.error('❌ Error generating AI response for initial message:', error);
         
         // Send fallback message on AI error
         const fallbackMessage = {
@@ -1770,7 +2574,7 @@ app.post('/api/tickets', (req, res) => {
     }
   };
 
-  console.log('ðŸ“¤ Sending ticket creation response:', JSON.stringify(response, null, 2));
+  console.log('📤 Sending ticket creation response:', JSON.stringify(response, null, 2));
   res.status(201).json(response);
 });
 
@@ -1817,7 +2621,7 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
   
   // If this was an AI ticket, log the handoff
   if (wasAssignedToAI) {
-    console.log(`ðŸ¤–âž¡ï¸ðŸ‘¨ Human agent ${req.user.firstName} ${req.user.lastName} taking over ticket ${ticket.ticketNumber} from NeuroAI`);
+    console.log(`🤖➡️👨 Human agent ${req.user.firstName} ${req.user.lastName} taking over ticket ${ticket.ticketNumber} from NeuroAI`);
   }
   
   // Log ticket claim
@@ -1877,7 +2681,7 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
 
 // Update ticket
 app.put('/api/tickets/:id', authenticateToken, (req, res) => {
-  console.log('ðŸ”§ TICKET UPDATE REQUEST RECEIVED');
+  console.log('🔧 TICKET UPDATE REQUEST RECEIVED');
   console.log('  - ticketId:', req.params.id);
   console.log('  - body:', req.body);
   console.log('  - customerAddress in body:', req.body.customerAddress);
@@ -1906,7 +2710,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     });
   }
 
-  console.log('ðŸ”§ TICKET BEFORE UPDATE:');
+  console.log('🔧 TICKET BEFORE UPDATE:');
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
 
   // Only allow updating certain fields (exclude read-only fields like ticketNumber, createdAt)
@@ -1924,7 +2728,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     }
   });
 
-  console.log('ðŸ”§ UPDATES OBJECT:');
+  console.log('🔧 UPDATES OBJECT:');
   console.log('  - updates:', updates);
   console.log('  - updates.customerAddress:', updates.customerAddress);
   console.log('  - updates.customerCity:', updates.customerCity);
@@ -1936,7 +2740,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   console.log('  - deviceSerialNumber included:', 'deviceSerialNumber' in updates);
 
   // DEBUG: Log original ticket before update
-  console.log('ðŸ”§ ORIGINAL TICKET BEFORE UPDATE:');
+  console.log('🔧 ORIGINAL TICKET BEFORE UPDATE:');
   console.log('  - ticket.customerCity (before):', ticket.customerCity);
   console.log('  - ticket.customerAddress (before):', ticket.customerAddress);
 
@@ -1952,14 +2756,14 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     
     // If assigning to a human agent from NeuroAI, unassign from NeuroAI
     if (ticket.agentId === neuroAIAgentId && updates.agentId !== neuroAIAgentId) {
-      console.log(`ðŸ¤– Human agent taking over ticket ${ticket.ticketNumber} from NeuroAI`);
+      console.log(`🤖 Human agent taking over ticket ${ticket.ticketNumber} from NeuroAI`);
       unassignTicketFromNeuroAI(ticket.id, updates.agentId);
     }
   }
   
   // If unassigning (setting agentId to null), check if it was assigned to NeuroAI
   if (updates.agentId === null && ticket.agentId === neuroAIAgentId) {
-    console.log(`ðŸ¤– Unassigning ticket ${ticket.ticketNumber} from NeuroAI`);
+    console.log(`🤖 Unassigning ticket ${ticket.ticketNumber} from NeuroAI`);
     unassignTicketFromNeuroAI(ticket.id, null);
   }
 
@@ -1980,13 +2784,13 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   
   // Trigger automatic company fuzzy matching when ticket is closed or resolved
   if (updates.status === 'closed' || updates.status === 'resolved') {
-    console.log('ðŸŽ¯ Ticket closed/resolved, triggering company fuzzy matching...');
+    console.log('🎯 Ticket closed/resolved, triggering company fuzzy matching...');
     performAutomaticCompanyMatching(ticket);
   }
 
   // Trigger AI summarization when ticket is marked as resolved
   if (updates.status === 'resolved' && ticket.status !== 'resolved') {
-    console.log('ðŸ“ Ticket resolved, triggering AI summarization...');
+    console.log('📝 Ticket resolved, triggering AI summarization...');
     setImmediate(async () => {
       await generateTicketSummary(ticket.id, req.user.sub);
     });
@@ -1997,12 +2801,12 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     autoCreateDeviceFromTicket(ticket);
   }
 
-  console.log('ðŸ”§ TICKET AFTER UPDATE:');
+  console.log('🔧 TICKET AFTER UPDATE:');
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
   console.log('  - ticket.customerCity:', ticket.customerCity);
   console.log('  - ticket.customerType:', ticket.customerType);
   console.log('  - ticket.deviceSerialNumber:', ticket.deviceSerialNumber);
-  console.log(`ðŸŽ« Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
+  console.log(`🎫 Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
   
   // Log ticket update with human-readable values
   const changes = Object.keys(updates).map(key => {
@@ -2056,7 +2860,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
       }
     }
     
-    return `${key}: "${originalValue}" â†’ "${newValue}"`;
+    return `${key}: "${originalValue}" → "${newValue}"`;
   }).join(', ');
   
   logAudit({
@@ -2107,7 +2911,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     category
   };
 
-  console.log('ðŸ”§ ENRICHED RESPONSE TICKET:');
+  console.log('🔧 ENRICHED RESPONSE TICKET:');
   console.log('  - enrichedTicket.customerAddress:', enrichedTicket.customerAddress);
   console.log('  - enrichedTicket.customerCity:', enrichedTicket.customerCity);
   console.log('  - enrichedTicket.customerType:', enrichedTicket.customerType);
@@ -2177,8 +2981,8 @@ app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
     }
   });
 
-  console.log(`ðŸ—‘ï¸ Ticket ${req.params.id} deleted by agent ${req.user.sub}`);
-  console.log(`ðŸ—‘ï¸ Also removed ${messagesToRemove.length} associated messages`);
+  console.log(`🗑️ Ticket ${req.params.id} deleted by agent ${req.user.sub}`);
+  console.log(`🗑️ Also removed ${messagesToRemove.length} associated messages`);
 
   // Notify connected clients about ticket deletion
   io.emit('ticket_deleted', {
@@ -2228,7 +3032,7 @@ app.get('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, res
 
 // Add internal comment to a ticket
 app.post('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, res) => {
-  console.log('ðŸ’¬ INTERNAL COMMENT REQUEST RECEIVED');
+  console.log('💬 INTERNAL COMMENT REQUEST RECEIVED');
   console.log('  - ticketId:', req.params.ticketId);
   console.log('  - body:', req.body);
   console.log('  - user:', req.user);
@@ -2297,8 +3101,8 @@ app.post('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, re
     details: `Added internal comment: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
   });
 
-  console.log(`ðŸ’¬ Internal comment added to ticket ${req.params.ticketId} by agent ${req.user.sub}`);
-  console.log('ðŸ’¬ Comment created:', comment);
+  console.log(`💬 Internal comment added to ticket ${req.params.ticketId} by agent ${req.user.sub}`);
+  console.log('💬 Comment created:', comment);
 
   res.status(201).json({
     success: true,
@@ -2406,44 +3210,44 @@ app.get('/api/tickets/:ticketId/customer-status', authenticateToken, (req, res) 
 
 // Generate ticket summary (manual)
 app.post('/api/tickets/:ticketId/generate-summary', authenticateToken, async (req, res) => {
-  console.log('ðŸ”´ [DEBUG] Generate summary route hit!');
-  console.log('ðŸ”´ [DEBUG] Ticket ID:', req.params.ticketId);
-  console.log('ðŸ”´ [DEBUG] User:', req.user);
+  console.log('🔴 [DEBUG] Generate summary route hit!');
+  console.log('🔴 [DEBUG] Ticket ID:', req.params.ticketId);
+  console.log('🔴 [DEBUG] User:', req.user);
   
   try {
     const ticket = tickets.find(t => t.id === req.params.ticketId);
     if (!ticket) {
-      console.log('ðŸ”´ [DEBUG] Ticket not found');
+      console.log('🔴 [DEBUG] Ticket not found');
       return res.status(404).json({
         success: false,
         error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
       });
     }
     
-    console.log('ðŸ”´ [DEBUG] Found ticket:', ticket.ticketNumber);
-    console.log('ðŸ”´ [DEBUG] User permissions:', req.user.permissions);
+    console.log('🔴 [DEBUG] Found ticket:', ticket.ticketNumber);
+    console.log('🔴 [DEBUG] User permissions:', req.user.permissions);
     
     // Check if user has permission to generate summaries
     if (!req.user.permissions?.includes('tickets.edit')) {
-      console.log('ðŸ”´ [DEBUG] No permission to generate summaries');
+      console.log('🔴 [DEBUG] No permission to generate summaries');
       return res.status(403).json({
         success: false,
         error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to generate ticket summaries' }
       });
     }
     
-    console.log('ðŸ”´ [DEBUG] AI service enabled:', aiService.isEnabled());
+    console.log('🔴 [DEBUG] AI service enabled:', aiService.isEnabled());
     
     // Check if AI service is available
     if (!aiService.isEnabled()) {
-      console.log('ðŸ”´ [DEBUG] AI service not available');
+      console.log('🔴 [DEBUG] AI service not available');
       return res.status(503).json({
         success: false,
         error: { code: 'AI_SERVICE_UNAVAILABLE', message: 'AI service is not available. Please configure OpenAI API key.' }
       });
     }
     
-    console.log('ðŸ”´ [DEBUG] Generating summary...');
+    console.log('🔴 [DEBUG] Generating summary...');
     
     // Generate summary using the existing function (with manual generation flag)
     await generateTicketSummary(ticket.id, req.user.sub);
@@ -2466,7 +3270,7 @@ app.post('/api/tickets/:ticketId/generate-summary', authenticateToken, async (re
     }
     
   } catch (error) {
-    console.error('ðŸ”´ [DEBUG] Error in generate summary:', error);
+    console.error('🔴 [DEBUG] Error in generate summary:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SUMMARY_GENERATION_FAILED', message: error.message }
@@ -2479,7 +3283,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
   try {
     const ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) {
-      console.error('âŒ Cannot generate summary: ticket not found');
+      console.error('❌ Cannot generate summary: ticket not found');
       return;
     }
 
@@ -2488,7 +3292,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
       const summaryDate = new Date(ticket.resolutionSummaryGeneratedAt);
       if (summaryDate > hourAgo) {
-        console.log('ðŸ“ Summary already exists and is recent, skipping automatic generation');
+        console.log('📝 Summary already exists and is recent, skipping automatic generation');
         return;
       }
     }
@@ -2518,7 +3322,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
     const category = categories.find(c => c.id === ticket.categoryId);
     const ticketWithCategory = { ...ticket, category };
 
-    console.log('ðŸ“ Generating AI summary for ticket:', ticket.ticketNumber);
+    console.log('📝 Generating AI summary for ticket:', ticket.ticketNumber);
 
     // Generate summary using AI service
     const summaryResult = await aiService.generateResolutionSummary(
@@ -2532,8 +3336,8 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
     ticket.resolutionSummaryModelVersion = summaryResult.modelUsed;
     ticket.resolutionSummaryGeneratedBy = generatedBy;
 
-    console.log('âœ… AI summary generated successfully for ticket:', ticket.ticketNumber);
-    console.log('ðŸ“ Summary:', summaryResult.summary);
+    console.log('✅ AI summary generated successfully for ticket:', ticket.ticketNumber);
+    console.log('📝 Summary:', summaryResult.summary);
 
     // Notify connected clients about the summary update
     io.to(`ticket_${ticketId}`).emit('ticket_summary_generated', {
@@ -2557,7 +3361,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
     });
 
   } catch (error) {
-    console.error('âŒ Error generating ticket summary:', error);
+    console.error('❌ Error generating ticket summary:', error);
     
     // Log the error in audit trail
     logAudit({
@@ -2597,10 +3401,10 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
   ticket.updatedAt = new Date().toISOString();
   ticket.resolvedAt = new Date().toISOString();
 
-  console.log(`ðŸŽ« Ticket ${req.params.ticketId} closed by customer`);
+  console.log(`🎫 Ticket ${req.params.ticketId} closed by customer`);
 
   // Trigger AI summarization when customer closes ticket
-  console.log('ðŸ“ Customer closed ticket, triggering AI summarization...');
+  console.log('📝 Customer closed ticket, triggering AI summarization...');
   setImmediate(async () => {
     await generateTicketSummary(req.params.ticketId);
   });
@@ -2616,7 +3420,7 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
       socketToTicketMap.delete(session.socketId);
     }
     
-    console.log(`ðŸ”´ Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
   }
 
   // Notify agents about ticket closure and customer disconnect
@@ -2689,7 +3493,7 @@ app.post('/api/tickets/:ticketId/feedback', (req, res) => {
 
   messages.push(systemMessage);
 
-  console.log(`ðŸŽ« Feedback submitted for ticket ${req.params.ticketId}: ${resolution}`);
+  console.log(`🎫 Feedback submitted for ticket ${req.params.ticketId}: ${resolution}`);
 
   // Broadcast system message to agents
   const messageWithSender = {
@@ -2766,10 +3570,10 @@ app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
 
   messages.push(systemMessage);
 
-  console.log(`ðŸŽ« Ticket ${req.params.ticketId} closed by customer with resolution: ${resolution}`);
+  console.log(`🎫 Ticket ${req.params.ticketId} closed by customer with resolution: ${resolution}`);
 
   // Trigger AI summarization when customer closes ticket with feedback
-  console.log('ðŸ“ Customer closed ticket with feedback, triggering AI summarization...');
+  console.log('📝 Customer closed ticket with feedback, triggering AI summarization...');
   setImmediate(async () => {
     await generateTicketSummary(req.params.ticketId);
   });
@@ -2785,7 +3589,7 @@ app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
       socketToTicketMap.delete(session.socketId);
     }
     
-    console.log(`ðŸ”´ Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
   }
 
   // Broadcast system message to agents
@@ -2859,7 +3663,7 @@ app.post('/api/tickets/:ticketId/abandon', (req, res) => {
 
   messages.push(systemMessage);
 
-  console.log(`ðŸŽ« Ticket ${req.params.ticketId} abandoned by customer (reason: ${reason})`);
+  console.log(`🎫 Ticket ${req.params.ticketId} abandoned by customer (reason: ${reason})`);
 
   // Clean up customer session
   const session = customerSessions.get(req.params.ticketId);
@@ -2872,7 +3676,7 @@ app.post('/api/tickets/:ticketId/abandon', (req, res) => {
       socketToTicketMap.delete(session.socketId);
     }
     
-    console.log(`ðŸ”´ Customer session for ticket ${req.params.ticketId} marked offline due to abandonment`);
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to abandonment`);
   }
 
   // Broadcast system message to agents
@@ -2994,30 +3798,22 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
 
   // Generate AI response if conditions are met
   if (shouldGenerateAI) {
-    console.log('ðŸ¤– Generating AI response for customer message');
+    console.log('🤖 Generating AI response for customer message');
     
     // Run AI generation asynchronously to avoid blocking the response
     setImmediate(async () => {
       try {
         // Find relevant documents for the user's message
         const relevantDocs = await aiService.findRelevantDocuments(content, aiDocumentChunks);
-        console.log(`ðŸ” Found ${relevantDocs.length} relevant document chunks`);
+        console.log(`🔍 Found ${relevantDocs.length} relevant document chunks`);
 
-        // Generate enhanced AI response with context
-        const ticketMessages = messages.filter(m => m.ticketId === req.params.ticketId);
-        const aiResponse = await enhancedAiService.generateEnhancedResponse(
-          content, 
-          aiAgentConfig, 
-          req.params.ticketId, 
-          ticketMessages, 
-          ticket, 
-          relevantDocs
-        );
-        console.log(`ðŸ¤– AI response generated with confidence: ${aiResponse.confidence}`);
+        // Generate AI response
+        const aiResponse = await aiService.generateResponse(content, aiAgentConfig, relevantDocs);
+        console.log(`🤖 AI response generated with confidence: ${aiResponse.confidence}`);
 
         // Check if we should escalate based on confidence
         if (aiResponse.shouldEscalate) {
-          console.log('ðŸ“ˆ AI confidence too low, escalating to human agent');
+          console.log('📈 AI confidence too low, escalating to human agent');
           
           // Disable AI for this ticket and mark for escalation
           const ticketIndex = tickets.findIndex(t => t.id === req.params.ticketId);
@@ -3115,11 +3911,11 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
             message: aiMessageWithSender
           });
 
-          console.log('ðŸ¤– AI response sent successfully');
+          console.log('🤖 AI response sent successfully');
         }
 
       } catch (error) {
-        console.error('âŒ Error generating AI response:', error);
+        console.error('❌ Error generating AI response:', error);
         
         // Send fallback message on AI error
         const fallbackMessage = {
@@ -3172,7 +3968,7 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     senderUserType = sender ? (sender.id === ticket.customerId ? 'customer' : sender.userType) : 'customer';
   }
   
-  console.log('ðŸ” SENDER DEBUG:');
+  console.log('🔍 SENDER DEBUG:');
   console.log('  - user:', user);
   console.log('  - sender:', sender);
   console.log('  - ticket.customerName:', ticket.customerName);
@@ -3196,8 +3992,8 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     }
   };
 
-  console.log('ðŸ“¤ Broadcasting message to ticket room:', `ticket_${req.params.ticketId}`);
-  console.log('ðŸ“¤ Message data:', JSON.stringify(messageWithSender, null, 2));
+  console.log('📤 Broadcasting message to ticket room:', `ticket_${req.params.ticketId}`);
+  console.log('📤 Message data:', JSON.stringify(messageWithSender, null, 2));
 
   // Broadcast message to ticket room
   io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
@@ -3210,9 +4006,9 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   const isCustomerOffline = !customerSession || !customerSession.isOnline;
 
   if (isAgentMessage && isCustomerOffline && ticket.customerEmail && ticket.emailFallbackEnabled !== false) {
-    console.log('ðŸ“§ Customer is offline, sending email fallback...');
-    console.log('ðŸ“§ Customer session:', customerSession);
-    console.log('ðŸ“§ Customer email:', ticket.customerEmail);
+    console.log('📧 Customer is offline, sending email fallback...');
+    console.log('📧 Customer session:', customerSession);
+    console.log('📧 Customer email:', ticket.customerEmail);
     
     // Send email fallback asynchronously
     sendChatFallbackEmail(
@@ -3222,15 +4018,15 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
       ticket
     ).then(result => {
       if (result.success) {
-        console.log('âœ… Email fallback sent successfully:', result.emailId);
+        console.log('✅ Email fallback sent successfully:', result.emailId);
       } else {
-        console.error('âŒ Email fallback failed:', result.error);
+        console.error('❌ Email fallback failed:', result.error);
       }
     }).catch(error => {
-      console.error('âŒ Email fallback error:', error);
+      console.error('❌ Email fallback error:', error);
     });
   } else if (isAgentMessage) {
-    console.log('ðŸ“§ Email fallback skipped:', {
+    console.log('📧 Email fallback skipped:', {
       isAgentMessage,
       isCustomerOffline,
       hasCustomerEmail: !!ticket.customerEmail,
@@ -3337,7 +4133,7 @@ const uploadMultiple = multer({
 app.post('/api/tickets/:ticketId/upload', (req, res) => {
   upload.single('file')(req, res, (err) => {
     if (err) {
-      console.log('âŒ Multer error:', err.message);
+      console.log('❌ Multer error:', err.message);
       return res.status(400).json({
         success: false,
         error: { code: 'UPLOAD_ERROR', message: err.message }
@@ -3349,14 +4145,14 @@ app.post('/api/tickets/:ticketId/upload', (req, res) => {
 });
 
 function handleFileUpload(req, res) {
-  console.log('\nðŸ“Ž FILE UPLOAD REQUEST RECEIVED');
+  console.log('\n📎 FILE UPLOAD REQUEST RECEIVED');
   console.log('Ticket ID:', req.params.ticketId);
   console.log('File:', req.file ? req.file.originalname : 'No file');
   console.log('Authorization header:', req.headers.authorization ? 'Present' : 'Not present');
   
   try {
     if (!req.file) {
-      console.log('âŒ No file uploaded');
+      console.log('❌ No file uploaded');
       return res.status(400).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'No file uploaded' }
@@ -3367,7 +4163,7 @@ function handleFileUpload(req, res) {
     console.log('Found ticket:', ticket ? `${ticket.ticketNumber} (isAnonymous: ${ticket.isAnonymous})` : 'Not found');
     
     if (!ticket) {
-      console.log('âŒ Ticket not found');
+      console.log('❌ Ticket not found');
       return res.status(404).json({
         success: false,
         error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
@@ -3392,7 +4188,7 @@ function handleFileUpload(req, res) {
     // For anonymous users, ensure they can only upload to their own ticket
     console.log('Permission check: user =', !!user, ', ticket.isAnonymous =', ticket.isAnonymous);
     if (!user && !ticket.isAnonymous) {
-      console.log('âŒ Access denied: anonymous user trying to upload to non-anonymous ticket');
+      console.log('❌ Access denied: anonymous user trying to upload to non-anonymous ticket');
       return res.status(403).json({
         success: false,
         error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Access denied' }
@@ -3404,7 +4200,7 @@ function handleFileUpload(req, res) {
       id: uuidv4(),
       ticketId: req.params.ticketId,
       senderId: user ? user.id : null,
-      content: `ðŸ“Ž Uploaded file: ${req.file.originalname}`,
+      content: `📎 Uploaded file: ${req.file.originalname}`,
       messageType: req.file.mimetype.startsWith('image/') ? 'image' : 'file',
       createdAt: new Date().toISOString(),
       isRead: false,
@@ -3447,8 +4243,8 @@ function handleFileUpload(req, res) {
       }
     };
 
-    console.log('ðŸ“Ž Broadcasting file message to ticket room:', `ticket_${req.params.ticketId}`);
-    console.log('ðŸ“Ž File message data:', JSON.stringify(messageWithSender, null, 2));
+    console.log('📎 Broadcasting file message to ticket room:', `ticket_${req.params.ticketId}`);
+    console.log('📎 File message data:', JSON.stringify(messageWithSender, null, 2));
 
     // Broadcast file message to ticket room
     io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
@@ -3507,7 +4303,7 @@ app.get('/api/files/:filename', (req, res) => {
 
 // Get all files for a ticket
 app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
-  console.log('\nðŸ“ GET FILES REQUEST');
+  console.log('\n📁 GET FILES REQUEST');
   console.log('Ticket ID:', req.params.ticketId);
   console.log('User:', req.user?.email);
   console.log('Request headers:', {
@@ -3521,7 +4317,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
     const ticket = tickets.find(t => t.id === req.params.ticketId);
     
     if (!ticket) {
-      console.log('âŒ Ticket not found');
+      console.log('❌ Ticket not found');
       return res.status(404).json({
         success: false,
         error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
@@ -3535,7 +4331,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
       m.fileName && m.filePath
     );
 
-    console.log(`ðŸ“ Found ${fileMessages.length} files for ticket ${req.params.ticketId}`);
+    console.log(`📁 Found ${fileMessages.length} files for ticket ${req.params.ticketId}`);
 
     // Transform file messages to file objects with additional metadata
     const files = fileMessages.map(msg => {
@@ -3567,7 +4363,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
     // Sort files by upload date (newest first)
     files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
 
-    console.log('ðŸ“ Returning files:', files.map(f => `${f.fileName} (${f.messageType})`));
+    console.log('📁 Returning files:', files.map(f => `${f.fileName} (${f.messageType})`));
 
     res.json({
       success: true,
@@ -3575,7 +4371,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error fetching files:', error);
+    console.error('❌ Error fetching files:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to fetch files' }
@@ -3589,7 +4385,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
 
 // Get all customers (derived from tickets)
 app.get('/api/customers', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¥ GET CUSTOMERS REQUEST');
+  console.log('\n👥 GET CUSTOMERS REQUEST');
   console.log('User:', req.user?.email, 'Permissions:', req.user?.permissions);
   
   try {
@@ -3746,7 +4542,7 @@ app.get('/api/customers', authenticateToken, (req, res) => {
       }
     });
 
-    console.log(`âœ… Returning ${customers.length} customers`);
+    console.log(`✅ Returning ${customers.length} customers`);
 
     res.json({
       success: true,
@@ -3762,7 +4558,7 @@ app.get('/api/customers', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error fetching customers:', error);
+    console.error('❌ Error fetching customers:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to fetch customers' }
@@ -3772,7 +4568,7 @@ app.get('/api/customers', authenticateToken, (req, res) => {
 
 // Get single customer by ID/email
 app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¤ GET SINGLE CUSTOMER REQUEST');
+  console.log('\n👤 GET SINGLE CUSTOMER REQUEST');
   console.log('Identifier:', req.params.identifier);
   
   try {
@@ -3846,7 +4642,7 @@ app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
       };
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    console.log(`âœ… Returning customer ${customer.email} with ${enrichedTickets.length} tickets`);
+    console.log(`✅ Returning customer ${customer.email} with ${enrichedTickets.length} tickets`);
 
     res.json({
       success: true,
@@ -3859,7 +4655,7 @@ app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error fetching customer:', error);
+    console.error('❌ Error fetching customer:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to fetch customer' }
@@ -3869,7 +4665,7 @@ app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
 
 // Update customer
 app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¤ UPDATE CUSTOMER REQUEST');
+  console.log('\n👤 UPDATE CUSTOMER REQUEST');
   console.log('Identifier:', req.params.identifier);
   console.log('Body:', req.body);
   
@@ -3959,7 +4755,7 @@ app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
       }, null)
     };
 
-    console.log(`âœ… Updated customer ${customer.email}`);
+    console.log(`✅ Updated customer ${customer.email}`);
 
     res.json({
       success: true,
@@ -3967,7 +4763,7 @@ app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error updating customer:', error);
+    console.error('❌ Error updating customer:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to update customer' }
@@ -3977,7 +4773,7 @@ app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
 
 // Delete customer
 app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¤ DELETE CUSTOMER REQUEST');
+  console.log('\n👤 DELETE CUSTOMER REQUEST');
   console.log('Identifier:', req.params.identifier);
   
   try {
@@ -4047,7 +4843,7 @@ app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
       details: `Deleted customer and all associated data for ${customerEmail}`
     });
 
-    console.log(`âœ… Deleted customer ${customerEmail} and all associated data`);
+    console.log(`✅ Deleted customer ${customerEmail} and all associated data`);
 
     res.json({
       success: true,
@@ -4055,7 +4851,7 @@ app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error deleting customer:', error);
+    console.error('❌ Error deleting customer:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to delete customer' }
@@ -4078,11 +4874,6 @@ let rolesConfig = [
       'tickets.edit': true, 
       'tickets.delete': true,
       'tickets.message': true,
-      'system.management': true,
-      'system.settings': true,
-      'system.ai_settings': true,
-      'system.user_management': true,
-      'system.role_management': true,
       'users.access': true,
       'users.create': true,
       'users.edit': true,
@@ -4097,7 +4888,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': true,
       'companies.edit': true,
-      'companies.delete': true
+      'companies.delete': true,
+      'system.settings': true,
+      'system.ai_settings': true
     }
   },
   { 
@@ -4109,17 +4902,8 @@ let rolesConfig = [
       'tickets.edit': true,
       'tickets.delete': false,
       'tickets.message': true,
-      'system.management': false,
-      'system.settings': false,
-      'system.ai_settings': false,
-      'system.user_management': false,
-      'system.role_management': false,
       'users.access': false,
-      'users.create': false,
-      'users.edit': false,
-      'users.delete': false,
       'audit.view': false,
-      'insights.view': true,
       'customers.view': true,
       'devices.view': true,
       'devices.create': false,
@@ -4128,7 +4912,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': false,
       'companies.edit': true,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   },
   { 
@@ -4140,14 +4926,7 @@ let rolesConfig = [
       'tickets.edit': true,
       'tickets.delete': false,
       'tickets.message': true,
-      'system.management': false,
-      'system.settings': false,
-      'system.ai_settings': false,
-      'system.user_management': false,
-      'system.role_management': false,
-      'users.create': false,
-      'users.edit': false,
-      'users.delete': false,
+      'users.access': false,
       'audit.view': false,
       'customers.view': false,
       'devices.view': true,
@@ -4157,7 +4936,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': false,
       'companies.edit': false,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   },
   { 
@@ -4169,14 +4950,7 @@ let rolesConfig = [
       'tickets.edit': false,
       'tickets.delete': false,
       'tickets.message': false,
-      'system.management': false,
-      'system.settings': false,
-      'system.ai_settings': false,
-      'system.user_management': false,
-      'system.role_management': false,
-      'users.create': false,
-      'users.edit': false,
-      'users.delete': false,
+      'users.access': false,
       'audit.view': false,
       'customers.view': false,
       'devices.view': true,
@@ -4186,7 +4960,9 @@ let rolesConfig = [
       'companies.view': false,
       'companies.create': false,
       'companies.edit': false,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   },
   { 
@@ -4198,14 +4974,7 @@ let rolesConfig = [
       'tickets.edit': true,
       'tickets.delete': false,
       'tickets.message': true,
-      'system.management': false,
-      'system.settings': false,
-      'system.ai_settings': false,
-      'system.user_management': false,
-      'system.role_management': false,
-      'users.create': false,
-      'users.edit': false,
-      'users.delete': false,
+      'users.access': false,
       'audit.view': false,
       'customers.view': true,
       'devices.view': true,
@@ -4215,7 +4984,9 @@ let rolesConfig = [
       'companies.view': true,
       'companies.create': false,
       'companies.edit': false,
-      'companies.delete': false
+      'companies.delete': false,
+      'system.settings': false,
+      'system.ai_settings': false
     }
   }
 ];
@@ -4227,8 +4998,8 @@ syncAllUserPermissions();
 app.get('/api/roles', authenticateToken, (req, res) => {
   console.log('GET /api/roles endpoint hit');
   try {
-    // Check permission - only allow role management and admin
-    if (!req.user.permissions || !(req.user.permissions.includes('system.role_management') || req.user.roleName === 'Admin')) {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -4242,8 +5013,8 @@ app.get('/api/roles', authenticateToken, (req, res) => {
 // Create new role
 app.post('/api/roles', authenticateToken, (req, res) => {
   try {
-    // Check permission - only allow role management and admin  
-    if (!req.user.permissions || !(req.user.permissions.includes('system.role_management') || req.user.roleName === 'Admin')) {
+    // Check permission  
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -4286,7 +5057,7 @@ const syncUserPermissionsWithRole = (roleId) => {
   users.forEach(user => {
     if (user.roleId === roleId) {
       user.permissions = rolePermissions;
-      console.log(`ðŸ”„ Updated permissions for user ${user.email}:`, rolePermissions);
+      console.log(`🔄 Updated permissions for user ${user.email}:`, rolePermissions);
     }
   });
 };
@@ -4296,8 +5067,8 @@ app.put('/api/roles/:id', authenticateToken, (req, res) => {
   console.log('PUT /api/roles/:id endpoint hit with id:', req.params.id);
   console.log('Request body:', req.body);
   try {
-    // Check permission - only allow role management and admin
-    if (!req.user.permissions || !(req.user.permissions.includes('system.role_management') || req.user.roleName === 'Admin')) {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -4328,8 +5099,8 @@ app.put('/api/roles/:id', authenticateToken, (req, res) => {
 // Delete role
 app.delete('/api/roles/:id', authenticateToken, (req, res) => {
   try {
-    // Check permission - only allow role management and admin
-    if (!req.user.permissions || !(req.user.permissions.includes('system.role_management') || req.user.roleName === 'Admin')) {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -4362,13 +5133,8 @@ app.delete('/api/roles/:id', authenticateToken, (req, res) => {
 // Get all agents
 app.get('/api/agents', authenticateToken, (req, res) => {
   try {
-    // Check permission - only allow system user management and admin
-    const hasPermission = req.user.permissions && (
-      req.user.permissions.includes('system.user_management') ||
-      req.user.roleName === 'Admin'
-    );
-    
-    if (!hasPermission) {
+    // Check permission
+    if (!req.user.permissions || !req.user.permissions.includes('users.access')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -4420,7 +5186,7 @@ app.get('/api/agents', authenticateToken, (req, res) => {
         };
       });
 
-    console.log('ðŸ” AGENTS ENDPOINT - Returning agents with lastLogin values:');
+    console.log('🔍 AGENTS ENDPOINT - Returning agents with lastLogin values:');
     agents.forEach(agent => {
       console.log(`  - ${agent.email}: lastLogin = ${agent.lastLogin}${agent.isAIAgent ? ' (AI Agent)' : ''}`);
     });
@@ -4441,13 +5207,7 @@ app.get('/api/agents', authenticateToken, (req, res) => {
 app.post('/api/agents', authenticateToken, async (req, res) => {
   try {
     // Check permission
-    const hasPermission = req.user.permissions && (
-      req.user.permissions.includes('system.user_management') ||
-      req.user.permissions.includes('users.create') ||
-      req.user.roleName === 'Admin'
-    );
-    
-    if (!hasPermission) {
+    if (!req.user.permissions || !req.user.permissions.includes('users.create')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -4528,13 +5288,7 @@ app.post('/api/agents', authenticateToken, async (req, res) => {
 app.put('/api/agents/:id', authenticateToken, (req, res) => {
   try {
     // Check permission
-    const hasPermission = req.user.permissions && (
-      req.user.permissions.includes('system.user_management') ||
-      req.user.permissions.includes('users.edit') ||
-      req.user.roleName === 'Admin'
-    );
-    
-    if (!hasPermission) {
+    if (!req.user.permissions || !req.user.permissions.includes('users.edit')) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -4678,30 +5432,30 @@ app.post('/api/agents/:id/reset-password', authenticateToken, async (req, res) =
 
 // Get current user profile
 app.get('/api/profile', authenticateToken, (req, res) => {
-  console.log('ðŸ‘¤ PROFILE GET REQUEST RECEIVED');
+  console.log('👤 PROFILE GET REQUEST RECEIVED');
   console.log('  - userId:', req.user.sub);
   
   try {
     const user = users.find(u => u.id === req.user.sub);
     if (!user) {
-      console.log('âŒ User not found with ID:', req.user.sub);
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
-    console.log('âœ… Found user profile:', user.email);
+    console.log('✅ Found user profile:', user.email);
 
     // Return user profile without password
     const { password: _, ...userProfile } = user;
     res.json(userProfile);
   } catch (error) {
-    console.error('âŒ Error fetching profile:', error);
+    console.error('❌ Error fetching profile:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
 // Update user profile (name and avatar)
 app.put('/api/profile', authenticateToken, (req, res) => {
-  console.log('ðŸ‘¤ PROFILE UPDATE REQUEST RECEIVED');
+  console.log('👤 PROFILE UPDATE REQUEST RECEIVED');
   console.log('  - userId:', req.user.sub);
   console.log('  - body:', req.body);
   
@@ -4710,12 +5464,12 @@ app.put('/api/profile', authenticateToken, (req, res) => {
     
     const userIndex = users.findIndex(u => u.id === req.user.sub);
     if (userIndex === -1) {
-      console.log('âŒ User not found with ID:', req.user.sub);
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
     const user = users[userIndex];
-    console.log('âœ… Found user:', user.email);
+    console.log('✅ Found user:', user.email);
 
     // Update profile fields
     if (firstName !== undefined) user.firstName = firstName.trim();
@@ -4725,20 +5479,20 @@ app.put('/api/profile', authenticateToken, (req, res) => {
     user.updatedAt = new Date().toISOString();
     users[userIndex] = user;
 
-    console.log('âœ… Profile updated successfully');
+    console.log('✅ Profile updated successfully');
 
     // Return updated profile without password
     const { password: _, ...userProfile } = user;
     res.json(userProfile);
   } catch (error) {
-    console.error('âŒ Error updating profile:', error);
+    console.error('❌ Error updating profile:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
 // Change password
 app.put('/api/profile/password', authenticateToken, async (req, res) => {
-  console.log('ðŸ” PASSWORD CHANGE REQUEST RECEIVED');
+  console.log('🔐 PASSWORD CHANGE REQUEST RECEIVED');
   console.log('  - userId:', req.user.sub);
   
   try {
@@ -4755,12 +5509,12 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
 
     const userIndex = users.findIndex(u => u.id === req.user.sub);
     if (userIndex === -1) {
-      console.log('âŒ User not found with ID:', req.user.sub);
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
     const user = users[userIndex];
-    console.log('âœ… Found user for password change:', user.email);
+    console.log('✅ Found user for password change:', user.email);
 
     // Verify current password
     const isValidPassword = await bcrypt.compare(currentPassword, user.password);
@@ -4826,7 +5580,7 @@ const logAudit = (params) => {
   };
 
   auditLogs.push(auditEntry);
-  console.log('ðŸ” Audit Log:', auditEntry);
+  console.log('🔍 Audit Log:', auditEntry);
   
   // Keep only last 10000 entries in memory
   if (auditLogs.length > 10000) {
@@ -5098,28 +5852,28 @@ app.get('/', (req, res) => {
     <body>
         <div class="container">
             <div class="header">
-                <h1>ðŸŽ¯ NeuroChat Ticketing System</h1>
+                <h1>🎯 NeuroChat Ticketing System</h1>
                 <p>Real-time Customer Support Platform - Demo Version</p>
             </div>
 
             <div class="status">
-                âœ… <strong>Server Status:</strong> Running on http://localhost:3001<br>
-                ðŸ”— <strong>WebSocket:</strong> Connected and ready for real-time chat<br>
-                ðŸ“Š <strong>Database:</strong> In-memory demo data loaded
+                ✅ <strong>Server Status:</strong> Running on http://localhost:3001<br>
+                🔗 <strong>WebSocket:</strong> Connected and ready for real-time chat<br>
+                📊 <strong>Database:</strong> In-memory demo data loaded
             </div>
 
             <div class="demo-section">
-                <h2>ðŸš€ Quick Demo</h2>
+                <h2>🚀 Quick Demo</h2>
                 <p>Ready-to-use demo accounts:</p>
                 <div class="grid">
                     <div>
-                        <h3>ðŸ‘¤ Customer Account</h3>
+                        <h3>👤 Customer Account</h3>
                         <strong>Email:</strong> customer@demo.com<br>
                         <strong>Password:</strong> demo123<br>
                         <em>Can create tickets and chat with support</em>
                     </div>
                     <div>
-                        <h3>ðŸ› ï¸ Agent Account</h3>
+                        <h3>🛠️ Agent Account</h3>
                         <strong>Email:</strong> agent@demo.com<br>
                         <strong>Password:</strong> demo123<br>
                         <em>Can claim tickets and respond to customers</em>
@@ -5128,7 +5882,7 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸŒ API Endpoints</h2>
+                <h2>🌐 API Endpoints</h2>
                 <p>Test the REST API directly:</p>
                 <div class="api-endpoint">POST /api/auth/login - User authentication</div>
                 <div class="api-endpoint">GET /api/tickets - List tickets</div>
@@ -5139,7 +5893,7 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸ’¬ Real-time Features</h2>
+                <h2>💬 Real-time Features</h2>
                 <p>WebSocket events for real-time communication:</p>
                 <ul>
                     <li><strong>new_ticket</strong> - Notifies agents of new tickets</li>
@@ -5150,10 +5904,10 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸ”§ Next Steps</h2>
+                <h2>🔧 Next Steps</h2>
                 <p>To see the full application in action:</p>
                 <ol>
-                    <li><strong>Backend is running!</strong> âœ… API server is live on port 3001</li>
+                    <li><strong>Backend is running!</strong> ✅ API server is live on port 3001</li>
                     <li><strong>Build the Frontend:</strong> Create React app that connects to this API</li>
                     <li><strong>Test Real-time Chat:</strong> Use WebSocket client to test Socket.IO events</li>
                     <li><strong>Deploy Database:</strong> Replace in-memory storage with Azure SQL</li>
@@ -5163,10 +5917,10 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸ“‹ System Features</h2>
+                <h2>📋 System Features</h2>
                 <div class="grid">
                     <div>
-                        <h3>âœ… Working Features</h3>
+                        <h3>✅ Working Features</h3>
                         <ul>
                             <li>User authentication (JWT)</li>
                             <li>Ticket creation & management</li>
@@ -5177,7 +5931,7 @@ app.get('/', (req, res) => {
                         </ul>
                     </div>
                     <div>
-                        <h3>ðŸŽ¯ Demo Capabilities</h3>
+                        <h3>🎯 Demo Capabilities</h3>
                         <ul>
                             <li>Login as customer or agent</li>
                             <li>Create support tickets</li>
@@ -5192,10 +5946,10 @@ app.get('/', (req, res) => {
         </div>
 
         <script>
-            console.log('ðŸŽ¯ NeuroChat Backend Server Running!');
-            console.log('ðŸ“¡ API Base URL: http://localhost:3001/api');
-            console.log('ðŸ”Œ WebSocket URL: http://localhost:3001');
-            console.log('ðŸ“– Demo Accounts Ready - Check the page for login details');
+            console.log('🎯 NeuroChat Backend Server Running!');
+            console.log('📡 API Base URL: http://localhost:3001/api');
+            console.log('🔌 WebSocket URL: http://localhost:3001');
+            console.log('📖 Demo Accounts Ready - Check the page for login details');
         </script>
     </body>
     </html>
@@ -5204,14 +5958,14 @@ app.get('/', (req, res) => {
 
 // Socket.IO handling
 io.on('connection', (socket) => {
-  console.log('ðŸ‘¤ User connected:', socket.id);
-  console.log('ðŸ”§ BACKEND: New socket connection established, ID:', socket.id);
+  console.log('👤 User connected:', socket.id);
+  console.log('🔧 BACKEND: New socket connection established, ID:', socket.id);
   
   // Handle agent dashboard connection
   socket.on('agent_dashboard_join', (data) => {
-    console.log('ðŸ”§ BACKEND: Received agent_dashboard_join event:', data);
+    console.log('🔧 BACKEND: Received agent_dashboard_join event:', data);
     const { agentId, agentName } = data;
-    console.log(`ðŸ‘¨â€ðŸ’¼ Agent ${agentName} (${agentId}) joined dashboard`);
+    console.log(`👨‍💼 Agent ${agentName} (${agentId}) joined dashboard`);
     
     // Track agent session
     agentSessions.set(agentId, {
@@ -5223,24 +5977,24 @@ io.on('connection', (socket) => {
     
     socketToAgentMap.set(socket.id, agentId);
     
-    console.log('ðŸ”§ BACKEND: Agent sessions after join:', Array.from(agentSessions.entries()));
-    console.log('ðŸ”§ BACKEND: Socket to agent map:', Array.from(socketToAgentMap.entries()));
+    console.log('🔧 BACKEND: Agent sessions after join:', Array.from(agentSessions.entries()));
+    console.log('🔧 BACKEND: Socket to agent map:', Array.from(socketToAgentMap.entries()));
     
     // Notify all connected clients about agent status change
-    console.log('ðŸ”§ BACKEND: Emitting agent_status_changed event to all clients');
+    console.log('🔧 BACKEND: Emitting agent_status_changed event to all clients');
     io.emit('agent_status_changed', {
       agentId,
       isOnline: true,
       lastSeen: new Date().toISOString()
     });
     
-    console.log(`ðŸŸ¢ Agent ${agentName} is now online and event broadcasted`);
+    console.log(`🟢 Agent ${agentName} is now online and event broadcasted`);
   });
   
   // Handle agent dashboard leave
   socket.on('agent_dashboard_leave', (data) => {
     const { agentId, agentName } = data;
-    console.log(`ðŸ‘¨â€ðŸ’¼ Agent ${agentName} (${agentId}) left dashboard`);
+    console.log(`👨‍💼 Agent ${agentName} (${agentId}) left dashboard`);
     
     const session = agentSessions.get(agentId);
     if (session && session.socketId === socket.id) {
@@ -5254,7 +6008,7 @@ io.on('connection', (socket) => {
         lastSeen: new Date().toISOString()
       });
       
-      console.log(`ðŸ”´ Agent ${agentName} is now offline`);
+      console.log(`🔴 Agent ${agentName} is now offline`);
     }
   });
 
@@ -5262,17 +6016,17 @@ io.on('connection', (socket) => {
   socket.on('join_ticket', (data) => {
     socket.join(`ticket_${data.ticketId}`);
     socket.emit('ticket_joined', { ticketId: data.ticketId, success: true });
-    console.log(`ðŸ“ User ${socket.id} joined ticket ${data.ticketId}`);
-    console.log(`ðŸ“ Join data:`, data);
+    console.log(`📝 User ${socket.id} joined ticket ${data.ticketId}`);
+    console.log(`📝 Join data:`, data);
     
     // Track customer session for the ticket
     const ticket = tickets.find(t => t.id === data.ticketId);
-    console.log(`ðŸ“ Found ticket:`, ticket ? `${ticket.id} (isAnonymous: ${ticket.isAnonymous})` : 'NOT FOUND');
+    console.log(`📝 Found ticket:`, ticket ? `${ticket.id} (isAnonymous: ${ticket.isAnonymous})` : 'NOT FOUND');
     
     // Determine if this is a customer connection
     // Priority: explicit isCustomer flag, then ticket existence check
     const shouldTrackCustomer = data.isCustomer || (ticket && ticket.isAnonymous) || (!ticket && data.isCustomer !== false);
-    console.log(`ðŸ“ Should track customer: ${shouldTrackCustomer} (isCustomer: ${data.isCustomer}, ticketExists: ${!!ticket}, ticketIsAnonymous: ${ticket?.isAnonymous})`);
+    console.log(`📝 Should track customer: ${shouldTrackCustomer} (isCustomer: ${data.isCustomer}, ticketExists: ${!!ticket}, ticketIsAnonymous: ${ticket?.isAnonymous})`);
     
     if (shouldTrackCustomer) {
       // Track socket to ticket mapping for cleanup on disconnect
@@ -5299,7 +6053,7 @@ io.on('connection', (socket) => {
         details: `Customer joined chat session for ticket ${data.ticketId}`
       });
       
-      console.log(`ðŸŸ¢ Customer for ticket ${data.ticketId} is now online - session created:`, customerSessions.get(data.ticketId));
+      console.log(`🟢 Customer for ticket ${data.ticketId} is now online - session created:`, customerSessions.get(data.ticketId));
       
       // Notify agents that customer is online
       socket.to(`ticket_${data.ticketId}`).emit('customer_status_changed', {
@@ -5308,20 +6062,20 @@ io.on('connection', (socket) => {
         lastSeen: new Date().toISOString()
       });
       
-      console.log(`ðŸŸ¢ Notified agents about customer online status for ticket ${data.ticketId}`);
+      console.log(`🟢 Notified agents about customer online status for ticket ${data.ticketId}`);
     } else {
-      console.log(`â„¹ï¸ Not tracking customer session for ticket ${data.ticketId} (user is likely an agent)`);
+      console.log(`ℹ️ Not tracking customer session for ticket ${data.ticketId} (user is likely an agent)`);
     }
   });
 
   // Handle leaving ticket room
   socket.on('leave_ticket', (data) => {
     socket.leave(`ticket_${data.ticketId}`);
-    console.log(`ðŸ“ User ${socket.id} left ticket ${data.ticketId}`);
+    console.log(`📝 User ${socket.id} left ticket ${data.ticketId}`);
     
     // Update customer session status
     const session = customerSessions.get(data.ticketId);
-    console.log(`ðŸ“ Found customer session for leave_ticket:`, session);
+    console.log(`📝 Found customer session for leave_ticket:`, session);
     
     if (session && session.socketId === socket.id) {
       session.isOnline = false;
@@ -5353,9 +6107,9 @@ io.on('connection', (socket) => {
         lastSeen: new Date().toISOString()
       });
       
-      console.log(`ðŸ”´ Customer for ticket ${data.ticketId} is now offline - emitted customer_status_changed`);
+      console.log(`🔴 Customer for ticket ${data.ticketId} is now offline - emitted customer_status_changed`);
     } else {
-      console.log(`â„¹ï¸ No customer session found for ticket ${data.ticketId} or socket mismatch`);
+      console.log(`ℹ️ No customer session found for ticket ${data.ticketId} or socket mismatch`);
     }
   });
 
@@ -5375,13 +6129,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('ðŸ‘‹ User disconnected:', socket.id);
+    console.log('👋 User disconnected:', socket.id);
     
     // Check if this socket was associated with an agent session
     const agentId = socketToAgentMap.get(socket.id);
     if (agentId) {
       const agentSession = agentSessions.get(agentId);
-      console.log(`ðŸ‘¨â€ðŸ’¼ Socket ${socket.id} was mapped to agent:`, agentId);
+      console.log(`👨‍💼 Socket ${socket.id} was mapped to agent:`, agentId);
       
       if (agentSession && agentSession.socketId === socket.id && agentSession.isOnline) {
         agentSession.isOnline = false;
@@ -5394,7 +6148,7 @@ io.on('connection', (socket) => {
           lastSeen: new Date().toISOString()
         });
         
-        console.log(`ðŸ”´ Agent ${agentId} disconnected and marked offline`);
+        console.log(`🔴 Agent ${agentId} disconnected and marked offline`);
       }
       
       // Clean up agent socket mapping
@@ -5403,11 +6157,11 @@ io.on('connection', (socket) => {
     
     // Check if this socket was associated with a customer session
     const ticketId = socketToTicketMap.get(socket.id);
-    console.log(`ðŸ“ Socket ${socket.id} was mapped to ticket:`, ticketId);
+    console.log(`📝 Socket ${socket.id} was mapped to ticket:`, ticketId);
     
     if (ticketId) {
       const session = customerSessions.get(ticketId);
-      console.log(`ðŸ“ Found customer session for disconnect:`, session);
+      console.log(`📝 Found customer session for disconnect:`, session);
       
       if (session && session.socketId === socket.id && session.isOnline) {
         session.isOnline = false;
@@ -5436,15 +6190,15 @@ io.on('connection', (socket) => {
           lastSeen: new Date().toISOString()
         });
         
-        console.log(`ðŸ”´ Customer for ticket ${ticketId} disconnected - emitted customer_status_changed`);
+        console.log(`🔴 Customer for ticket ${ticketId} disconnected - emitted customer_status_changed`);
       } else {
-        console.log(`â„¹ï¸ Session not found, socket mismatch, or already offline for ticket ${ticketId}`);
+        console.log(`ℹ️ Session not found, socket mismatch, or already offline for ticket ${ticketId}`);
       }
       
       // Clean up socket mapping
       socketToTicketMap.delete(socket.id);
     } else {
-      console.log(`â„¹ï¸ Socket ${socket.id} was not associated with any customer session`);
+      console.log(`ℹ️ Socket ${socket.id} was not associated with any customer session`);
     }
   });
 });
@@ -5462,8 +6216,8 @@ function generateInsightsData(filters = {}) {
   
   // Filter by date range if provided
   if (startDate || endDate) {
-    console.log('ðŸ“Š INSIGHTS: Filtering by date range - startDate:', startDate, 'endDate:', endDate);
-    console.log('ðŸ“Š INSIGHTS: Total tickets before date filter:', filteredTickets.length);
+    console.log('📊 INSIGHTS: Filtering by date range - startDate:', startDate, 'endDate:', endDate);
+    console.log('📊 INSIGHTS: Total tickets before date filter:', filteredTickets.length);
     
     filteredTickets = filteredTickets.filter(ticket => {
       const ticketDate = new Date(ticket.createdAt);
@@ -5484,7 +6238,7 @@ function generateInsightsData(filters = {}) {
       return includeTicket;
     });
     
-    console.log('ðŸ“Š INSIGHTS: Total tickets after date filter:', filteredTickets.length);
+    console.log('📊 INSIGHTS: Total tickets after date filter:', filteredTickets.length);
   }
   
   if (agentId) {
@@ -5860,7 +6614,7 @@ function generateInsightsData(filters = {}) {
   };
 
   // Debug: Log all ticket statuses to understand the data
-  console.log('ðŸ” TICKET FLOW DEBUG: Analyzing', filteredTickets.length, 'tickets');
+  console.log('🔍 TICKET FLOW DEBUG: Analyzing', filteredTickets.length, 'tickets');
   const statusDebug = {};
   
   filteredTickets.forEach(ticket => {
@@ -5889,14 +6643,14 @@ function generateInsightsData(filters = {}) {
         statusCounts['closed']++;
         break;
       default:
-        console.log('âš ï¸ Unknown ticket status:', status);
+        console.log('⚠️ Unknown ticket status:', status);
         // Default unknown statuses to 'new'
         statusCounts['new']++;
     }
   });
 
-  console.log('ðŸ” TICKET FLOW DEBUG: Status breakdown:', statusDebug);
-  console.log('ðŸ” TICKET FLOW DEBUG: Final counts:', statusCounts);
+  console.log('🔍 TICKET FLOW DEBUG: Status breakdown:', statusDebug);
+  console.log('🔍 TICKET FLOW DEBUG: Final counts:', statusCounts);
 
   const ticketFlowData = [
     { stage: 'New', count: statusCounts['new'], color: '#3B82F6' },
@@ -5954,7 +6708,7 @@ function generateInsightsData(filters = {}) {
 // Get insights/analytics data
 app.get('/api/insights', authenticateToken, (req, res) => {
   try {
-    console.log('ðŸ“Š INSIGHTS ENDPOINT CALLED by user:', req.user.sub);
+    console.log('📊 INSIGHTS ENDPOINT CALLED by user:', req.user.sub);
     
     // Check if user has permission to view insights
     const user = users.find(u => u.id === req.user.sub);
@@ -5982,7 +6736,7 @@ app.get('/api/insights', authenticateToken, (req, res) => {
       category: req.query.category
     };
 
-    console.log('ðŸ“Š INSIGHTS: Received filters:', filters);
+    console.log('📊 INSIGHTS: Received filters:', filters);
 
     const insightsData = generateInsightsData(filters);
 
@@ -6004,12 +6758,12 @@ app.get('/api/insights', authenticateToken, (req, res) => {
 // Debug endpoint to check specific ticket data
 app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
   const { ticketNumber } = req.params;
-  console.log('ðŸ” Debug request for ticket:', ticketNumber);
+  console.log('🔍 Debug request for ticket:', ticketNumber);
   
   const ticket = tickets.find(t => t.ticketNumber === ticketNumber);
   
   if (ticket) {
-    console.log('âœ… Found ticket:', ticketNumber);
+    console.log('✅ Found ticket:', ticketNumber);
     console.log('   Title:', ticket.title);
     console.log('   Customer Name:', ticket.customerName || 'N/A');
     console.log('   Customer Email:', ticket.customerEmail || 'N/A');
@@ -6040,7 +6794,7 @@ app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
       }
     });
   } else {
-    console.log('âŒ Ticket not found:', ticketNumber);
+    console.log('❌ Ticket not found:', ticketNumber);
     console.log('Available tickets:');
     tickets.forEach(t => {
       console.log('  - ' + t.ticketNumber + ': ' + t.title);
@@ -6056,9 +6810,9 @@ app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log('ðŸš€ NeuroChat Server running on http://localhost:' + PORT);
-  console.log('ðŸ“¡ Socket.IO server ready for real-time connections');
-  console.log('ðŸ‘¤ Demo accounts ready: customer@demo.com / agent@demo.com (password: demo123)');
+  console.log('🚀 NeuroChat Server running on http://localhost:' + PORT);
+  console.log('📡 Socket.IO server ready for real-time connections');
+  console.log('👤 Demo accounts ready: customer@demo.com / agent@demo.com (password: demo123)');
   
   // Initialize email system after server starts
   console.log('');
@@ -6907,7 +7661,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
     
     // For tickets with customer company info, try to find or create a company based on customerCompany name
     if (!deviceCompanyId && ticket.customerCompany) {
-              console.log('ðŸ¢ Looking for company:', ticket.customerCompany);
+              console.log('🏢 Looking for company:', ticket.customerCompany);
       let company = companies.find(c => 
         c.name === ticket.customerCompany || 
         (c.aliases && c.aliases.includes(ticket.customerCompany))
@@ -6935,7 +7689,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
           updatedBy: null
         };
         companies.push(company);
-        console.log('ðŸ¢ Auto-created company:', company.name, 'ID:', company.id);
+        console.log('🏢 Auto-created company:', company.name, 'ID:', company.id);
       }
       
       deviceCompanyId = company.id;
@@ -6944,7 +7698,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
       const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
       if (ticketIndex !== -1) {
         tickets[ticketIndex].companyId = company.id;
-        console.log('ðŸ”— Associated ticket with company:', company.name);
+        console.log('🔗 Associated ticket with company:', company.name);
       }
     }
 
@@ -6964,7 +7718,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
     };
     
     devices.push(device);
-    console.log('ðŸ”§ Auto-created device:', device.serialNumber, 'for company:', deviceCompanyId);
+    console.log('🔧 Auto-created device:', device.serialNumber, 'for company:', deviceCompanyId);
   }
 
   // Link ticket to device
@@ -6979,7 +7733,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
       linkedAt: new Date().toISOString(),
       linkedBy: null
     });
-    console.log('ðŸ”— Linked ticket to device:', ticket.id, '->', device.id);
+    console.log('🔗 Linked ticket to device:', ticket.id, '->', device.id);
   }
 
   return device;
@@ -6990,7 +7744,7 @@ linkCustomersToCompanies();
 initializeDemoDevices();
 
 // Process existing demo tickets to create missing devices (now that companies are available)
-console.log('ðŸ”§ Processing existing demo tickets for device auto-creation...');
+console.log('🔧 Processing existing demo tickets for device auto-creation...');
 tickets.forEach(ticket => {
   if (ticket.deviceSerialNumber && ticket.deviceModel) {
     console.log(`  - Processing ticket ${ticket.ticketNumber}: ${ticket.deviceSerialNumber}`);
@@ -7103,7 +7857,7 @@ function findCompanyMatches(inputName, threshold = 75) {
 
 // Automatic fuzzy matching when ticket is closed/resolved
 function performAutomaticCompanyMatching(ticket) {
-  console.log('ðŸ” Performing automatic company matching for ticket:', ticket.id);
+  console.log('🔍 Performing automatic company matching for ticket:', ticket.id);
   
   // Only perform fuzzy matching if customer typed a company name manually
   if (!ticket.customerCompany || ticket.companyId) {
@@ -7124,7 +7878,7 @@ function performAutomaticCompanyMatching(ticket) {
   if (matches.length > 0) {
     const bestMatch = matches[0]; // Highest confidence match
     
-    console.log(`  - Found match: "${ticket.customerCompany}" â†’ "${bestMatch.company.name}" (${bestMatch.confidence}%)`);
+    console.log(`  - Found match: "${ticket.customerCompany}" → "${bestMatch.company.name}" (${bestMatch.confidence}%)`);
     
     // Auto-approve matches with very high confidence (95%+) or exact matches
     if (bestMatch.confidence >= 95 || bestMatch.matchedField === 'name') {
@@ -8199,7 +8953,7 @@ app.post('/api/tickets/:ticketId/confirm-company-match', authenticateToken, (req
       targetId: ticketId,
       ipAddress: getClientIP(req),
       userAgent: req.headers['user-agent'],
-      details: `Confirmed company match: "${ticket.customerCompany}" â†’ "${company.name}"`
+      details: `Confirmed company match: "${ticket.customerCompany}" → "${company.name}"`
     });
 
     res.json({
@@ -8368,7 +9122,7 @@ app.post('/api/companies/pending-matches/:matchId/review', authenticateToken, (r
           targetId: match.suggestedCompany.id,
           ipAddress: getClientIP(req),
           userAgent: req.headers['user-agent'],
-          details: `Approved fuzzy match: "${match.inputCompanyName}" â†’ "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
+          details: `Approved fuzzy match: "${match.inputCompanyName}" → "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
         });
       }
     } else {
@@ -8395,7 +9149,7 @@ app.post('/api/companies/pending-matches/:matchId/review', authenticateToken, (r
         targetId: match.suggestedCompany.id,
         ipAddress: getClientIP(req),
         userAgent: req.headers['user-agent'],
-        details: `Rejected fuzzy match: "${match.inputCompanyName}" â†’ "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
+        details: `Rejected fuzzy match: "${match.inputCompanyName}" → "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
       });
     }
 
@@ -9257,7 +10011,7 @@ app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
 app.post('/api/ai-agent/documents', authenticateToken, (req, res) => {
   uploadMultiple.array('documents')(req, res, async (err) => {
     if (err) {
-      console.error('âŒ Multer error in AI document upload:', err.message);
+      console.error('❌ Multer error in AI document upload:', err.message);
       return res.status(400).json({
         success: false,
         error: { code: 'UPLOAD_ERROR', message: err.message }
@@ -9271,11 +10025,11 @@ app.post('/api/ai-agent/documents', authenticateToken, (req, res) => {
 // Handle AI document upload
 async function handleAiDocumentUpload(req, res) {
   try {
-    console.log('ðŸ“„ AI Document Upload Request Started');
+    console.log('📄 AI Document Upload Request Started');
     console.log('User:', req.user.email, 'Role:', req.user.roleName);
     
     if (!req.user.permissions.includes('system.ai_settings')) {
-      console.log('âŒ Access denied: User does not have AI settings permission');
+      console.log('❌ Access denied: User does not have AI settings permission');
       return res.status(403).json({
         success: false,
         error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
@@ -9283,19 +10037,19 @@ async function handleAiDocumentUpload(req, res) {
     }
 
     if (!req.files || req.files.length === 0) {
-      console.log('âŒ No files uploaded');
+      console.log('❌ No files uploaded');
       return res.status(400).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'No files uploaded' }
       });
     }
 
-    console.log(`ðŸ“ Processing ${req.files.length} files...`);
+    console.log(`📁 Processing ${req.files.length} files...`);
     const uploadedDocuments = [];
     const failedDocuments = [];
 
     for (const file of req.files) {
-      console.log(`ðŸ” Processing file: ${file.originalname}`);
+      console.log(`🔍 Processing file: ${file.originalname}`);
       try {
         const fileType = path.extname(file.originalname).substring(1).toLowerCase();
         console.log(`   - File type: ${fileType}`);
@@ -9311,7 +10065,7 @@ async function handleAiDocumentUpload(req, res) {
         console.log('   - Validating document...');
         const validation = documentService.validateDocument(file.path, fileType, file.size);
         if (!validation.isValid) {
-          console.log('   - âŒ Validation failed:', validation.errors);
+          console.log('   - ❌ Validation failed:', validation.errors);
           await documentService.cleanup(file.path);
           failedDocuments.push({
             fileName: file.originalname,
@@ -9319,7 +10073,7 @@ async function handleAiDocumentUpload(req, res) {
           });
           continue;
         }
-        console.log('   - âœ… Validation passed');
+        console.log('   - ✅ Validation passed');
 
         // Process document
         console.log('   - Processing document content...');
@@ -9329,7 +10083,7 @@ async function handleAiDocumentUpload(req, res) {
           fileType,
           file.size
         );
-        console.log(`   - âœ… Document processed: ${processedDoc.chunkCount} chunks`);
+        console.log(`   - ✅ Document processed: ${processedDoc.chunkCount} chunks`);
 
         // Create document record
         const document = {
@@ -9346,7 +10100,7 @@ async function handleAiDocumentUpload(req, res) {
         };
 
         aiDocuments.push(document);
-        console.log(`   - âœ… Added document with ID: ${document.id}`);
+        console.log(`   - ✅ Added document with ID: ${document.id}`);
 
         // Create document chunks
         console.log('   - Creating document chunks...');
@@ -9360,7 +10114,7 @@ async function handleAiDocumentUpload(req, res) {
             createdAt: new Date().toISOString()
           });
         });
-        console.log(`   - âœ… Created ${processedDoc.chunks.length} chunks`);
+        console.log(`   - ✅ Created ${processedDoc.chunks.length} chunks`);
 
         uploadedDocuments.push({
           id: document.id,
@@ -9372,7 +10126,7 @@ async function handleAiDocumentUpload(req, res) {
         });
 
       } catch (fileError) {
-        console.error(`   - âŒ Error processing file ${file.originalname}:`, fileError.message);
+        console.error(`   - ❌ Error processing file ${file.originalname}:`, fileError.message);
         
         // Cleanup file on error
         if (documentService && typeof documentService.cleanup === 'function') {
@@ -9387,12 +10141,12 @@ async function handleAiDocumentUpload(req, res) {
     }
 
     // Save documents to persistent storage immediately after upload
-    console.log('ðŸ’¾ Saving documents to persistent storage...');
+    console.log('💾 Saving documents to persistent storage...');
     try {
       saveAIDocuments();
-      console.log('âœ… Documents saved successfully');
+      console.log('✅ Documents saved successfully');
     } catch (saveError) {
-      console.error('âŒ Error saving documents:', saveError.message);
+      console.error('❌ Error saving documents:', saveError.message);
     }
 
     // Log audit trail
@@ -9410,7 +10164,7 @@ async function handleAiDocumentUpload(req, res) {
       });
     }
 
-    console.log('ðŸ“Š Upload Summary:');
+    console.log('📊 Upload Summary:');
     console.log(`   - Successful uploads: ${uploadedDocuments.length}`);
     console.log(`   - Failed uploads: ${failedDocuments.length}`);
 
@@ -9423,12 +10177,12 @@ async function handleAiDocumentUpload(req, res) {
     });
 
   } catch (error) {
-    console.error('âŒ Critical error in AI document upload:', error);
+    console.error('❌ Critical error in AI document upload:', error);
     console.error('Error stack:', error.stack);
     
     // Cleanup files on error
     if (req.files) {
-      console.log('ðŸ§¹ Cleaning up uploaded files due to error...');
+      console.log('🧹 Cleaning up uploaded files due to error...');
       for (const file of req.files) {
         try {
           if (documentService && typeof documentService.cleanup === 'function') {
@@ -9658,16 +10412,6 @@ app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
 });
 
 // ==========================================
-// ENHANCED AI ROUTES
-// ==========================================
-
-// Use enhanced AI routes with authentication
-app.use('/api/ai', (req, res, next) => {
-  // Apply authentication to enhanced AI routes
-  authenticateToken(req, res, next);
-}, enhancedAiRoutes);
-
-// ==========================================
 // EMAIL RECEIVER SERVICE INITIALIZATION
 // ==========================================
 
@@ -9675,7 +10419,7 @@ let emailReceiver = null;
 
 // Initialize email receiver service
 function initializeEmailService() {
-  console.log('ðŸš€ Initializing email system...');
+  console.log('🚀 Initializing email system...');
   
   // Set up the email receiver with current tickets and messages
   setTickets(tickets);
@@ -9685,38 +10429,36 @@ function initializeEmailService() {
   try {
     emailReceiver = startEmailReceiver();
     if (emailReceiver) {
-      console.log('âœ… Email receiver service started successfully');
+      console.log('✅ Email receiver service started successfully');
     } else {
-      console.log('âš ï¸ Email receiver service could not start (missing configuration)');
+      console.log('⚠️ Email receiver service could not start (missing configuration)');
     }
   } catch (error) {
-    console.error('âŒ Failed to start email receiver service:', error);
+    console.error('❌ Failed to start email receiver service:', error);
   }
 }
 
 // Initialize AI service
 async function initializeAIService() {
-  console.log('ðŸ¤– Initializing AI system...');
+  console.log('🤖 Initializing AI system...');
   
   try {
     // Load AI documents from persistent storage
     loadAIDocuments();
     
-    // Initialize both AI services
     const isInitialized = await aiService.initialize();
-    const enhancedInitialized = await enhancedAiService.initialize();
     if (isInitialized) {
-      console.log('âœ… AI service initialized successfully');
+      console.log('✅ AI service initialized successfully');
     } else {
-      console.log('âš ï¸ AI service initialization skipped (no API key)');
+      console.log('⚠️ AI service initialization skipped (no API key)');
     }
     
     // Create NeuroAI agent after AI service is initialized
     const neuroAIId = createNeuroAIAgent();
-    console.log('âœ… NeuroAI agent initialized with ID:', neuroAIId);
+    console.log('✅ NeuroAI agent initialized with ID:', neuroAIId);
     
   } catch (error) {
-    console.error('âŒ Failed to initialize AI service:', error);
+    console.error('❌ Failed to initialize AI service:', error);
   }
 }
 
@@ -9726,10 +10468,10 @@ initializeAIService();
 
 // Graceful shutdown handler
 process.on('SIGINT', () => {
-  console.log('\nðŸ›‘ Shutting down server...');
+  console.log('\n🛑 Shutting down server...');
   
   if (emailReceiver) {
-    console.log('ðŸ›‘ Stopping email receiver service...');
+    console.log('🛑 Stopping email receiver service...');
     stopEmailReceiver(emailReceiver);
   }
   
@@ -9737,10 +10479,10 @@ process.on('SIGINT', () => {
 });
 
 process.on('SIGTERM', () => {
-  console.log('\nðŸ›‘ Received SIGTERM, shutting down server...');
+  console.log('\n🛑 Received SIGTERM, shutting down server...');
   
   if (emailReceiver) {
-    console.log('ðŸ›‘ Stopping email receiver service...');
+    console.log('🛑 Stopping email receiver service...');
     stopEmailReceiver(emailReceiver);
   }
   

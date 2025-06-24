@@ -31,7 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Base navigation for customers
   const navigation = [];
 
-  if (user?.role === 'agent') {
+  if (user?.userType === 'agent') {
     // Agent navigation in the requested order
     navigation.push(
       {
@@ -91,7 +91,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     );
 
     // Add Insights section for agents with proper permissions
-    if (user?.role === 'agent' && user?.permissions?.includes('insights.view')) {
+    if (user?.userType === 'agent' && user?.permissions?.includes('insights.view')) {
       navigation.push({
         name: 'Insights',
         id: 'insights',
@@ -104,7 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     // Add Customer Management section for agents with proper permissions
-    if (user?.role === 'agent' && user?.permissions?.includes('customers.view')) {
+    if (user?.userType === 'agent' && user?.permissions?.includes('customers.view')) {
       navigation.push({
         name: 'Customers',
         id: 'customers',
@@ -123,7 +123,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       hasDevicesView: user?.permissions?.includes('devices.view')
     });
     
-    if (user?.role === 'agent' && user?.permissions?.includes('devices.view')) {
+    if (user?.userType === 'agent' && user?.permissions?.includes('devices.view')) {
       console.log('✅ Adding Devices navigation item');
       navigation.push({
         name: 'Devices',
@@ -139,7 +139,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     // Add Company Management section for agents with proper permissions
-    if (user?.role === 'agent' && user?.permissions?.includes('companies.view')) {
+    if (user?.userType === 'agent' && user?.permissions?.includes('companies.view')) {
       navigation.push({
         name: 'Companies',
         id: 'companies',
@@ -151,18 +151,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       });
     }
 
-    // Add Audit Trail section for agents with proper permissions
-    if (user?.role === 'agent' && user?.permissions?.includes('audit.view')) {
-      navigation.push({
-        name: 'Audit Trail',
-        id: 'audit',
-        icon: (
-          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-        ),
-      });
-    }
+
 
   } else {
     // Customer navigation (simplified)
@@ -280,8 +269,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div className="ml-3 flex-1">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{user.name}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user.role}</p>
-              {user.role === 'agent' && user.roleName && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user.userType}</p>
+              {user.userType === 'agent' && user.roleName && (
                 <p className="text-xs text-gray-400 dark:text-gray-500">{user.roleName}</p>
               )}
             </div>
@@ -316,7 +305,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Navigation */}
       <nav className="flex-1 px-2 py-4 space-y-1">
         {/* Create ticket button */}
-        {user?.role === 'customer' && (
+        {user?.userType === 'customer' && (
           <button
             onClick={() => {
               onCreateTicket();
@@ -354,8 +343,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Audit Trail, User Management, My Account and Logout buttons */}
       <div className="px-2 pb-4 space-y-1">
-        {/* User Management button - only for agents with access */}
-        {user?.role === 'agent' && user.permissions?.includes('users.access') && (
+        {/* System Management button - only for agents with access */}
+        {user?.userType === 'agent' && user.permissions?.includes('system.management') && (
           <button
             onClick={() => handleItemClick('users')}
             className={`w-full group flex items-center ${collapsed && !isMobile ? 'justify-center' : 'px-2'} py-2 text-sm font-medium rounded-md transition-colors ${
@@ -373,7 +362,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* My Account button - only for agents */}
-        {user?.role === 'agent' && (
+        {user?.userType === 'agent' && (
           <button
             onClick={() => setShowMyAccount(true)}
             className={`w-full group flex items-center ${collapsed && !isMobile ? 'justify-center' : 'px-2'} py-2 text-sm font-medium rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 transition-colors`}
