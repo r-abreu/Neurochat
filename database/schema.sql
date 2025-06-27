@@ -109,6 +109,7 @@ CREATE TABLE Tickets (
     FOREIGN KEY (customer_id) REFERENCES Users(user_id),
     FOREIGN KEY (agent_id) REFERENCES Users(user_id),
     FOREIGN KEY (category_id) REFERENCES Categories(category_id),
+    FOREIGN KEY (resolution_summary_generated_by) REFERENCES Users(user_id),
     
     -- Indexes
     INDEX IX_Tickets_TicketNumber (ticket_number),
@@ -125,12 +126,19 @@ CREATE TABLE Tickets (
     INDEX IX_Tickets_CustomerType (customer_type),
     INDEX IX_Tickets_DeviceModel (device_model),
     INDEX IX_Tickets_DeviceSerialNumber (device_serial_number),
+    INDEX IX_Tickets_ResolutionSummary (resolution_summary_generated_at) WHERE resolution_summary IS NOT NULL,
     
     -- AI-related columns
     ai_enabled BIT DEFAULT 1,
     ai_disabled_reason NVARCHAR(100) NULL CHECK (ai_disabled_reason IN ('manual', 'customer_request', 'escalation')),
     ai_disabled_at DATETIME2 NULL,
-    ai_disabled_by UNIQUEIDENTIFIER NULL
+    ai_disabled_by UNIQUEIDENTIFIER NULL,
+    
+    -- AI Summary fields (for ticket resolution summaries)
+    resolution_summary NVARCHAR(MAX) NULL,
+    resolution_summary_generated_at DATETIME2 NULL,
+    resolution_summary_model_version NVARCHAR(50) NULL,
+    resolution_summary_generated_by UNIQUEIDENTIFIER NULL
 );
 
 -- ==========================================

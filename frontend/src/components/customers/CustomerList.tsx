@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import apiService from '../../services/api';
-import ConfigurableTable, { TableColumn, FilterConfig } from '../common/ConfigurableTable';
+import ConfigurableTable, { TableColumn, FilterConfig, ColumnFilter } from '../common/ConfigurableTable';
 
 interface Customer {
   id: string;
@@ -38,6 +38,7 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
   const [searchTerm, setSearchTerm] = useState('');
   const [countryFilter, setCountryFilter] = useState('');
   const [customerTypeFilter, setCustomerTypeFilter] = useState('');
+  const [columnFilters, setColumnFilters] = useState<ColumnFilter[]>([]);
 
   // Delete confirmation state
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; customer: Customer | null }>({
@@ -142,6 +143,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (customer) => (
         <div className="flex items-center">
           <div className="flex-shrink-0 h-10 w-10">
@@ -166,6 +169,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (customer) => (
         <div className="text-sm text-gray-900 dark:text-white break-all">
           {customer.email}
@@ -178,7 +183,9 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       width: 150,
       visible: true,
       resizable: true,
-      sortable: false,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (customer) => (
         <div className="text-sm text-gray-900 dark:text-white">
           {customer.phone || '-'}
@@ -192,6 +199,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (customer) => (
         customer.company ? (
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
@@ -207,6 +216,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'select',
       render: (customer) => (
         <div className="text-sm text-gray-900 dark:text-white">
           {customer.country || '-'}
@@ -220,6 +231,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: false,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (customer) => (
         <div className="text-sm text-gray-900 dark:text-white">
           {customer.city || '-'}
@@ -233,6 +246,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: false,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (customer) => (
         <div className="text-sm text-gray-900 dark:text-white">
           {customer.state || '-'}
@@ -246,18 +261,14 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'select',
       render: (customer) => (
         customer.customerType ? (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-            customer.customerType === 'VIP' 
-              ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200'
-              : customer.customerType === 'Distributor'
-              ? 'bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200'
-              : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-          }`}>
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-700 text-blue-800 dark:text-blue-200">
             {customer.customerType}
           </span>
-        ) : <span className="text-gray-400">Standard</span>
+        ) : <span className="text-gray-400">-</span>
       ),
     },
     {
@@ -267,6 +278,8 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: true,
       resizable: true,
       sortable: false,
+      filterable: true,
+      filterType: 'text',
       render: (customer) => {
         const deviceModels = customer.deviceModels || [];
         const deviceSerialNumbers = customer.deviceSerialNumbers || [];
@@ -295,8 +308,10 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'number',
       render: (customer) => (
-        <div className="text-center">
+        <div className="text-sm text-center">
           <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
             customer.ticketCount > 0 
               ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200' 
@@ -310,10 +325,12 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
     {
       id: 'lastTicketDate',
       label: 'Last Ticket',
-      width: 130,
+      width: 120,
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'date',
       render: (customer) => (
         <div className="text-sm">
           <div className="text-gray-900 dark:text-white">
@@ -327,30 +344,36 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
     },
     {
       id: 'isRegistered',
-      label: 'Status',
-      width: 100,
+      label: 'Registration',
+      width: 120,
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [
+        { value: 'true', label: 'Registered' },
+        { value: 'false', label: 'Not Registered' }
+      ],
       render: (customer) => (
-        customer.isRegistered ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
-            Registered
-          </span>
-        ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
-            Anonymous
-          </span>
-        )
+        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+          customer.isRegistered
+            ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
+            : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200'
+        }`}>
+          {customer.isRegistered ? 'Registered' : 'Not Registered'}
+        </span>
       ),
     },
     {
       id: 'createdAt',
       label: 'Created',
-      width: 130,
+      width: 120,
       visible: false,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'date',
       render: (customer) => (
         <div className="text-sm text-gray-900 dark:text-white">
           {formatDate(customer.createdAt)}
@@ -467,31 +490,67 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
   }
 
   return (
-    <>
+    <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700 dark:text-red-200">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfigurableTable
         data={customers}
         columns={columns}
         loading={loading}
-        storageKey="agent-customer-list-preferences"
-        title={`Customers (${customers.length})`}
+        storageKey="customers-table"
+        title="Customers"
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
-        filters={filters}
+        columnFilters={columnFilters}
+        onColumnFiltersChange={setColumnFilters}
         onRowClick={onCustomerSelect}
         onExport={handleExport}
-        exportFilename="customers-list.xlsx"
-        actions={actions}
+        exportFilename="customers"
+        actions={[
+          {
+            label: 'Edit',
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            ),
+            onClick: (customer) => onCustomerEdit?.(customer),
+            show: () => user?.permissions?.includes('customers.edit') || false,
+            className: 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300'
+          },
+          {
+            label: 'Delete',
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            ),
+            onClick: handleDeleteCustomer,
+            show: () => user?.permissions?.includes('customers.delete') || false,
+            className: 'text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300'
+          }
+        ]}
         emptyState={
-          <div className="text-gray-500 dark:text-gray-400">
+          <div className="text-center py-12">
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-.5a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
             <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No customers found</h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {searchTerm || countryFilter || customerTypeFilter
-                ? 'Try adjusting your search criteria or filters.' 
-                : 'Get started by creating your first customer.'
-              }
+              {searchTerm || columnFilters.length > 0 ? 'Try adjusting your search or filters.' : 'No customers to display.'}
             </p>
           </div>
         }
@@ -545,7 +604,7 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerSelect, onCustome
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
 

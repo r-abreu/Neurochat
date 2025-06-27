@@ -61,6 +61,8 @@ export interface Ticket {
   resolutionSummaryGeneratedAt?: string;
   resolutionSummaryModelVersion?: string;
   resolutionSummaryGeneratedBy?: string;
+  // Service Workflow field
+  hasServiceWorkflow?: boolean;
 }
 
 export interface Message {

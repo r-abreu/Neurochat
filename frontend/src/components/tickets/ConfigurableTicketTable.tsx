@@ -26,7 +26,17 @@ interface Column {
   width: number;
   visible: boolean;
   resizable: boolean;
+  sortable?: boolean;
+  filterable?: boolean;
+  filterType?: 'text' | 'select' | 'date' | 'number';
+  filterOptions?: Array<{ value: string; label: string }>;
   render: (ticket: Ticket) => React.ReactNode;
+}
+
+interface ColumnFilter {
+  columnId: string;
+  value: string;
+  operator?: 'equals' | 'contains' | 'startsWith' | 'endsWith' | 'greaterThan' | 'lessThan';
 }
 
 interface TablePreferences {
@@ -40,7 +50,7 @@ interface ConfigurableTicketTableProps {
   onTicketSelect: (ticket: Ticket) => void;
   onDeleteTicket?: (ticketId: string) => void;
   onReassignTicket?: (ticketId: string, newAgentId: string) => void;
-  urgencyIndicator: React.ComponentType<{ ticket: Ticket; onUrgencyChange?: (ticketId: string, urgency: string) => void }>;
+  urgencyIndicator: React.ComponentType<{ ticket: Ticket; onUrgencyChange?: (ticketId: string, urgency: string, message: string) => void }>;
   getWarningInfo: (ticket: Ticket) => { message: string; color: string };
   getStatusColor: (status: string) => string;
   getPriorityColor: (priority: string) => string;
@@ -50,7 +60,7 @@ interface ConfigurableTicketTableProps {
   getLastAgentMessage: (ticket: Ticket) => any;
   formatStatus: (status: string) => string;
   getRowStyle: (ticketId: string) => React.CSSProperties;
-  handleUrgencyChange: (ticketId: string, urgency: string) => void;
+  handleUrgencyChange: (ticketId: string, urgency: string, message: string) => void;
   agents: any[];
   reassignTicketId: string | null;
   setReassignTicketId: (id: string | null) => void;
@@ -67,14 +77,153 @@ interface ConfigurableTicketTableProps {
 
 const STORAGE_KEY = 'agent-ticket-table-preferences';
 
+const ColumnFilterDropdown: React.FC<{
+  column: Column;
+  filter: ColumnFilter | undefined;
+  onFilterChange: (columnId: string, value: string, operator?: string) => void;
+  onClose: () => void;
+  data: Ticket[];
+}> = ({ column, filter, onFilterChange, onClose, data }) => {
+  const [tempValue, setTempValue] = useState<string>(filter?.value || '');
+  const [tempOperator, setTempOperator] = useState<string>(filter?.operator || 'contains');
+
+  const getUniqueValues = () => {
+    if (column.filterOptions) return column.filterOptions;
+    
+    const values = new Set<string>();
+    data.forEach(item => {
+      let value;
+      
+      // Special handling for columns with different data paths
+      if (column.id === 'company') {
+        value = item.customerCompany;
+      } else if (column.id === 'agent') {
+        value = item.agent ? item.agent.name : 'NA';
+      } else if (column.id === 'customer') {
+        value = item.customerName || item.customer?.name || 'Not provided';
+      } else if (column.id === 'created') {
+        value = item.createdAt;
+      } else if (column.id === 'lastCustomerMsg') {
+        // For message columns, we'll just indicate if there are messages or not
+        value = 'Message data'; // Will be handled by text filter
+      } else if (column.id === 'lastAgentMsg') {
+        // For message columns, we'll just indicate if there are messages or not
+        value = 'Message data'; // Will be handled by text filter
+      } else if (column.id === 'service') {
+        value = item.hasServiceWorkflow ? 'YES' : 'NO';
+      } else {
+        value = getNestedValue(item, column.id);
+      }
+      
+      if (value !== null && value !== undefined && value !== '') {
+        values.add(String(value));
+      }
+    });
+    return Array.from(values).sort().map(value => ({ value, label: value }));
+  };
+
+  const getNestedValue = (obj: any, path: string) => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
+
+  const handleApply = () => {
+    onFilterChange(column.id, tempValue, tempOperator);
+    onClose();
+  };
+
+  const handleClear = () => {
+    onFilterChange(column.id, '');
+    onClose();
+  };
+
+  return (
+    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-50 min-w-64">
+      <div className="p-3">
+        <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Filter by {column.label}
+        </div>
+        
+        {column.filterType === 'select' ? (
+          <select
+            value={tempValue}
+            onChange={(e) => setTempValue(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+          >
+            <option value="">All</option>
+            {getUniqueValues().map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <select
+              value={tempOperator}
+              onChange={(e) => setTempOperator(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 mb-2"
+            >
+              <option value="contains">Contains</option>
+              <option value="equals">Equals</option>
+              <option value="startsWith">Starts with</option>
+              <option value="endsWith">Ends with</option>
+              {column.filterType === 'number' && (
+                <>
+                  <option value="greaterThan">Greater than</option>
+                  <option value="lessThan">Less than</option>
+                </>
+              )}
+            </select>
+            <input
+              type={column.filterType === 'date' ? 'date' : column.filterType === 'number' ? 'number' : 'text'}
+              value={tempValue}
+              onChange={(e) => setTempValue(e.target.value)}
+              placeholder={`Filter ${column.label.toLowerCase()}...`}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+            />
+          </>
+        )}
+        
+        <div className="flex space-x-2 mt-3">
+          <button
+            onClick={handleApply}
+            className="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Apply
+          </button>
+          <button
+            onClick={handleClear}
+            className="flex-1 px-3 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+          >
+            Clear
+          </button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SortableTableHeader: React.FC<{
   column: Column;
   onResize: (id: string, width: number) => void;
   onToggleVisibility: (id: string) => void;
-}> = ({ column, onResize, onToggleVisibility }) => {
+  onSort?: (columnId: string) => void;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  filter?: ColumnFilter;
+  onFilterChange?: (columnId: string, value: string, operator?: string) => void;
+  data?: Ticket[];
+}> = ({ column, onResize, onToggleVisibility, onSort, sortBy, sortOrder, filter, onFilterChange, data = [] }) => {
   const [resizing, setResizing] = useState(false);
   const [startX, setStartX] = useState(0);
   const [startWidth, setStartWidth] = useState(0);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
 
   const {
     attributes,
@@ -121,6 +270,40 @@ const SortableTableHeader: React.FC<{
 
   if (!column.visible) return null;
 
+  const getSortIcon = () => {
+    if (!column.sortable || sortBy !== column.id) {
+      return column.sortable ? (
+        <svg className="w-4 h-4 text-gray-400 hover:text-gray-600 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+        </svg>
+      ) : null;
+    }
+    
+    return sortOrder === 'asc' ? (
+      <svg className="w-4 h-4 text-blue-600 hover:text-blue-800 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
+      </svg>
+    ) : (
+      <svg className="w-4 h-4 text-blue-600 hover:text-blue-800 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+      </svg>
+    );
+  };
+
+  const getFilterIcon = () => {
+    const hasFilter = filter && filter.value;
+    return (
+      <svg 
+        className={`w-4 h-4 ${hasFilter ? 'text-blue-600 hover:text-blue-800' : 'text-gray-500 hover:text-gray-700'} transition-colors`} 
+        fill="none" 
+        viewBox="0 0 24 24" 
+        stroke="currentColor"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={hasFilter ? 2.5 : 2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.707A1 1 0 013 7V4z" />
+      </svg>
+    );
+  };
+
   return (
     <th
       ref={setNodeRef}
@@ -133,17 +316,60 @@ const SortableTableHeader: React.FC<{
       className="px-2 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-gray-600 relative group"
       {...attributes}
     >
-      <div className="flex items-center justify-between">
-        <span {...listeners} className="cursor-move flex-1 select-none">
-          {column.label}
-        </span>
-        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => onToggleVisibility(column.id)}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            title="Hide column"
+      <div className="flex items-center justify-between min-h-[28px] relative group">
+        <div className="flex items-center flex-1 min-w-0 pr-2">
+          <span 
+            {...listeners} 
+            className="cursor-move select-none truncate text-xs font-medium flex-1"
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            {column.label}
+          </span>
+        </div>
+        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity absolute right-0 top-0 bottom-0 bg-gray-50 dark:bg-gray-800 pl-1">
+          {column.sortable && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSort?.(column.id);
+              }}
+              className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+              title={`Sort by ${column.label}`}
+            >
+              {getSortIcon()}
+            </button>
+          )}
+          {column.filterable && onFilterChange && (
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowFilterDropdown(!showFilterDropdown);
+                }}
+                className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                title={`Filter ${column.label}`}
+              >
+                {getFilterIcon()}
+              </button>
+              {showFilterDropdown && (
+                <ColumnFilterDropdown
+                  column={column}
+                  filter={filter}
+                  onFilterChange={onFilterChange}
+                  onClose={() => setShowFilterDropdown(false)}
+                  data={data}
+                />
+              )}
+            </div>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleVisibility(column.id);
+            }}
+            className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            title={`Hide ${column.label} column`}
+          >
+            <svg className="w-4 h-4 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L8.464 8.464M14.12 14.12l1.415 1.415M14.12 14.12L9.88 9.88m4.24 4.24l1.415 1.415M9.88 9.88l-1.415-1.415" />
             </svg>
           </button>
@@ -164,6 +390,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [showExportSuccess, setShowExportSuccess] = useState(false);
+  const [columnFilters, setColumnFilters] = useState<ColumnFilter[]>([]);
+  const [sortBy, setSortBy] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Initialize columns with default configuration
   const createDefaultColumns = (): Column[] => [
@@ -173,6 +402,8 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 80,
       visible: true,
       resizable: true,
+      sortable: false, // Special component, not sortable
+      filterable: false, // Special component, not filterable
       render: (ticket) => <props.urgencyIndicator ticket={ticket} onUrgencyChange={props.handleUrgencyChange} />,
     },
     {
@@ -181,6 +412,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => {
         const warning = props.getWarningInfo(ticket);
         return (
@@ -198,6 +432,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 200,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="w-full">
           <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -218,6 +455,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerName || ticket.customer?.name || 'Not provided'}
@@ -230,6 +470,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerCompany || 'Not provided'}
@@ -242,6 +485,15 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [
+        { value: 'open', label: 'Open' },
+        { value: 'in-progress', label: 'In Progress' },
+        { value: 'resolved', label: 'Resolved' },
+        { value: 'closed', label: 'Closed' }
+      ],
       render: (ticket) => {
         const statusElement = (
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${props.getStatusColor(ticket.status)}`}>
@@ -287,6 +539,15 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 80,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [
+        { value: 'low', label: 'Low' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'high', label: 'High' },
+        { value: 'critical', label: 'Critical' }
+      ],
       render: (ticket) => (
         <span className={`text-sm font-medium capitalize ${props.getPriorityColor(ticket.priority)}`}>
           {ticket.priority}
@@ -299,6 +560,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.agent ? ticket.agent.name : 'NA'}
@@ -311,6 +575,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => {
         const lastCustomerMsg = props.getLastCustomerMessage(ticket);
         return (
@@ -326,6 +593,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => {
         const lastAgentMsg = props.getLastAgentMessage(ticket);
         return (
@@ -341,6 +611,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'date',
       render: (ticket) => (
         <div className="text-sm text-gray-500 dark:text-gray-400 truncate">
           {props.formatDate(ticket.createdAt)}
@@ -354,6 +627,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: false, // Hidden by default
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerCountry || 'Not provided'}
@@ -366,6 +642,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 150,
       visible: false, // Hidden by default
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerStreetAddress || ticket.customerAddress || 'Not provided'}
@@ -378,6 +657,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: false, // Hidden by default
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerCity || 'Not provided'}
@@ -390,6 +672,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: false, // Hidden by default
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerState || 'Not provided'}
@@ -402,6 +687,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 150,
       visible: false, // Hidden by default
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerEmail || 'Not provided'}
@@ -414,6 +702,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: false, // Hidden by default
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.customerPhone || 'Not provided'}
@@ -426,6 +717,14 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: false, // Hidden by default
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [
+        { value: 'VIP', label: 'VIP' },
+        { value: 'Distributor', label: 'Distributor' },
+        { value: 'Standard', label: 'Standard' }
+      ],
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -444,6 +743,9 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 100,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.deviceModel || 'Not specified'}
@@ -456,9 +758,37 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: true,
       resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (ticket) => (
         <div className="text-sm text-gray-900 dark:text-white truncate">
           {ticket.deviceSerialNumber || 'Not provided'}
+        </div>
+      ),
+    },
+    {
+      id: 'service',
+      label: 'Service',
+      width: 80,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [
+        { value: 'yes', label: 'YES' },
+        { value: 'no', label: 'NO' }
+      ],
+      render: (ticket) => (
+        <div className="text-sm font-medium text-center">
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            ticket.hasServiceWorkflow ? 
+              'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 
+              'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+          }`}>
+            {ticket.hasServiceWorkflow ? 'YES' : 'NO'}
+          </span>
         </div>
       ),
     },
@@ -468,6 +798,7 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       width: 120,
       visible: true,
       resizable: false,
+      sortable: false, // Actions column should not be sortable
       render: (ticket) => (
         <div className="flex items-center justify-end space-x-2">
           <button
@@ -700,6 +1031,105 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
     savePreferences(defaultPreferences);
   };
 
+  const handleColumnFilterChange = (columnId: string, value: string, operator: string = 'contains') => {
+    const newFilters = columnFilters.filter(f => f.columnId !== columnId);
+    if (value) {
+      newFilters.push({ columnId, value, operator: operator as any });
+    }
+    setColumnFilters(newFilters);
+  };
+
+  const applyColumnFilters = (tickets: Ticket[]): Ticket[] => {
+    if (!columnFilters.length) return tickets;
+    
+    return tickets.filter(ticket => {
+      return columnFilters.every(filter => {
+        // Special handling for columns with different data paths
+        let value;
+        
+        if (filter.columnId === 'service') {
+          if (filter.value === 'yes') {
+            return ticket.hasServiceWorkflow === true;
+          } else if (filter.value === 'no') {
+            return ticket.hasServiceWorkflow === false;
+          }
+          return true; // Show all if no specific filter
+        } else if (filter.columnId === 'company') {
+          value = ticket.customerCompany || '';
+        } else if (filter.columnId === 'agent') {
+          value = ticket.agent ? ticket.agent.name : 'NA';
+        } else if (filter.columnId === 'customer') {
+          value = ticket.customerName || ticket.customer?.name || 'Not provided';
+        } else if (filter.columnId === 'created') {
+          value = ticket.createdAt;
+        } else if (filter.columnId === 'lastCustomerMsg') {
+          const lastMsg = props.getLastCustomerMessage(ticket);
+          value = lastMsg ? props.formatRelativeTime(lastMsg.createdAt) : 'No messages';
+        } else if (filter.columnId === 'lastAgentMsg') {
+          const lastMsg = props.getLastAgentMessage(ticket);
+          value = lastMsg ? props.formatRelativeTime(lastMsg.createdAt) : 'No messages';
+        } else {
+          value = getNestedValue(ticket, filter.columnId);
+        }
+
+        if (value === null || value === undefined || value === '') {
+          return filter.value === '' || filter.value === 'all';
+        }
+
+        const filterValue = filter.value.toLowerCase();
+        const itemValue = String(value).toLowerCase();
+        
+        switch (filter.operator) {
+          case 'equals':
+            return itemValue === filterValue;
+          case 'startsWith':
+            return itemValue.startsWith(filterValue);
+          case 'endsWith':
+            return itemValue.endsWith(filterValue);
+          case 'greaterThan':
+            return Number(value) > Number(filter.value);
+          case 'lessThan':
+            return Number(value) < Number(filter.value);
+          case 'contains':
+          default:
+            return itemValue.includes(filterValue);
+        }
+      });
+    });
+  };
+
+  const getNestedValue = (obj: any, path: string) => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
+
+  const handleSort = (columnId: string) => {
+    if (sortBy === columnId) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(columnId);
+      setSortOrder('asc');
+    }
+  };
+
+  const sortedAndFilteredTickets = useMemo(() => {
+    let filteredData = applyColumnFilters(props.tickets);
+    
+    if (sortBy) {
+      filteredData.sort((a, b) => {
+        const aValue = getNestedValue(a, sortBy);
+        const bValue = getNestedValue(b, sortBy);
+        
+        if (aValue === null || aValue === undefined) return 1;
+        if (bValue === null || bValue === undefined) return -1;
+        
+        const comparison = String(aValue).localeCompare(String(bValue), undefined, { numeric: true });
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+    }
+
+    return filteredData;
+  }, [props.tickets, columnFilters, sortBy, sortOrder]);
+
   const handleExportToExcel = () => {
     try {
       const filename = generateExportFilename(props.exportFilters);
@@ -751,9 +1181,24 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
       
       {/* Column Settings Button */}
       <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex justify-between items-center">
-        <span className="text-sm text-gray-500 dark:text-gray-400">
-          {visibleColumns.length} of {configuredColumns.length} columns visible
-        </span>
+        <div className="flex items-center space-x-4">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {visibleColumns.length} of {configuredColumns.length} columns visible
+          </span>
+          {columnFilters.length > 0 && (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {columnFilters.length} filter{columnFilters.length > 1 ? 's' : ''} active
+              </span>
+              <button
+                onClick={() => setColumnFilters([])}
+                className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex space-x-2">
           <button
             onClick={handleExportToExcel}
@@ -817,13 +1262,19 @@ const ConfigurableTicketTable: React.FC<ConfigurableTicketTableProps> = (props) 
                       column={column}
                       onResize={handleColumnResize}
                       onToggleVisibility={handleToggleColumnVisibility}
+                      onSort={(columnId) => handleSort(columnId)}
+                      sortBy={sortBy}
+                      sortOrder={sortOrder}
+                      filter={columnFilters.find(f => f.columnId === column.id)}
+                      onFilterChange={handleColumnFilterChange}
+                      data={props.tickets}
                     />
                   ))}
                 </SortableContext>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {props.tickets.map((ticket) => (
+              {sortedAndFilteredTickets.map((ticket) => (
                 <tr 
                   key={ticket.id} 
                   className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"

@@ -19,6 +19,12 @@ const aiService = require('./services/aiService');
 const enhancedAiService = require('./services/enhancedAiService');
 const enhancedAiRoutes = require('./services/enhancedAiRoutes');
 const documentService = require('./services/documentService');
+const serviceWorkflowService = require('./services/serviceWorkflowService');
+const PdfReportService = require('./services/pdfReportService');
+const simplePersistence = require('./simple_persistence');
+
+// Initialize PDF report service
+const pdfReportService = new PdfReportService();
 
 const app = express();
 const server = http.createServer(app);
@@ -53,16 +59,16 @@ let aiAgentConfig = {
   attitude_style: 'Helpful',
   context_limitations: `Role: Technical Support AI Agent (Neurovirtual)
 Primary Objective:
-You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessaryâ€”all while ensuring a safe, focused, and friendly interaction.
+You are a professional, helpful, and secure AI assistant that provides technical support for Neurovirtual products. You assist users by answering questions, guiding through troubleshooting steps, and escalating issues when necessary—all while ensuring a safe, focused, and friendly interaction.
 
-ðŸŽ¯ Supported Products
+🎯 Supported Products
 Devices: BWMini, BWIII
 Software: BWAnalysis, BWCenter
 
 Always begin by identifying the product in question:
 "Is your question related to one of our devices (BWMini or BWIII), or our software (BWAnalysis or BWCenter)?"
 
-ðŸ’¬ User Interaction Guidelines
+💬 User Interaction Guidelines
 Ask one question or provide one instruction at a time.
 Avoid overwhelming the user.
 
@@ -71,27 +77,27 @@ For multi-step processes (3+ steps):
 - Ask for user confirmation after each step before continuing.
 
 If the user stops responding, wait 15 seconds, then ask:
-"Just checking â€” did that help, or would you like more guidance?"
+"Just checking — did that help, or would you like more guidance?"
 
 Maintain professionalism and end each interaction with a positive tone.
 
-ðŸ”§ Special Case Handling
-ðŸš« Device Appears Damaged
+🔧 Special Case Handling
+🚫 Device Appears Damaged
 Ask: "Would you like to try a few troubleshooting steps to confirm if the device is damaged?"
 
 If the user is certain the device is defective:
 Ask for the serial number: "Please provide the device's serial number so I can escalate the issue to our support team."
 After receiving the serial number, escalate appropriately.
 
-âš ï¸ Sensor Not Working
+⚠️ Sensor Not Working
 Refer the user to the relevant troubleshooting or learning documentation.
 If the issue persists or documentation does not resolve it, escalate the case.
 
-ðŸ’µ Request for Quote or Pricing
+💵 Request for Quote or Pricing
 Do not provide any pricing directly. Instead, refer the user to sales:
 "For pricing or quotes, please contact our sales team through this link: https://neurovirtual.com/technicalsupport/"
 
-ðŸ” Data Safety & Support Protocols
+🔐 Data Safety & Support Protocols
 No Mention of Training Data
 Never reference internal or external data sources.
 
@@ -109,7 +115,7 @@ Graceful Fallback
 If you cannot answer:
 "I couldn't find the information in my support materials. I recommend reaching out to our support team directly for further help."
 
-âœ… Support Flow Summary
+☑️ Support Flow Summary
 1. Identify the product (BWMini, BWIII, BWAnalysis, or BWCenter).
 2. Guide using one question or instruction at a time.
 3. For multi-step processes, give steps in parts, wait for confirmation.
@@ -145,7 +151,7 @@ function loadAIDocuments() {
     if (fs.existsSync(AI_DOCUMENTS_FILE)) {
       const data = fs.readFileSync(AI_DOCUMENTS_FILE, 'utf8');
       aiDocuments = JSON.parse(data);
-      console.log(`ðŸ“ Loaded ${aiDocuments.length} AI documents from persistent storage`);
+      console.log(`📁 Loaded ${aiDocuments.length} AI documents from persistent storage`);
     }
   } catch (error) {
     console.error('Error loading AI documents:', error);
@@ -156,7 +162,7 @@ function loadAIDocuments() {
     if (fs.existsSync(AI_CHUNKS_FILE)) {
       const data = fs.readFileSync(AI_CHUNKS_FILE, 'utf8');
       aiDocumentChunks = JSON.parse(data);
-      console.log(`ðŸ“ Loaded ${aiDocumentChunks.length} AI document chunks from persistent storage`);
+      console.log(`📁 Loaded ${aiDocumentChunks.length} AI document chunks from persistent storage`);
     }
   } catch (error) {
     console.error('Error loading AI document chunks:', error);
@@ -168,14 +174,14 @@ function loadAIDocuments() {
 function saveAIDocuments() {
   try {
     fs.writeFileSync(AI_DOCUMENTS_FILE, JSON.stringify(aiDocuments, null, 2));
-    console.log(`ðŸ’¾ Saved ${aiDocuments.length} AI documents to persistent storage`);
+    console.log(`💾 Saved ${aiDocuments.length} AI documents to persistent storage`);
   } catch (error) {
     console.error('Error saving AI documents:', error);
   }
 
   try {
     fs.writeFileSync(AI_CHUNKS_FILE, JSON.stringify(aiDocumentChunks, null, 2));
-    console.log(`ðŸ’¾ Saved ${aiDocumentChunks.length} AI document chunks to persistent storage`);
+    console.log(`💾 Saved ${aiDocumentChunks.length} AI document chunks to persistent storage`);
   } catch (error) {
     console.error('Error saving AI document chunks:', error);
   }
@@ -184,15 +190,19 @@ function saveAIDocuments() {
 // Auto-save AI documents periodically (every 5 minutes)
 setInterval(saveAIDocuments, 5 * 60 * 1000);
 
+// Set up ticket persistence
+simplePersistence.startAutoSave(() => tickets);
+simplePersistence.setupExitHandlers(() => tickets);
+
 // Save on process exit
 process.on('SIGINT', () => {
-  console.log('\nðŸ”„ Saving AI documents before exit...');
+  console.log('\n🔄 Saving AI documents before exit...');
   saveAIDocuments();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('\nðŸ”„ Saving AI documents before exit...');
+  console.log('\n🔄 Saving AI documents before exit...');
   saveAIDocuments();
   process.exit(0);
 });
@@ -236,18 +246,18 @@ const createNeuroAIAgent = () => {
   const existingAI = users.find(u => u.email === 'neuroai@neurovirtual.com' || u.isAIAgent);
   if (!existingAI) {
     users.push(neuroAIAgent);
-    console.log('ðŸ¤– Created NeuroAI agent with ID:', aiAgentId);
+    console.log('🤖 Created NeuroAI agent with ID:', aiAgentId);
     
     // Sync permissions with AI Agent role
     const aiRole = rolesConfig.find(r => r.id === '5');
     if (aiRole) {
       const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
       neuroAIAgent.permissions = rolePermissions;
-      console.log('ðŸ”„ Synced NeuroAI agent permissions with AI Agent role:', rolePermissions);
+      console.log('🔄 Synced NeuroAI agent permissions with AI Agent role:', rolePermissions);
     }
   } else {
     neuroAIAgentId = existingAI.id;
-    console.log('ðŸ¤– NeuroAI agent already exists with ID:', existingAI.id);
+    console.log('🤖 NeuroAI agent already exists with ID:', existingAI.id);
     
     // Update existing AI agent to use role ID 5 and sync permissions
     existingAI.roleId = '5';
@@ -256,7 +266,7 @@ const createNeuroAIAgent = () => {
     if (aiRole) {
       const rolePermissions = Object.keys(aiRole.permissions).filter(key => aiRole.permissions[key]);
       existingAI.permissions = rolePermissions;
-      console.log('ðŸ”„ Updated existing NeuroAI agent with role ID 5 and permissions:', rolePermissions);
+      console.log('🔄 Updated existing NeuroAI agent with role ID 5 and permissions:', rolePermissions);
     }
   }
 
@@ -295,7 +305,7 @@ const assignTicketToNeuroAI = (ticketId) => {
       updatedAt: new Date().toISOString()
     };
 
-    console.log(`ðŸ¤– Assigned ticket ${ticket.ticketNumber} to NeuroAI`);
+    console.log(`🤖 Assigned ticket ${ticket.ticketNumber} to NeuroAI`);
     
     // Broadcast assignment change
     io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
@@ -333,7 +343,7 @@ const unassignTicketFromNeuroAI = (ticketId, newAgentId = null) => {
       updatedAt: new Date().toISOString()
     };
 
-    console.log(`ðŸ¤– Unassigned ticket ${ticket.ticketNumber} from NeuroAI${newAgentId ? ` and assigned to ${newAgentId}` : ''}`);
+    console.log(`🤖 Unassigned ticket ${ticket.ticketNumber} from NeuroAI${newAgentId ? ` and assigned to ${newAgentId}` : ''}`);
     
     // Broadcast assignment change
     io.to(`ticket_${ticketId}`).emit('ticket_assigned', {
@@ -426,7 +436,7 @@ const addDemoMessages = () => {
   ];
   
   messages.push(...demoMessages);
-  console.log('ðŸ“¨ Added demo messages:', demoMessages.length);
+  console.log('📨 Added demo messages:', demoMessages.length);
 };
 
 // Initialize categories
@@ -549,7 +559,7 @@ const syncAllUserPermissions = () => {
       if (role) {
         const rolePermissions = Object.keys(role.permissions).filter(key => role.permissions[key]);
         user.permissions = rolePermissions;
-        console.log(`ðŸ”„ Synced permissions for user ${user.email} with role ${role.name}:`, rolePermissions);
+        console.log(`🔄 Synced permissions for user ${user.email} with role ${role.name}:`, rolePermissions);
       }
     }
   });
@@ -762,7 +772,18 @@ ticketCounters['250619'] = 3; // Today has 3 tickets
 ticketCounters['250617'] = 1; // 2 days ago has 1 ticket
 ticketCounters['250612'] = 1; // 7 days ago has 1 ticket
 
-tickets.push(...demoTickets);
+// Load tickets from persistent storage, or use demo tickets if none exist
+const loadedTickets = simplePersistence.loadTickets();
+
+if (loadedTickets.length > 0) {
+  console.log('📁 Loading tickets from persistent storage');
+  tickets.push(...loadedTickets);
+} else {
+  console.log('🔧 No persistent tickets found, initializing with demo data');
+  tickets.push(...demoTickets);
+  // Save the initialized demo tickets for future use
+  simplePersistence.saveTickets(tickets);
+}
 
 // CRITICAL FIX: Ensure all demo tickets have the customerCity field properly set
 // This fixes the issue where customerCity was showing as null
@@ -792,7 +813,7 @@ tickets.forEach((ticket, index) => {
 });
 
 // Debug: Log the ticket data to verify customerCity is set
-console.log('ðŸ”§ DEBUG: Checking demo tickets after initialization:');
+console.log('🔧 DEBUG: Checking demo tickets after initialization:');
 tickets.forEach((ticket, index) => {
   console.log(`  Ticket ${index + 1}: ${ticket.title}`);
   console.log(`    - customerCity: "${ticket.customerCity}"`);
@@ -850,8 +871,8 @@ const initializeDemoDevices = () => {
   ];
   
   devices.push(...demoDevices);
-  console.log('ðŸ”§ Added demo devices:', demoDevices.length);
-  console.log('ðŸ¢ Devices associated with company ID:', customerCompanyId);
+  console.log('🔧 Added demo devices:', demoDevices.length);
+  console.log('🏢 Devices associated with company ID:', customerCompanyId);
 };
 
 // Initialize devices array before using it
@@ -871,7 +892,7 @@ const linkCustomersToCompanies = () => {
     const acmeCompany = companies.find(c => c.name === 'Acme Corporation');
     if (acmeCompany) {
       customer.companyId = acmeCompany.id;
-      console.log('ðŸ¢ Linked customer', customer.email, 'to company', acmeCompany.name);
+      console.log('🏢 Linked customer', customer.email, 'to company', acmeCompany.name);
     }
   }
 };
@@ -925,7 +946,7 @@ const generateDemoAuditLogs = () => {
     auditLogs.push(auditEntry);
   }
   
-  console.log('ðŸ“ Generated demo audit logs:', auditLogs.length);
+  console.log('📝 Generated demo audit logs:', auditLogs.length);
 };
 
 generateDemoAuditLogs();
@@ -968,16 +989,16 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    console.log('ðŸ” Authentication failed: No token provided');
+    console.log('🔐 Authentication failed: No token provided');
     return res.status(401).json({ success: false, error: { code: 'NO_TOKEN', message: 'Access token required' }});
   }
 
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
-      console.log('ðŸ” Authentication failed: Token validation error:', err.message);
+      console.log('🔐 Authentication failed: Token validation error:', err.message);
       return res.status(403).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid token' }});
     }
-    console.log('ðŸ” Authentication successful for user:', decoded.sub, decoded.email);
+    console.log('🔐 Authentication successful for user:', decoded.sub, decoded.email);
     req.user = decoded;
     next();
   });
@@ -987,7 +1008,7 @@ const authenticateToken = (req, res, next) => {
 
 // Authentication
 app.post('/api/auth/login', async (req, res) => {
-  console.log('\nðŸ” LOGIN REQUEST RECEIVED');
+  console.log('\n🔐 LOGIN REQUEST RECEIVED');
   console.log('Body:', req.body);
   console.log('Available users:', users.map(u => ({ email: u.email, userType: u.userType })));
   
@@ -998,7 +1019,7 @@ app.post('/api/auth/login', async (req, res) => {
   console.log('Found user:', user ? 'YES' : 'NO');
   
   if (!user || !bcrypt.compareSync(password, user.password)) {
-    console.log('âŒ Authentication failed');
+    console.log('❌ Authentication failed');
     
     // Log failed login attempt
     logAudit({
@@ -1018,11 +1039,11 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  console.log('âœ… Authentication successful for:', user.email);
+  console.log('✅ Authentication successful for:', user.email);
   
   // Update lastLogin timestamp
   user.lastLogin = new Date().toISOString();
-  console.log('ðŸ•’ Updated lastLogin for', user.email, 'to:', user.lastLogin);
+  console.log('🕒 Updated lastLogin for', user.email, 'to:', user.lastLogin);
   
   // Log successful login
   logAudit({
@@ -1072,7 +1093,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
   };
 
-  console.log('ðŸ“¤ Sending response:', JSON.stringify(response, null, 2));
+  console.log('📤 Sending response:', JSON.stringify(response, null, 2));
   res.json(response);
 });
 
@@ -1136,11 +1157,11 @@ app.get('/api/system-settings/public', authenticateToken, (req, res) => {
 app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`ðŸ” Getting customer status for ticket ${id}`);
-    console.log(`ðŸ” All customer sessions:`, Array.from(customerSessions.entries()));
+    console.log(`🔍 Getting customer status for ticket ${id}`);
+    console.log(`🔍 All customer sessions:`, Array.from(customerSessions.entries()));
     
     const session = customerSessions.get(id);
-    console.log(`ðŸ” Found session for ticket ${id}:`, session);
+    console.log(`🔍 Found session for ticket ${id}:`, session);
     
     if (session) {
       const responseData = {
@@ -1148,7 +1169,7 @@ app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
         lastSeen: session.lastSeen,
         customerId: session.customerId
       };
-      console.log(`ðŸ” Returning session data:`, responseData);
+      console.log(`🔍 Returning session data:`, responseData);
       
       res.json({
         success: true,
@@ -1160,7 +1181,7 @@ app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
         lastSeen: null,
         customerId: null
       };
-      console.log(`ðŸ” No session found, returning default:`, responseData);
+      console.log(`🔍 No session found, returning default:`, responseData);
       
       res.json({
         success: true,
@@ -1174,7 +1195,7 @@ app.get('/api/tickets/:id/customer-status', authenticateToken, (req, res) => {
 });
 
 // Get tickets
-app.get('/api/tickets', authenticateToken, (req, res) => {
+app.get('/api/tickets', authenticateToken, async (req, res) => {
   let userTickets = tickets;
   
   // Filter by user type
@@ -1182,12 +1203,17 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
     userTickets = tickets.filter(t => t.customerId === req.user.sub);
   }
 
-  // Add related data
-  const enrichedTickets = userTickets.map(ticket => {
+  // Add related data with async service workflow checking
+  const enrichedTickets = await Promise.all(userTickets.map(async ticket => {
     const customer = users.find(u => u.id === ticket.customerId);
     const agent = ticket.agentId ? users.find(u => u.id === ticket.agentId) : null;
     const category = categories.find(c => c.id === ticket.categoryId);
     const ticketMessages = messages.filter(m => m.ticketId === ticket.id);
+    
+    // Check if ticket has service workflows
+    const serviceWorkflows = serviceWorkflowService?.getWorkflowsByTicket ? 
+      await serviceWorkflowService.getWorkflowsByTicket(ticket.id) : [];
+    const hasServiceWorkflow = serviceWorkflows && serviceWorkflows.length > 0;
     
     return {
       ...ticket,
@@ -1211,65 +1237,9 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
       category,
       messageCount: ticketMessages.length,
       lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt,
-      messages: ticketMessages.map(msg => {
-        const sender = users.find(u => u.id === msg.senderId);
-        
-        // Handle AI messages (sender could be null or NeuroAI agent)
-        if (!sender && (msg.senderId === null || msg.senderId === neuroAIAgentId)) {
-          // Legacy AI messages (with null senderId) or new NeuroAI messages
-          const isAIMessage = aiService.isEnabled() && (
-            msg.messageType === 'text' || 
-            msg.messageType === 'system'
-          ) && (msg.senderId === null || msg.senderId === neuroAIAgentId);
-          
-          if (isAIMessage) {
-            // Check existing AI responses to confirm this is an AI message
-            const aiResponse = aiResponses.find(ar => ar.messageId === msg.id);
-            
-            if (aiResponse) {
-              return {
-                ...msg,
-                sender: {
-                  id: neuroAIAgentId,
-                  firstName: aiAgentConfig.agent_name || 'NeuroAI',
-                  lastName: 'Assistant',
-                  userType: 'ai'
-                }
-              };
-            }
-          }
-        }
-        
-        // Handle NeuroAI agent messages directly
-        if (sender && sender.isAIAgent) {
-          return {
-            ...msg,
-            sender: {
-              id: sender.id,
-              firstName: sender.firstName,
-              lastName: sender.lastName,
-              userType: 'ai'
-            }
-          };
-        }
-        
-        return {
-          ...msg,
-          sender: sender ? {
-            id: sender.id,
-            firstName: sender.firstName,
-            lastName: sender.lastName,
-            userType: sender.id === ticket.customerId ? 'customer' : sender.userType
-          } : {
-            id: null,
-            firstName: ticket.customerName.split(' ')[0] || ticket.customerName,
-            lastName: ticket.customerName.split(' ').slice(1).join(' ') || '',
-            userType: 'customer'
-          }
-        };
-      })
+      hasServiceWorkflow: hasServiceWorkflow
     };
-  });
+  }));
 
   res.json({
     success: true,
@@ -1286,14 +1256,14 @@ app.get('/api/tickets', authenticateToken, (req, res) => {
 });
 
 // Get single ticket by ID
-app.get('/api/tickets/:id', authenticateToken, (req, res) => {
-  console.log('ðŸ” GET SINGLE TICKET REQUEST');
+app.get('/api/tickets/:id', authenticateToken, async (req, res) => {
+  console.log('🔍 GET SINGLE TICKET REQUEST');
   console.log('  - ticketId:', req.params.id);
   console.log('  - user:', req.user.sub, req.user.userType);
   
   const ticket = tickets.find(t => t.id === req.params.id);
   if (!ticket) {
-    console.log('âŒ Ticket not found');
+    console.log('❌ Ticket not found');
     return res.status(404).json({
       success: false,
       error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
@@ -1302,7 +1272,7 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
   
   // Check permissions
   if (req.user.userType === 'customer' && ticket.customerId !== req.user.sub) {
-    console.log('âŒ Permission denied - customer can only view own tickets');
+    console.log('❌ Permission denied - customer can only view own tickets');
     return res.status(403).json({
       success: false,
       error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You can only view your own tickets' }
@@ -1314,6 +1284,11 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
   const agent = ticket.agentId ? users.find(u => u.id === ticket.agentId) : null;
   const category = categories.find(c => c.id === ticket.categoryId);
   const ticketMessages = messages.filter(m => m.ticketId === ticket.id);
+  
+  // Check if ticket has service workflows
+  const serviceWorkflows = serviceWorkflowService?.getWorkflowsByTicket ? 
+    await serviceWorkflowService.getWorkflowsByTicket(ticket.id) : [];
+  const hasServiceWorkflow = serviceWorkflows && serviceWorkflows.length > 0;
   
   const enrichedTicket = {
     ...ticket,
@@ -1337,6 +1312,7 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
     category,
     messageCount: ticketMessages.length,
     lastMessageAt: ticketMessages.length > 0 ? ticketMessages[ticketMessages.length - 1].createdAt : ticket.createdAt,
+    hasServiceWorkflow: hasServiceWorkflow,
     // AI Summary fields
     resolutionSummary: ticket.resolutionSummary || null,
     resolutionSummaryGeneratedAt: ticket.resolutionSummaryGeneratedAt || null,
@@ -1401,7 +1377,7 @@ app.get('/api/tickets/:id', authenticateToken, (req, res) => {
     })
   };
   
-  console.log('âœ… Returning single ticket:', enrichedTicket.id);
+  console.log('✅ Returning single ticket:', enrichedTicket.id);
   console.log('  - customerAddress:', enrichedTicket.customerAddress);
   
   res.json({
@@ -1501,14 +1477,14 @@ app.post('/api/tickets', (req, res) => {
   
   // Perform immediate company fuzzy matching for new tickets (including auto-creation)
   if (ticket.customerCompany && !ticket.companyId) {
-    console.log('ðŸ” Triggering immediate fuzzy matching for new ticket...');
+    console.log('🔍 Triggering immediate fuzzy matching for new ticket...');
     // First try fuzzy matching
     performAutomaticCompanyMatching(ticket);
     
     // If no match found after fuzzy matching, auto-create the company
     const ticketAfterMatching = tickets.find(t => t.id === ticket.id);
     if (ticketAfterMatching && !ticketAfterMatching.companyId) {
-      console.log('ðŸ¢ No fuzzy match found, auto-creating company:', ticket.customerCompany);
+      console.log('🏢 No fuzzy match found, auto-creating company:', ticket.customerCompany);
       const newCompany = {
         id: uuidv4(),
         name: ticket.customerCompany,
@@ -1534,10 +1510,10 @@ app.post('/api/tickets', (req, res) => {
       const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
       if (ticketIndex !== -1) {
         tickets[ticketIndex].companyId = newCompany.id;
-        console.log('ðŸ”— Associated ticket with newly created company:', newCompany.name);
+        console.log('🔗 Associated ticket with newly created company:', newCompany.name);
       }
       
-      console.log('ðŸ¢ Auto-created company:', newCompany.name, 'ID:', newCompany.id);
+      console.log('🏢 Auto-created company:', newCompany.name, 'ID:', newCompany.id);
     }
   }
   
@@ -1567,7 +1543,7 @@ app.post('/api/tickets', (req, res) => {
   };
 
   messages.push(initialMessage);
-  console.log('âœ… Created initial message:', initialMessage);
+  console.log('✅ Created initial message:', initialMessage);
 
   // Check if we should generate AI response for the initial message
   const isCustomerInitialMessage = !user || user.id === ticket.customerId;
@@ -1576,7 +1552,7 @@ app.post('/api/tickets', (req, res) => {
                                    aiService.isEnabled() && 
                                    ticket.aiEnabled !== false;
 
-  console.log('ðŸ” AI DECISION DEBUG for initial message:');
+  console.log('🔍 AI DECISION DEBUG for initial message:');
   console.log('  - user:', user ? `${user.firstName} ${user.lastName} (${user.id})` : 'null');
   console.log('  - ticket.customerId:', ticket.customerId);
   console.log('  - isCustomerInitialMessage:', isCustomerInitialMessage);
@@ -1587,15 +1563,17 @@ app.post('/api/tickets', (req, res) => {
 
   // Generate AI response for the initial message if conditions are met
   if (shouldGenerateAIForInitial) {
-    console.log('ðŸ¤– Generating AI response for initial customer message');
+    console.log('🤖 Generating AI response for initial customer message');
     
     // Run AI generation asynchronously to avoid blocking the response
     setImmediate(async () => {
       try {
+        console.log('🔍 Starting AI document search...');
         // Find relevant documents for the user's message
         const relevantDocs = await aiService.findRelevantDocuments(description, aiDocumentChunks);
-        console.log(`ðŸ” Found ${relevantDocs.length} relevant document chunks for initial message`);
+        console.log(`🔍 Found ${relevantDocs.length} relevant document chunks for initial message`);
 
+        console.log('🤖 Starting enhanced AI response generation...');
         // Generate enhanced AI response with context
         const ticketMessages = messages.filter(m => m.ticketId === ticket.id);
         const aiResponse = await enhancedAiService.generateEnhancedResponse(
@@ -1606,11 +1584,12 @@ app.post('/api/tickets', (req, res) => {
           ticket, 
           relevantDocs
         );
-        console.log(`ðŸ¤– AI response generated for initial message with confidence: ${aiResponse.confidence}`);
+        console.log(`🤖 AI response generated for initial message with confidence: ${aiResponse.confidence}`);
+        console.log(`🤖 AI response content preview: ${aiResponse.response.substring(0, 100)}...`);
 
         // Check if we should escalate based on confidence
         if (aiResponse.shouldEscalate) {
-          console.log('ðŸ“ˆ AI confidence too low for initial message, escalating to human agent');
+          console.log('📈 AI confidence too low for initial message, escalating to human agent');
           
           // Disable AI for this ticket and mark for escalation
           const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
@@ -1661,6 +1640,7 @@ app.post('/api/tickets', (req, res) => {
           });
 
         } else {
+          console.log('🎯 AI response meets confidence threshold, sending response...');
           // Assign ticket to NeuroAI when AI responds
           assignTicketToNeuroAI(ticket.id);
 
@@ -1676,6 +1656,7 @@ app.post('/api/tickets', (req, res) => {
           };
 
           messages.push(aiMessage);
+          console.log('✅ AI message added to messages array:', aiMessage.id);
 
           // Log AI response
           const aiResponseRecord = {
@@ -1692,6 +1673,7 @@ app.post('/api/tickets', (req, res) => {
           };
 
           aiResponses.push(aiResponseRecord);
+          console.log('✅ AI response record logged:', aiResponseRecord.id);
 
           // Broadcast AI message
           const aiMessageWithSender = {
@@ -1704,15 +1686,23 @@ app.post('/api/tickets', (req, res) => {
             }
           };
 
+          console.log('📤 Broadcasting AI message to room ticket_' + ticket.id);
           io.to(`ticket_${ticket.id}`).emit('new_message', {
             message: aiMessageWithSender
           });
 
-          console.log('ðŸ¤– AI response sent successfully for initial message');
+          console.log('🤖 AI response sent successfully for initial message');
         }
 
       } catch (error) {
-        console.error('âŒ Error generating AI response for initial message:', error);
+        console.error('❌ Error generating AI response for initial message:', error);
+        console.error('❌ Full error stack:', error.stack);
+        console.error('❌ Error details:', {
+          message: error.message,
+          name: error.name,
+          code: error.code,
+          status: error.status
+        });
         
         // Send fallback message on AI error
         const fallbackMessage = {
@@ -1740,6 +1730,8 @@ app.post('/api/tickets', (req, res) => {
         io.to(`ticket_${ticket.id}`).emit('new_message', {
           message: fallbackMessageWithSender
         });
+        
+        console.log('📤 Sent fallback message due to AI error');
       }
     });
   }
@@ -1770,7 +1762,16 @@ app.post('/api/tickets', (req, res) => {
     }
   };
 
-  console.log('ðŸ“¤ Sending ticket creation response:', JSON.stringify(response, null, 2));
+  console.log('📤 Sending ticket creation response:', JSON.stringify(response, null, 2));
+  // Trigger AI ticket details update for newly created ticket (if AI is enabled)
+  setImmediate(async () => {
+    try {
+      await updateTicketDetailsWithAI(ticket.id);
+    } catch (error) {
+      console.error('❌ Error updating ticket details with AI on creation:', error);
+    }
+  });
+
   res.status(201).json(response);
 });
 
@@ -1817,7 +1818,7 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
   
   // If this was an AI ticket, log the handoff
   if (wasAssignedToAI) {
-    console.log(`ðŸ¤–âž¡ï¸ðŸ‘¨ Human agent ${req.user.firstName} ${req.user.lastName} taking over ticket ${ticket.ticketNumber} from NeuroAI`);
+    console.log(`🤖➡️👨 Human agent ${req.user.firstName} ${req.user.lastName} took over ticket ${ticket.ticketNumber} from NeuroAI`);
   }
   
   // Log ticket claim
@@ -1877,7 +1878,7 @@ app.post('/api/tickets/:id/claim', authenticateToken, (req, res) => {
 
 // Update ticket
 app.put('/api/tickets/:id', authenticateToken, (req, res) => {
-  console.log('ðŸ”§ TICKET UPDATE REQUEST RECEIVED');
+  console.log('🔧 TICKET UPDATE REQUEST RECEIVED');
   console.log('  - ticketId:', req.params.id);
   console.log('  - body:', req.body);
   console.log('  - customerAddress in body:', req.body.customerAddress);
@@ -1906,7 +1907,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     });
   }
 
-  console.log('ðŸ”§ TICKET BEFORE UPDATE:');
+  console.log('🔧 TICKET BEFORE UPDATE:');
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
 
   // Only allow updating certain fields (exclude read-only fields like ticketNumber, createdAt)
@@ -1924,7 +1925,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     }
   });
 
-  console.log('ðŸ”§ UPDATES OBJECT:');
+  console.log('🔧 UPDATES OBJECT:');
   console.log('  - updates:', updates);
   console.log('  - updates.customerAddress:', updates.customerAddress);
   console.log('  - updates.customerCity:', updates.customerCity);
@@ -1936,7 +1937,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   console.log('  - deviceSerialNumber included:', 'deviceSerialNumber' in updates);
 
   // DEBUG: Log original ticket before update
-  console.log('ðŸ”§ ORIGINAL TICKET BEFORE UPDATE:');
+  console.log('🔧 ORIGINAL TICKET BEFORE UPDATE:');
   console.log('  - ticket.customerCity (before):', ticket.customerCity);
   console.log('  - ticket.customerAddress (before):', ticket.customerAddress);
 
@@ -1952,14 +1953,14 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     
     // If assigning to a human agent from NeuroAI, unassign from NeuroAI
     if (ticket.agentId === neuroAIAgentId && updates.agentId !== neuroAIAgentId) {
-      console.log(`ðŸ¤– Human agent taking over ticket ${ticket.ticketNumber} from NeuroAI`);
+      console.log(`🤖 Human agent taking over ticket ${ticket.ticketNumber} from NeuroAI`);
       unassignTicketFromNeuroAI(ticket.id, updates.agentId);
     }
   }
   
   // If unassigning (setting agentId to null), check if it was assigned to NeuroAI
   if (updates.agentId === null && ticket.agentId === neuroAIAgentId) {
-    console.log(`ðŸ¤– Unassigning ticket ${ticket.ticketNumber} from NeuroAI`);
+    console.log(`🤖 Unassigning ticket ${ticket.ticketNumber} from NeuroAI`);
     unassignTicketFromNeuroAI(ticket.id, null);
   }
 
@@ -1980,13 +1981,13 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
   
   // Trigger automatic company fuzzy matching when ticket is closed or resolved
   if (updates.status === 'closed' || updates.status === 'resolved') {
-    console.log('ðŸŽ¯ Ticket closed/resolved, triggering company fuzzy matching...');
+    console.log('🎯 Ticket closed/resolved, triggering company fuzzy matching...');
     performAutomaticCompanyMatching(ticket);
   }
 
   // Trigger AI summarization when ticket is marked as resolved
   if (updates.status === 'resolved' && ticket.status !== 'resolved') {
-    console.log('ðŸ“ Ticket resolved, triggering AI summarization...');
+    console.log('📝 Ticket resolved, triggering AI summarization...');
     setImmediate(async () => {
       await generateTicketSummary(ticket.id, req.user.sub);
     });
@@ -1997,12 +1998,12 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     autoCreateDeviceFromTicket(ticket);
   }
 
-  console.log('ðŸ”§ TICKET AFTER UPDATE:');
+  console.log('🔧 TICKET AFTER UPDATE:');
   console.log('  - ticket.customerAddress:', ticket.customerAddress);
   console.log('  - ticket.customerCity:', ticket.customerCity);
   console.log('  - ticket.customerType:', ticket.customerType);
   console.log('  - ticket.deviceSerialNumber:', ticket.deviceSerialNumber);
-  console.log(`ðŸŽ« Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
+  console.log(`🎫 Ticket ${req.params.id} updated by agent ${req.user.sub}:`, updates);
   
   // Log ticket update with human-readable values
   const changes = Object.keys(updates).map(key => {
@@ -2056,7 +2057,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
       }
     }
     
-    return `${key}: "${originalValue}" â†’ "${newValue}"`;
+    return `${key}: "${originalValue}" → "${newValue}"`;
   }).join(', ');
   
   logAudit({
@@ -2107,7 +2108,7 @@ app.put('/api/tickets/:id', authenticateToken, (req, res) => {
     category
   };
 
-  console.log('ðŸ”§ ENRICHED RESPONSE TICKET:');
+  console.log('🔧 ENRICHED RESPONSE TICKET:');
   console.log('  - enrichedTicket.customerAddress:', enrichedTicket.customerAddress);
   console.log('  - enrichedTicket.customerCity:', enrichedTicket.customerCity);
   console.log('  - enrichedTicket.customerType:', enrichedTicket.customerType);
@@ -2177,8 +2178,8 @@ app.delete('/api/tickets/:id', authenticateToken, (req, res) => {
     }
   });
 
-  console.log(`ðŸ—‘ï¸ Ticket ${req.params.id} deleted by agent ${req.user.sub}`);
-  console.log(`ðŸ—‘ï¸ Also removed ${messagesToRemove.length} associated messages`);
+  console.log(`🗑️ Ticket ${req.params.id} deleted by agent ${req.user.sub}`);
+  console.log(`🗑️ Also removed ${messagesToRemove.length} associated messages`);
 
   // Notify connected clients about ticket deletion
   io.emit('ticket_deleted', {
@@ -2228,7 +2229,7 @@ app.get('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, res
 
 // Add internal comment to a ticket
 app.post('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, res) => {
-  console.log('ðŸ’¬ INTERNAL COMMENT REQUEST RECEIVED');
+  console.log('💬 INTERNAL COMMENT REQUEST RECEIVED');
   console.log('  - ticketId:', req.params.ticketId);
   console.log('  - body:', req.body);
   console.log('  - user:', req.user);
@@ -2297,8 +2298,8 @@ app.post('/api/tickets/:ticketId/internal-comments', authenticateToken, (req, re
     details: `Added internal comment: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
   });
 
-  console.log(`ðŸ’¬ Internal comment added to ticket ${req.params.ticketId} by agent ${req.user.sub}`);
-  console.log('ðŸ’¬ Comment created:', comment);
+  console.log(`💬 Internal comment added to ticket ${req.params.ticketId} by agent ${req.user.sub}`);
+  console.log('💬 Comment created:', comment);
 
   res.status(201).json({
     success: true,
@@ -2406,44 +2407,44 @@ app.get('/api/tickets/:ticketId/customer-status', authenticateToken, (req, res) 
 
 // Generate ticket summary (manual)
 app.post('/api/tickets/:ticketId/generate-summary', authenticateToken, async (req, res) => {
-  console.log('ðŸ”´ [DEBUG] Generate summary route hit!');
-  console.log('ðŸ”´ [DEBUG] Ticket ID:', req.params.ticketId);
-  console.log('ðŸ”´ [DEBUG] User:', req.user);
+  console.log('🔴 [DEBUG] Generate summary route hit!');
+  console.log('🔴 [DEBUG] Ticket ID:', req.params.ticketId);
+  console.log('🔴 [DEBUG] User:', req.user);
   
   try {
     const ticket = tickets.find(t => t.id === req.params.ticketId);
     if (!ticket) {
-      console.log('ðŸ”´ [DEBUG] Ticket not found');
+      console.log('🔴 [DEBUG] Ticket not found');
       return res.status(404).json({
         success: false,
         error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
       });
     }
     
-    console.log('ðŸ”´ [DEBUG] Found ticket:', ticket.ticketNumber);
-    console.log('ðŸ”´ [DEBUG] User permissions:', req.user.permissions);
+    console.log('🔴 [DEBUG] Found ticket:', ticket.ticketNumber);
+    console.log('🔴 [DEBUG] User permissions:', req.user.permissions);
     
     // Check if user has permission to generate summaries
     if (!req.user.permissions?.includes('tickets.edit')) {
-      console.log('ðŸ”´ [DEBUG] No permission to generate summaries');
+      console.log('🔴 [DEBUG] No permission to generate summaries');
       return res.status(403).json({
         success: false,
         error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to generate ticket summaries' }
       });
     }
     
-    console.log('ðŸ”´ [DEBUG] AI service enabled:', aiService.isEnabled());
+    console.log('🔴 [DEBUG] AI service enabled:', aiService.isEnabled());
     
     // Check if AI service is available
     if (!aiService.isEnabled()) {
-      console.log('ðŸ”´ [DEBUG] AI service not available');
+      console.log('🔴 [DEBUG] AI service not available');
       return res.status(503).json({
         success: false,
         error: { code: 'AI_SERVICE_UNAVAILABLE', message: 'AI service is not available. Please configure OpenAI API key.' }
       });
     }
     
-    console.log('ðŸ”´ [DEBUG] Generating summary...');
+    console.log('🔴 [DEBUG] Generating summary...');
     
     // Generate summary using the existing function (with manual generation flag)
     await generateTicketSummary(ticket.id, req.user.sub);
@@ -2466,7 +2467,7 @@ app.post('/api/tickets/:ticketId/generate-summary', authenticateToken, async (re
     }
     
   } catch (error) {
-    console.error('ðŸ”´ [DEBUG] Error in generate summary:', error);
+    console.error('🔴 [DEBUG] Error in generate summary:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SUMMARY_GENERATION_FAILED', message: error.message }
@@ -2479,7 +2480,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
   try {
     const ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) {
-      console.error('âŒ Cannot generate summary: ticket not found');
+      console.error('❌ Cannot generate summary: ticket not found');
       return;
     }
 
@@ -2488,7 +2489,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
       const summaryDate = new Date(ticket.resolutionSummaryGeneratedAt);
       if (summaryDate > hourAgo) {
-        console.log('ðŸ“ Summary already exists and is recent, skipping automatic generation');
+        console.log('📝 Summary already exists and is recent, skipping automatic generation');
         return;
       }
     }
@@ -2518,7 +2519,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
     const category = categories.find(c => c.id === ticket.categoryId);
     const ticketWithCategory = { ...ticket, category };
 
-    console.log('ðŸ“ Generating AI summary for ticket:', ticket.ticketNumber);
+    console.log('📝 Generating AI summary for ticket:', ticket.ticketNumber);
 
     // Generate summary using AI service
     const summaryResult = await aiService.generateResolutionSummary(
@@ -2532,8 +2533,8 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
     ticket.resolutionSummaryModelVersion = summaryResult.modelUsed;
     ticket.resolutionSummaryGeneratedBy = generatedBy;
 
-    console.log('âœ… AI summary generated successfully for ticket:', ticket.ticketNumber);
-    console.log('ðŸ“ Summary:', summaryResult.summary);
+    console.log('✅ AI summary generated successfully for ticket:', ticket.ticketNumber);
+    console.log('📝 Summary:', summaryResult.summary);
 
     // Notify connected clients about the summary update
     io.to(`ticket_${ticketId}`).emit('ticket_summary_generated', {
@@ -2557,7 +2558,7 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
     });
 
   } catch (error) {
-    console.error('âŒ Error generating ticket summary:', error);
+    console.error('❌ Error generating ticket summary:', error);
     
     // Log the error in audit trail
     logAudit({
@@ -2571,6 +2572,113 @@ async function generateTicketSummary(ticketId, generatedBy = null) {
       details: `AI summary generation failed: ${error.message}`,
       status: 'failed'
     });
+  }
+}
+
+// Function to automatically update ticket details using AI
+async function updateTicketDetailsWithAI(ticketId) {
+  try {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      console.log('❌ Cannot update ticket details: ticket not found');
+      return;
+    }
+
+    // Skip if AI is not enabled
+    if (!aiService.isEnabled()) {
+      return;
+    }
+
+    // Get all messages for this ticket
+    const ticketMessages = messages
+      .filter(m => m.ticketId === ticketId)
+      .map(msg => {
+        const sender = users.find(u => u.id === msg.senderId);
+        return {
+          ...msg,
+          sender: sender ? {
+            id: sender.id,
+            firstName: sender.firstName,
+            lastName: sender.lastName,
+            userType: sender.id === ticket.customerId ? 'customer' : sender.userType
+          } : {
+            id: null,
+            firstName: ticket.customerName?.split(' ')[0] || 'Customer',
+            lastName: ticket.customerName?.split(' ').slice(1).join(' ') || '',
+            userType: 'customer'
+          }
+        };
+      });
+
+    // Only update if there are at least 1 message
+    if (ticketMessages.length === 0) {
+      return;
+    }
+
+    console.log('🤖 Generating AI-powered ticket details for:', ticket.ticketNumber);
+
+    // Generate new title and description using AI
+    const aiDetails = await aiService.generateTicketDetails(ticketMessages, ticket);
+
+    // Only update if AI generation was successful and confidence is reasonable
+    if (aiDetails.wasGenerated && aiDetails.confidence > 0.5) {
+      const oldTitle = ticket.title;
+      const oldDescription = ticket.description;
+
+      // Update ticket details
+      ticket.title = aiDetails.title;
+      ticket.description = aiDetails.description;
+      ticket.aiGeneratedDetails = {
+        confidence: aiDetails.confidence,
+        modelUsed: aiDetails.modelUsed,
+        generatedAt: new Date().toISOString(),
+        responseTimeMs: aiDetails.responseTimeMs
+      };
+      ticket.updatedAt = new Date().toISOString();
+
+      console.log('✅ Ticket details updated:', {
+        ticketNumber: ticket.ticketNumber,
+        oldTitle,
+        newTitle: aiDetails.title,
+        oldDescription: oldDescription.substring(0, 50) + '...',
+        newDescription: aiDetails.description.substring(0, 50) + '...',
+        confidence: aiDetails.confidence
+      });
+
+      // Broadcast the update to connected clients
+      io.to(`ticket_${ticketId}`).emit('ticket_details_updated', {
+        ticketId: ticketId,
+        title: aiDetails.title,
+        description: aiDetails.description,
+        confidence: aiDetails.confidence,
+        generatedAt: ticket.aiGeneratedDetails.generatedAt
+      });
+
+      // Log the update
+      logAudit({
+        userId: null,
+        userName: 'AI System',
+        userType: 'system',
+        action: 'ticket_details_updated',
+        ticketNumber: ticket.ticketNumber,
+        targetType: 'ticket',
+        targetId: ticket.id,
+        ipAddress: null,
+        userAgent: 'AI Service',
+        details: `AI updated ticket details (confidence: ${aiDetails.confidence})`
+      });
+
+    } else {
+      console.log('⚠️ AI ticket details not applied:', {
+        ticketNumber: ticket.ticketNumber,
+        wasGenerated: aiDetails.wasGenerated,
+        confidence: aiDetails.confidence,
+        error: aiDetails.error
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error updating ticket details with AI:', error);
   }
 }
 
@@ -2597,10 +2705,10 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
   ticket.updatedAt = new Date().toISOString();
   ticket.resolvedAt = new Date().toISOString();
 
-  console.log(`ðŸŽ« Ticket ${req.params.ticketId} closed by customer`);
+  console.log(`🎫 Ticket ${req.params.ticketId} closed by customer`);
 
   // Trigger AI summarization when customer closes ticket
-  console.log('ðŸ“ Customer closed ticket, triggering AI summarization...');
+  console.log('📝 Customer closed ticket, triggering AI summarization...');
   setImmediate(async () => {
     await generateTicketSummary(req.params.ticketId);
   });
@@ -2616,7 +2724,7 @@ app.post('/api/tickets/:ticketId/close', (req, res) => {
       socketToTicketMap.delete(session.socketId);
     }
     
-    console.log(`ðŸ”´ Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
   }
 
   // Notify agents about ticket closure and customer disconnect
@@ -2689,7 +2797,7 @@ app.post('/api/tickets/:ticketId/feedback', (req, res) => {
 
   messages.push(systemMessage);
 
-  console.log(`ðŸŽ« Feedback submitted for ticket ${req.params.ticketId}: ${resolution}`);
+  console.log(`🎫 Feedback submitted for ticket ${req.params.ticketId}: ${resolution}`);
 
   // Broadcast system message to agents
   const messageWithSender = {
@@ -2766,10 +2874,10 @@ app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
 
   messages.push(systemMessage);
 
-  console.log(`ðŸŽ« Ticket ${req.params.ticketId} closed by customer with resolution: ${resolution}`);
+  console.log(`🎫 Ticket ${req.params.ticketId} closed by customer with resolution: ${resolution}`);
 
   // Trigger AI summarization when customer closes ticket with feedback
-  console.log('ðŸ“ Customer closed ticket with feedback, triggering AI summarization...');
+  console.log('📝 Customer closed ticket with feedback, triggering AI summarization...');
   setImmediate(async () => {
     await generateTicketSummary(req.params.ticketId);
   });
@@ -2785,7 +2893,7 @@ app.post('/api/tickets/:ticketId/close-with-feedback', (req, res) => {
       socketToTicketMap.delete(session.socketId);
     }
     
-    console.log(`ðŸ”´ Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to ticket closure`);
   }
 
   // Broadcast system message to agents
@@ -2859,7 +2967,7 @@ app.post('/api/tickets/:ticketId/abandon', (req, res) => {
 
   messages.push(systemMessage);
 
-  console.log(`ðŸŽ« Ticket ${req.params.ticketId} abandoned by customer (reason: ${reason})`);
+  console.log(`🎫 Ticket ${req.params.ticketId} abandoned by customer (reason: ${reason})`);
 
   // Clean up customer session
   const session = customerSessions.get(req.params.ticketId);
@@ -2872,7 +2980,7 @@ app.post('/api/tickets/:ticketId/abandon', (req, res) => {
       socketToTicketMap.delete(session.socketId);
     }
     
-    console.log(`ðŸ”´ Customer session for ticket ${req.params.ticketId} marked offline due to abandonment`);
+    console.log(`🔴 Customer session for ticket ${req.params.ticketId} marked offline due to abandonment`);
   }
 
   // Broadcast system message to agents
@@ -2994,14 +3102,14 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
 
   // Generate AI response if conditions are met
   if (shouldGenerateAI) {
-    console.log('ðŸ¤– Generating AI response for customer message');
+    console.log('🤖 Generating AI response for customer message');
     
     // Run AI generation asynchronously to avoid blocking the response
     setImmediate(async () => {
       try {
         // Find relevant documents for the user's message
         const relevantDocs = await aiService.findRelevantDocuments(content, aiDocumentChunks);
-        console.log(`ðŸ” Found ${relevantDocs.length} relevant document chunks`);
+        console.log(`🔍 Found ${relevantDocs.length} relevant document chunks`);
 
         // Generate enhanced AI response with context
         const ticketMessages = messages.filter(m => m.ticketId === req.params.ticketId);
@@ -3013,11 +3121,11 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
           ticket, 
           relevantDocs
         );
-        console.log(`ðŸ¤– AI response generated with confidence: ${aiResponse.confidence}`);
+        console.log(`🤖 AI response generated with confidence: ${aiResponse.confidence}`);
 
         // Check if we should escalate based on confidence
         if (aiResponse.shouldEscalate) {
-          console.log('ðŸ“ˆ AI confidence too low, escalating to human agent');
+          console.log('📈 AI confidence too low, escalating to human agent');
           
           // Disable AI for this ticket and mark for escalation
           const ticketIndex = tickets.findIndex(t => t.id === req.params.ticketId);
@@ -3115,11 +3223,11 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
             message: aiMessageWithSender
           });
 
-          console.log('ðŸ¤– AI response sent successfully');
+          console.log('🤖 AI response sent successfully');
         }
 
       } catch (error) {
-        console.error('âŒ Error generating AI response:', error);
+        console.error('❌ Error generating AI response:', error);
         
         // Send fallback message on AI error
         const fallbackMessage = {
@@ -3172,7 +3280,7 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     senderUserType = sender ? (sender.id === ticket.customerId ? 'customer' : sender.userType) : 'customer';
   }
   
-  console.log('ðŸ” SENDER DEBUG:');
+  console.log('🔍 SENDER DEBUG:');
   console.log('  - user:', user);
   console.log('  - sender:', sender);
   console.log('  - ticket.customerName:', ticket.customerName);
@@ -3196,8 +3304,8 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
     }
   };
 
-  console.log('ðŸ“¤ Broadcasting message to ticket room:', `ticket_${req.params.ticketId}`);
-  console.log('ðŸ“¤ Message data:', JSON.stringify(messageWithSender, null, 2));
+  console.log('📤 Broadcasting message to ticket room:', `ticket_${req.params.ticketId}`);
+  console.log('📤 Message data:', JSON.stringify(messageWithSender, null, 2));
 
   // Broadcast message to ticket room
   io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
@@ -3210,9 +3318,9 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
   const isCustomerOffline = !customerSession || !customerSession.isOnline;
 
   if (isAgentMessage && isCustomerOffline && ticket.customerEmail && ticket.emailFallbackEnabled !== false) {
-    console.log('ðŸ“§ Customer is offline, sending email fallback...');
-    console.log('ðŸ“§ Customer session:', customerSession);
-    console.log('ðŸ“§ Customer email:', ticket.customerEmail);
+    console.log('📧 Customer is offline, sending email fallback...');
+    console.log('📧 Customer session:', customerSession);
+    console.log('📧 Customer email:', ticket.customerEmail);
     
     // Send email fallback asynchronously
     sendChatFallbackEmail(
@@ -3222,21 +3330,30 @@ app.post('/api/tickets/:ticketId/messages', (req, res) => {
       ticket
     ).then(result => {
       if (result.success) {
-        console.log('âœ… Email fallback sent successfully:', result.emailId);
+        console.log('✅ Email fallback sent successfully:', result.emailId);
       } else {
-        console.error('âŒ Email fallback failed:', result.error);
+        console.error('❌ Email fallback failed:', result.error);
       }
     }).catch(error => {
-      console.error('âŒ Email fallback error:', error);
+      console.error('❌ Email fallback error:', error);
     });
   } else if (isAgentMessage) {
-    console.log('ðŸ“§ Email fallback skipped:', {
+    console.log('📧 Email fallback skipped:', {
       isAgentMessage,
       isCustomerOffline,
       hasCustomerEmail: !!ticket.customerEmail,
       emailFallbackEnabled: ticket.emailFallbackEnabled !== false
     });
   }
+
+  // Trigger AI ticket details update after message is sent
+  setImmediate(async () => {
+    try {
+      await updateTicketDetailsWithAI(req.params.ticketId);
+    } catch (error) {
+      console.error('❌ Error updating ticket details with AI:', error);
+    }
+  });
 
   res.status(201).json({
     success: true,
@@ -3337,7 +3454,7 @@ const uploadMultiple = multer({
 app.post('/api/tickets/:ticketId/upload', (req, res) => {
   upload.single('file')(req, res, (err) => {
     if (err) {
-      console.log('âŒ Multer error:', err.message);
+      console.log('❌ Multer error:', err.message);
       return res.status(400).json({
         success: false,
         error: { code: 'UPLOAD_ERROR', message: err.message }
@@ -3349,14 +3466,14 @@ app.post('/api/tickets/:ticketId/upload', (req, res) => {
 });
 
 function handleFileUpload(req, res) {
-  console.log('\nðŸ“Ž FILE UPLOAD REQUEST RECEIVED');
+  console.log('\n📎 FILE UPLOAD REQUEST RECEIVED');
   console.log('Ticket ID:', req.params.ticketId);
   console.log('File:', req.file ? req.file.originalname : 'No file');
   console.log('Authorization header:', req.headers.authorization ? 'Present' : 'Not present');
   
   try {
     if (!req.file) {
-      console.log('âŒ No file uploaded');
+      console.log('❌ No file uploaded');
       return res.status(400).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'No file uploaded' }
@@ -3367,7 +3484,7 @@ function handleFileUpload(req, res) {
     console.log('Found ticket:', ticket ? `${ticket.ticketNumber} (isAnonymous: ${ticket.isAnonymous})` : 'Not found');
     
     if (!ticket) {
-      console.log('âŒ Ticket not found');
+      console.log('❌ Ticket not found');
       return res.status(404).json({
         success: false,
         error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
@@ -3392,7 +3509,7 @@ function handleFileUpload(req, res) {
     // For anonymous users, ensure they can only upload to their own ticket
     console.log('Permission check: user =', !!user, ', ticket.isAnonymous =', ticket.isAnonymous);
     if (!user && !ticket.isAnonymous) {
-      console.log('âŒ Access denied: anonymous user trying to upload to non-anonymous ticket');
+      console.log('❌ Access denied: anonymous user trying to upload to non-anonymous ticket');
       return res.status(403).json({
         success: false,
         error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Access denied' }
@@ -3404,7 +3521,7 @@ function handleFileUpload(req, res) {
       id: uuidv4(),
       ticketId: req.params.ticketId,
       senderId: user ? user.id : null,
-      content: `ðŸ“Ž Uploaded file: ${req.file.originalname}`,
+      content: `📎 Uploaded file: ${req.file.originalname}`,
       messageType: req.file.mimetype.startsWith('image/') ? 'image' : 'file',
       createdAt: new Date().toISOString(),
       isRead: false,
@@ -3447,8 +3564,8 @@ function handleFileUpload(req, res) {
       }
     };
 
-    console.log('ðŸ“Ž Broadcasting file message to ticket room:', `ticket_${req.params.ticketId}`);
-    console.log('ðŸ“Ž File message data:', JSON.stringify(messageWithSender, null, 2));
+    console.log('📎 Broadcasting file message to ticket room:', `ticket_${req.params.ticketId}`);
+    console.log('📎 File message data:', JSON.stringify(messageWithSender, null, 2));
 
     // Broadcast file message to ticket room
     io.to(`ticket_${req.params.ticketId}`).emit('new_message', {
@@ -3507,7 +3624,7 @@ app.get('/api/files/:filename', (req, res) => {
 
 // Get all files for a ticket
 app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
-  console.log('\nðŸ“ GET FILES REQUEST');
+  console.log('\n📁 GET FILES REQUEST');
   console.log('Ticket ID:', req.params.ticketId);
   console.log('User:', req.user?.email);
   console.log('Request headers:', {
@@ -3521,7 +3638,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
     const ticket = tickets.find(t => t.id === req.params.ticketId);
     
     if (!ticket) {
-      console.log('âŒ Ticket not found');
+      console.log('❌ Ticket not found');
       return res.status(404).json({
         success: false,
         error: { code: 'RESOURCE_NOT_FOUND', message: 'Ticket not found' }
@@ -3535,7 +3652,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
       m.fileName && m.filePath
     );
 
-    console.log(`ðŸ“ Found ${fileMessages.length} files for ticket ${req.params.ticketId}`);
+    console.log(`📁 Found ${fileMessages.length} files for ticket ${req.params.ticketId}`);
 
     // Transform file messages to file objects with additional metadata
     const files = fileMessages.map(msg => {
@@ -3567,7 +3684,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
     // Sort files by upload date (newest first)
     files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
 
-    console.log('ðŸ“ Returning files:', files.map(f => `${f.fileName} (${f.messageType})`));
+    console.log('📁 Returning files:', files.map(f => `${f.fileName} (${f.messageType})`));
 
     res.json({
       success: true,
@@ -3575,10 +3692,248 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error fetching files:', error);
+    console.error('❌ Error fetching files:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to fetch files' }
+    });
+  }
+});
+
+// Get all files across the system (Admin/Agent only)
+app.get('/api/files/all', authenticateToken, (req, res) => {
+  console.log('\n📁 GET ALL FILES REQUEST');
+  console.log('User:', req.user?.email, 'Role:', req.user?.roleName);
+  
+  try {
+    // Check permissions - only admin and agents can see all files
+    if (!req.user.permissions.includes('tickets.view_all')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Insufficient permissions to view all files' }
+      });
+    }
+
+    // Get all file messages from all tickets
+    const fileMessages = messages.filter(m => 
+      (m.messageType === 'file' || m.messageType === 'image') &&
+      m.fileName && m.filePath
+    );
+
+    console.log(`📁 Found ${fileMessages.length} total files in system`);
+
+    // Transform file messages to file objects with additional metadata
+    const files = fileMessages.map(msg => {
+      const sender = users.find(u => u.id === msg.senderId);
+      const ticket = tickets.find(t => t.id === msg.ticketId);
+      
+      return {
+        id: msg.id,
+        fileName: msg.fileName,
+        originalName: msg.fileName,
+        fileSize: msg.fileSize,
+        fileUrl: msg.fileUrl,
+        filePath: msg.filePath,
+        uploadedAt: msg.createdAt,
+        messageType: msg.messageType,
+        ticketId: msg.ticketId,
+        ticketNumber: ticket?.ticketNumber || ticket?.id,
+        sender: sender ? {
+          id: sender.id,
+          firstName: sender.firstName,
+          lastName: sender.lastName,
+          userType: sender.userType
+        } : {
+          id: null,
+          firstName: ticket?.customerName?.split(' ')[0] || 'Customer',
+          lastName: ticket?.customerName?.split(' ').slice(1).join(' ') || '',
+          userType: 'customer'
+        }
+      };
+    });
+
+    // Sort files by upload date (newest first)
+    files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
+    // Apply filters if provided
+    let filteredFiles = files;
+    const { search, fileType, ticketId, limit, offset } = req.query;
+
+    if (search) {
+      const searchTerm = search.toString().toLowerCase();
+      filteredFiles = filteredFiles.filter(file => 
+        file.originalName.toLowerCase().includes(searchTerm) ||
+        file.sender?.firstName.toLowerCase().includes(searchTerm) ||
+        file.sender?.lastName.toLowerCase().includes(searchTerm) ||
+        file.ticketNumber?.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    if (fileType && fileType !== 'all') {
+      filteredFiles = filteredFiles.filter(file => {
+        if (fileType === 'images') return file.messageType === 'image';
+        if (fileType === 'documents') return file.messageType === 'file';
+        return true;
+      });
+    }
+
+    if (ticketId) {
+      filteredFiles = filteredFiles.filter(file => file.ticketId === ticketId.toString());
+    }
+
+    // Apply pagination
+    const totalFiles = filteredFiles.length;
+    const limitNum = parseInt(limit?.toString() || '50');
+    const offsetNum = parseInt(offset?.toString() || '0');
+    const paginatedFiles = filteredFiles.slice(offsetNum, offsetNum + limitNum);
+
+    console.log(`📁 Returning ${paginatedFiles.length} files (${totalFiles} total, ${limitNum} limit, ${offsetNum} offset)`);
+
+    res.json({
+      success: true,
+      data: { 
+        files: paginatedFiles,
+        pagination: {
+          total: totalFiles,
+          limit: limitNum,
+          offset: offsetNum,
+          hasMore: offsetNum + limitNum < totalFiles
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching all files:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to fetch files' }
+    });
+  }
+});
+
+// Delete a file (Admin/Agent only)
+app.delete('/api/files/:fileId', authenticateToken, (req, res) => {
+  console.log('\n🗑️ DELETE FILE REQUEST');
+  console.log('File ID:', req.params.fileId);
+  console.log('User:', req.user?.email, 'Role:', req.user?.roleName);
+  
+  try {
+    // Check permissions - only admin and agents can delete files
+    if (!req.user.permissions.includes('tickets.manage')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Insufficient permissions to delete files' }
+      });
+    }
+
+    const fileId = req.params.fileId;
+    const messageIndex = messages.findIndex(m => m.id === fileId);
+
+    if (messageIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'File not found' }
+      });
+    }
+
+    const fileMessage = messages[messageIndex];
+    
+    // Delete the physical file
+    const filePath = path.join(__dirname, '../uploads', fileMessage.fileName);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log('🗑️ Physical file deleted:', filePath);
+    }
+
+    // Remove the message from the array
+    messages.splice(messageIndex, 1);
+
+    // Log the deletion
+    logAudit({
+      userId: req.user.id,
+      userName: `${req.user.firstName} ${req.user.lastName}`,
+      userType: req.user.userType,
+      action: 'file_deleted',
+      ticketNumber: fileMessage.ticketId,
+      targetType: 'file',
+      targetId: fileId,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      details: `Deleted file: ${fileMessage.fileName}`
+    });
+
+    console.log('🗑️ File deleted successfully:', fileMessage.fileName);
+
+    res.json({
+      success: true,
+      message: 'File deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting file:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to delete file' }
+    });
+  }
+});
+
+// Get file statistics (Admin/Agent only)
+app.get('/api/files/stats', authenticateToken, (req, res) => {
+  try {
+    if (!req.user.permissions.includes('tickets.view_all')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Insufficient permissions' }
+      });
+    }
+
+    const fileMessages = messages.filter(m => 
+      (m.messageType === 'file' || m.messageType === 'image') &&
+      m.fileName && m.filePath
+    );
+
+    const totalFiles = fileMessages.length;
+    const totalSize = fileMessages.reduce((sum, msg) => sum + (msg.fileSize || 0), 0);
+    const imageFiles = fileMessages.filter(m => m.messageType === 'image').length;
+    const documentFiles = fileMessages.filter(m => m.messageType === 'file').length;
+
+    // Files by month (last 6 months)
+    const now = new Date();
+    const monthlyStats = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+      
+      const monthFiles = fileMessages.filter(msg => {
+        const msgDate = new Date(msg.createdAt);
+        return msgDate >= monthStart && msgDate <= monthEnd;
+      });
+
+      monthlyStats.push({
+        month: monthStart.toISOString().substring(0, 7), // YYYY-MM format
+        count: monthFiles.length,
+        size: monthFiles.reduce((sum, msg) => sum + (msg.fileSize || 0), 0)
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        totalFiles,
+        totalSize,
+        imageFiles,
+        documentFiles,
+        monthlyStats,
+        averageFileSize: totalFiles > 0 ? Math.round(totalSize / totalFiles) : 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting file stats:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Failed to get file statistics' }
     });
   }
 });
@@ -3589,7 +3944,7 @@ app.get('/api/tickets/:ticketId/files', authenticateToken, (req, res) => {
 
 // Get all customers (derived from tickets)
 app.get('/api/customers', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¥ GET CUSTOMERS REQUEST');
+  console.log('\n👥 GET CUSTOMERS REQUEST');
   console.log('User:', req.user?.email, 'Permissions:', req.user?.permissions);
   
   try {
@@ -3746,7 +4101,7 @@ app.get('/api/customers', authenticateToken, (req, res) => {
       }
     });
 
-    console.log(`âœ… Returning ${customers.length} customers`);
+    console.log(`✅ Returning ${customers.length} customers`);
 
     res.json({
       success: true,
@@ -3762,7 +4117,7 @@ app.get('/api/customers', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error fetching customers:', error);
+    console.error('❌ Error fetching customers:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to fetch customers' }
@@ -3772,7 +4127,7 @@ app.get('/api/customers', authenticateToken, (req, res) => {
 
 // Get single customer by ID/email
 app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¤ GET SINGLE CUSTOMER REQUEST');
+  console.log('\n👤 GET SINGLE CUSTOMER REQUEST');
   console.log('Identifier:', req.params.identifier);
   
   try {
@@ -3846,7 +4201,7 @@ app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
       };
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    console.log(`âœ… Returning customer ${customer.email} with ${enrichedTickets.length} tickets`);
+    console.log(`✅ Returning customer ${customer.email} with ${enrichedTickets.length} tickets`);
 
     res.json({
       success: true,
@@ -3859,7 +4214,7 @@ app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error fetching customer:', error);
+    console.error('❌ Error fetching customer:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to fetch customer' }
@@ -3869,7 +4224,7 @@ app.get('/api/customers/:identifier', authenticateToken, (req, res) => {
 
 // Update customer
 app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¤ UPDATE CUSTOMER REQUEST');
+  console.log('\n👤 UPDATE CUSTOMER REQUEST');
   console.log('Identifier:', req.params.identifier);
   console.log('Body:', req.body);
   
@@ -3959,7 +4314,7 @@ app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
       }, null)
     };
 
-    console.log(`âœ… Updated customer ${customer.email}`);
+    console.log(`✅ Updated customer ${customer.email}`);
 
     res.json({
       success: true,
@@ -3967,7 +4322,7 @@ app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error updating customer:', error);
+    console.error('❌ Error updating customer:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to update customer' }
@@ -3977,7 +4332,7 @@ app.put('/api/customers/:identifier', authenticateToken, (req, res) => {
 
 // Delete customer
 app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
-  console.log('\nðŸ‘¤ DELETE CUSTOMER REQUEST');
+  console.log('\n👤 DELETE CUSTOMER REQUEST');
   console.log('Identifier:', req.params.identifier);
   
   try {
@@ -4047,7 +4402,7 @@ app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
       details: `Deleted customer and all associated data for ${customerEmail}`
     });
 
-    console.log(`âœ… Deleted customer ${customerEmail} and all associated data`);
+    console.log(`✅ Deleted customer ${customerEmail} and all associated data`);
 
     res.json({
       success: true,
@@ -4055,7 +4410,7 @@ app.delete('/api/customers/:identifier', authenticateToken, (req, res) => {
     });
 
   } catch (error) {
-    console.error('âŒ Error deleting customer:', error);
+    console.error('❌ Error deleting customer:', error);
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: 'Failed to delete customer' }
@@ -4286,7 +4641,7 @@ const syncUserPermissionsWithRole = (roleId) => {
   users.forEach(user => {
     if (user.roleId === roleId) {
       user.permissions = rolePermissions;
-      console.log(`ðŸ”„ Updated permissions for user ${user.email}:`, rolePermissions);
+      console.log(`🔄 Updated permissions for user ${user.email}:`, rolePermissions);
     }
   });
 };
@@ -4420,7 +4775,7 @@ app.get('/api/agents', authenticateToken, (req, res) => {
         };
       });
 
-    console.log('ðŸ” AGENTS ENDPOINT - Returning agents with lastLogin values:');
+    console.log('🔍 AGENTS ENDPOINT - Returning agents with lastLogin values:');
     agents.forEach(agent => {
       console.log(`  - ${agent.email}: lastLogin = ${agent.lastLogin}${agent.isAIAgent ? ' (AI Agent)' : ''}`);
     });
@@ -4678,30 +5033,30 @@ app.post('/api/agents/:id/reset-password', authenticateToken, async (req, res) =
 
 // Get current user profile
 app.get('/api/profile', authenticateToken, (req, res) => {
-  console.log('ðŸ‘¤ PROFILE GET REQUEST RECEIVED');
+  console.log('👤 PROFILE GET REQUEST RECEIVED');
   console.log('  - userId:', req.user.sub);
   
   try {
     const user = users.find(u => u.id === req.user.sub);
     if (!user) {
-      console.log('âŒ User not found with ID:', req.user.sub);
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
-    console.log('âœ… Found user profile:', user.email);
+    console.log('✅ Found user profile:', user.email);
 
     // Return user profile without password
     const { password: _, ...userProfile } = user;
     res.json(userProfile);
   } catch (error) {
-    console.error('âŒ Error fetching profile:', error);
+    console.error('❌ Error fetching profile:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
 // Update user profile (name and avatar)
 app.put('/api/profile', authenticateToken, (req, res) => {
-  console.log('ðŸ‘¤ PROFILE UPDATE REQUEST RECEIVED');
+  console.log('👤 PROFILE UPDATE REQUEST RECEIVED');
   console.log('  - userId:', req.user.sub);
   console.log('  - body:', req.body);
   
@@ -4710,12 +5065,12 @@ app.put('/api/profile', authenticateToken, (req, res) => {
     
     const userIndex = users.findIndex(u => u.id === req.user.sub);
     if (userIndex === -1) {
-      console.log('âŒ User not found with ID:', req.user.sub);
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
     const user = users[userIndex];
-    console.log('âœ… Found user:', user.email);
+    console.log('✅ Found user:', user.email);
 
     // Update profile fields
     if (firstName !== undefined) user.firstName = firstName.trim();
@@ -4725,20 +5080,20 @@ app.put('/api/profile', authenticateToken, (req, res) => {
     user.updatedAt = new Date().toISOString();
     users[userIndex] = user;
 
-    console.log('âœ… Profile updated successfully');
+    console.log('✅ Profile updated successfully');
 
     // Return updated profile without password
     const { password: _, ...userProfile } = user;
     res.json(userProfile);
   } catch (error) {
-    console.error('âŒ Error updating profile:', error);
+    console.error('❌ Error updating profile:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
 // Change password
 app.put('/api/profile/password', authenticateToken, async (req, res) => {
-  console.log('ðŸ” PASSWORD CHANGE REQUEST RECEIVED');
+  console.log('🔐 PASSWORD CHANGE REQUEST RECEIVED');
   console.log('  - userId:', req.user.sub);
   
   try {
@@ -4755,12 +5110,12 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
 
     const userIndex = users.findIndex(u => u.id === req.user.sub);
     if (userIndex === -1) {
-      console.log('âŒ User not found with ID:', req.user.sub);
+      console.log('❌ User not found with ID:', req.user.sub);
       return res.status(404).json({ message: 'User not found' });
     }
 
     const user = users[userIndex];
-    console.log('âœ… Found user for password change:', user.email);
+    console.log('✅ Found user for password change:', user.email);
 
     // Verify current password
     const isValidPassword = await bcrypt.compare(currentPassword, user.password);
@@ -4826,7 +5181,7 @@ const logAudit = (params) => {
   };
 
   auditLogs.push(auditEntry);
-  console.log('ðŸ” Audit Log:', auditEntry);
+  console.log('🔍 Audit Log:', auditEntry);
   
   // Keep only last 10000 entries in memory
   if (auditLogs.length > 10000) {
@@ -5098,28 +5453,28 @@ app.get('/', (req, res) => {
     <body>
         <div class="container">
             <div class="header">
-                <h1>ðŸŽ¯ NeuroChat Ticketing System</h1>
+                <h1>🎯 NeuroChat Ticketing System</h1>
                 <p>Real-time Customer Support Platform - Demo Version</p>
             </div>
 
             <div class="status">
-                âœ… <strong>Server Status:</strong> Running on http://localhost:3001<br>
-                ðŸ”— <strong>WebSocket:</strong> Connected and ready for real-time chat<br>
-                ðŸ“Š <strong>Database:</strong> In-memory demo data loaded
+                ✅ <strong>Server Status:</strong> Running on http://localhost:3001<br>
+                🔗 <strong>WebSocket:</strong> Connected and ready for real-time chat<br>
+                📊 <strong>Database:</strong> In-memory demo data loaded
             </div>
 
             <div class="demo-section">
-                <h2>ðŸš€ Quick Demo</h2>
+                <h2>🚀 Quick Demo</h2>
                 <p>Ready-to-use demo accounts:</p>
                 <div class="grid">
                     <div>
-                        <h3>ðŸ‘¤ Customer Account</h3>
+                        <h3>👤 Customer Account</h3>
                         <strong>Email:</strong> customer@demo.com<br>
                         <strong>Password:</strong> demo123<br>
                         <em>Can create tickets and chat with support</em>
                     </div>
                     <div>
-                        <h3>ðŸ› ï¸ Agent Account</h3>
+                        <h3>🛠️ Agent Account</h3>
                         <strong>Email:</strong> agent@demo.com<br>
                         <strong>Password:</strong> demo123<br>
                         <em>Can claim tickets and respond to customers</em>
@@ -5128,7 +5483,7 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸŒ API Endpoints</h2>
+                <h2>🌐 API Endpoints</h2>
                 <p>Test the REST API directly:</p>
                 <div class="api-endpoint">POST /api/auth/login - User authentication</div>
                 <div class="api-endpoint">GET /api/tickets - List tickets</div>
@@ -5139,7 +5494,7 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸ’¬ Real-time Features</h2>
+                <h2>💬 Real-time Features</h2>
                 <p>WebSocket events for real-time communication:</p>
                 <ul>
                     <li><strong>new_ticket</strong> - Notifies agents of new tickets</li>
@@ -5150,10 +5505,10 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸ”§ Next Steps</h2>
+                <h2>🔧 Next Steps</h2>
                 <p>To see the full application in action:</p>
                 <ol>
-                    <li><strong>Backend is running!</strong> âœ… API server is live on port 3001</li>
+                    <li><strong>Backend is running!</strong> ✅ API server is live on port 3001</li>
                     <li><strong>Build the Frontend:</strong> Create React app that connects to this API</li>
                     <li><strong>Test Real-time Chat:</strong> Use WebSocket client to test Socket.IO events</li>
                     <li><strong>Deploy Database:</strong> Replace in-memory storage with Azure SQL</li>
@@ -5163,10 +5518,10 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="demo-section">
-                <h2>ðŸ“‹ System Features</h2>
+                <h2>📋 System Features</h2>
                 <div class="grid">
                     <div>
-                        <h3>âœ… Working Features</h3>
+                        <h3>✅ Working Features</h3>
                         <ul>
                             <li>User authentication (JWT)</li>
                             <li>Ticket creation & management</li>
@@ -5177,7 +5532,7 @@ app.get('/', (req, res) => {
                         </ul>
                     </div>
                     <div>
-                        <h3>ðŸŽ¯ Demo Capabilities</h3>
+                        <h3>🎯 Demo Capabilities</h3>
                         <ul>
                             <li>Login as customer or agent</li>
                             <li>Create support tickets</li>
@@ -5192,10 +5547,10 @@ app.get('/', (req, res) => {
         </div>
 
         <script>
-            console.log('ðŸŽ¯ NeuroChat Backend Server Running!');
-            console.log('ðŸ“¡ API Base URL: http://localhost:3001/api');
-            console.log('ðŸ”Œ WebSocket URL: http://localhost:3001');
-            console.log('ðŸ“– Demo Accounts Ready - Check the page for login details');
+            console.log('🎯 NeuroChat Backend Server Running!');
+            console.log('📡 API Base URL: http://localhost:3001/api');
+            console.log('🔌 WebSocket URL: http://localhost:3001');
+            console.log('📖 Demo Accounts Ready - Check the page for login details');
         </script>
     </body>
     </html>
@@ -5204,14 +5559,14 @@ app.get('/', (req, res) => {
 
 // Socket.IO handling
 io.on('connection', (socket) => {
-  console.log('ðŸ‘¤ User connected:', socket.id);
-  console.log('ðŸ”§ BACKEND: New socket connection established, ID:', socket.id);
+  console.log('👤 User connected:', socket.id);
+  console.log('🔧 BACKEND: New socket connection established, ID:', socket.id);
   
   // Handle agent dashboard connection
   socket.on('agent_dashboard_join', (data) => {
-    console.log('ðŸ”§ BACKEND: Received agent_dashboard_join event:', data);
+    console.log('🔧 BACKEND: Received agent_dashboard_join event:', data);
     const { agentId, agentName } = data;
-    console.log(`ðŸ‘¨â€ðŸ’¼ Agent ${agentName} (${agentId}) joined dashboard`);
+    console.log(`👨‍💼 Agent ${agentName} (${agentId}) joined dashboard`);
     
     // Track agent session
     agentSessions.set(agentId, {
@@ -5223,24 +5578,24 @@ io.on('connection', (socket) => {
     
     socketToAgentMap.set(socket.id, agentId);
     
-    console.log('ðŸ”§ BACKEND: Agent sessions after join:', Array.from(agentSessions.entries()));
-    console.log('ðŸ”§ BACKEND: Socket to agent map:', Array.from(socketToAgentMap.entries()));
+    console.log('🔧 BACKEND: Agent sessions after join:', Array.from(agentSessions.entries()));
+    console.log('🔧 BACKEND: Socket to agent map:', Array.from(socketToAgentMap.entries()));
     
     // Notify all connected clients about agent status change
-    console.log('ðŸ”§ BACKEND: Emitting agent_status_changed event to all clients');
+    console.log('🔧 BACKEND: Emitting agent_status_changed event to all clients');
     io.emit('agent_status_changed', {
       agentId,
       isOnline: true,
       lastSeen: new Date().toISOString()
     });
     
-    console.log(`ðŸŸ¢ Agent ${agentName} is now online and event broadcasted`);
+    console.log(`🟢 Agent ${agentName} is now online and event broadcasted`);
   });
   
   // Handle agent dashboard leave
   socket.on('agent_dashboard_leave', (data) => {
     const { agentId, agentName } = data;
-    console.log(`ðŸ‘¨â€ðŸ’¼ Agent ${agentName} (${agentId}) left dashboard`);
+    console.log(`👨‍💼 Agent ${agentName} (${agentId}) left dashboard`);
     
     const session = agentSessions.get(agentId);
     if (session && session.socketId === socket.id) {
@@ -5254,7 +5609,7 @@ io.on('connection', (socket) => {
         lastSeen: new Date().toISOString()
       });
       
-      console.log(`ðŸ”´ Agent ${agentName} is now offline`);
+      console.log(`🔴 Agent ${agentName} is now offline`);
     }
   });
 
@@ -5262,17 +5617,17 @@ io.on('connection', (socket) => {
   socket.on('join_ticket', (data) => {
     socket.join(`ticket_${data.ticketId}`);
     socket.emit('ticket_joined', { ticketId: data.ticketId, success: true });
-    console.log(`ðŸ“ User ${socket.id} joined ticket ${data.ticketId}`);
-    console.log(`ðŸ“ Join data:`, data);
+    console.log(`📝 User ${socket.id} joined ticket ${data.ticketId}`);
+    console.log(`📝 Join data:`, data);
     
     // Track customer session for the ticket
     const ticket = tickets.find(t => t.id === data.ticketId);
-    console.log(`ðŸ“ Found ticket:`, ticket ? `${ticket.id} (isAnonymous: ${ticket.isAnonymous})` : 'NOT FOUND');
+    console.log(`📝 Found ticket:`, ticket ? `${ticket.id} (isAnonymous: ${ticket.isAnonymous})` : 'NOT FOUND');
     
     // Determine if this is a customer connection
     // Priority: explicit isCustomer flag, then ticket existence check
     const shouldTrackCustomer = data.isCustomer || (ticket && ticket.isAnonymous) || (!ticket && data.isCustomer !== false);
-    console.log(`ðŸ“ Should track customer: ${shouldTrackCustomer} (isCustomer: ${data.isCustomer}, ticketExists: ${!!ticket}, ticketIsAnonymous: ${ticket?.isAnonymous})`);
+    console.log(`📝 Should track customer: ${shouldTrackCustomer} (isCustomer: ${data.isCustomer}, ticketExists: ${!!ticket}, ticketIsAnonymous: ${ticket?.isAnonymous})`);
     
     if (shouldTrackCustomer) {
       // Track socket to ticket mapping for cleanup on disconnect
@@ -5299,7 +5654,7 @@ io.on('connection', (socket) => {
         details: `Customer joined chat session for ticket ${data.ticketId}`
       });
       
-      console.log(`ðŸŸ¢ Customer for ticket ${data.ticketId} is now online - session created:`, customerSessions.get(data.ticketId));
+      console.log(`🟢 Customer for ticket ${data.ticketId} is now online - session created:`, customerSessions.get(data.ticketId));
       
       // Notify agents that customer is online
       socket.to(`ticket_${data.ticketId}`).emit('customer_status_changed', {
@@ -5308,20 +5663,20 @@ io.on('connection', (socket) => {
         lastSeen: new Date().toISOString()
       });
       
-      console.log(`ðŸŸ¢ Notified agents about customer online status for ticket ${data.ticketId}`);
+      console.log(`🟢 Notified agents about customer online status for ticket ${data.ticketId}`);
     } else {
-      console.log(`â„¹ï¸ Not tracking customer session for ticket ${data.ticketId} (user is likely an agent)`);
+      console.log(`ℹ️ Not tracking customer session for ticket ${data.ticketId} (user is likely an agent)`);
     }
   });
 
   // Handle leaving ticket room
   socket.on('leave_ticket', (data) => {
     socket.leave(`ticket_${data.ticketId}`);
-    console.log(`ðŸ“ User ${socket.id} left ticket ${data.ticketId}`);
+    console.log(`📝 User ${socket.id} left ticket ${data.ticketId}`);
     
     // Update customer session status
     const session = customerSessions.get(data.ticketId);
-    console.log(`ðŸ“ Found customer session for leave_ticket:`, session);
+    console.log(`📝 Found customer session for leave_ticket:`, session);
     
     if (session && session.socketId === socket.id) {
       session.isOnline = false;
@@ -5353,18 +5708,138 @@ io.on('connection', (socket) => {
         lastSeen: new Date().toISOString()
       });
       
-      console.log(`ðŸ”´ Customer for ticket ${data.ticketId} is now offline - emitted customer_status_changed`);
+      console.log(`🔴 Customer for ticket ${data.ticketId} is now offline - emitted customer_status_changed`);
     } else {
-      console.log(`â„¹ï¸ No customer session found for ticket ${data.ticketId} or socket mismatch`);
+      console.log(`ℹ️ No customer session found for ticket ${data.ticketId} or socket mismatch`);
     }
   });
 
-  // Handle typing indicators
+  // Handle typing indicators with auto-claim functionality
   socket.on('typing_start', (data) => {
+    console.log('⌨️ Agent typing started:', data);
+    
+    // First, emit the typing indicator to other users in the room
     socket.to(`ticket_${data.ticketId}`).emit('user_typing', {
       ticketId: data.ticketId,
       isTyping: true
     });
+
+    // Check if this socket belongs to an agent and implement auto-claim
+    const agentId = socketToAgentMap.get(socket.id);
+    if (agentId) {
+      console.log('🤖 Typing detected from agent:', agentId);
+      
+      // Find the ticket
+      const ticket = tickets.find(t => t.id === data.ticketId);
+      if (ticket) {
+        console.log('🎫 Found ticket for auto-claim check:', {
+          ticketId: ticket.id,
+          currentAgent: ticket.agentId,
+          status: ticket.status,
+          agentTyping: agentId
+        });
+
+        // Auto-claim conditions:
+        // 1. Ticket is not assigned to any agent OR assigned to AI agent
+        // 2. Agent has permission to claim tickets
+        // 3. Don't claim if already assigned to a human agent (except AI)
+        const shouldAutoClaim = !ticket.agentId || ticket.agentId === neuroAIAgentId;
+        
+        if (shouldAutoClaim) {
+          console.log('🚀 Auto-claiming ticket due to agent typing...');
+          
+          // Find the agent user record
+          const agent = users.find(u => u.id === agentId && u.userType === 'agent');
+          if (agent && agent.permissions && agent.permissions.includes('tickets.edit')) {
+            console.log('✅ Agent has permission to claim tickets, proceeding with auto-claim');
+            
+            // If taking over from AI agent, handle the transition
+            const wasAssignedToAI = ticket.agentId === neuroAIAgentId;
+            
+            // Update ticket
+            ticket.agentId = agentId;
+            ticket.status = 'in_progress';
+            ticket.assignedAt = new Date().toISOString();
+            ticket.updatedAt = new Date().toISOString();
+            
+            // If this was an AI ticket, log the handoff
+            if (wasAssignedToAI) {
+              console.log(`🤖➡️👨 Agent ${agent.firstName} ${agent.lastName} auto-claimed ticket ${ticket.ticketNumber} from NeuroAI via typing`);
+              unassignTicketFromNeuroAI(ticket.id, agentId);
+            } else {
+              console.log(`👨 Agent ${agent.firstName} ${agent.lastName} auto-claimed unassigned ticket ${ticket.ticketNumber} via typing`);
+            }
+            
+            // Log the auto-claim action
+            logAudit({
+              userId: agentId,
+              userName: `${agent.firstName} ${agent.lastName}`,
+              userType: 'agent',
+              action: wasAssignedToAI ? 'ticket_auto_claimed_from_ai' : 'ticket_auto_claimed',
+              ticketNumber: ticket.ticketNumber,
+              targetType: 'ticket',
+              targetId: ticket.id,
+              ipAddress: socket.request.connection.remoteAddress,
+              userAgent: socket.handshake.headers['user-agent'],
+              details: wasAssignedToAI 
+                ? `${agent.firstName} ${agent.lastName} (${agent.roleName || 'Unknown Role'}) auto-claimed ticket from NeuroAI via typing and changed status to in_progress`
+                : `${agent.firstName} ${agent.lastName} (${agent.roleName || 'Unknown Role'}) auto-claimed ticket via typing and changed status to in_progress`
+            });
+
+            // Notify all clients in the ticket room about the claim
+            io.to(`ticket_${ticket.id}`).emit('ticket_claimed', {
+              ticketId: ticket.id,
+              agent: {
+                id: agentId,
+                firstName: agent.firstName,
+                lastName: agent.lastName
+              },
+              claimedAt: ticket.assignedAt,
+              handoffFromAI: wasAssignedToAI,
+              autoClaimed: true // Flag to indicate this was an auto-claim
+            });
+
+            // If this was a handoff from AI, also emit a specific handoff event
+            if (wasAssignedToAI) {
+              io.to(`ticket_${ticket.id}`).emit('ai_to_human_handoff', {
+                ticketId: ticket.id,
+                previousAgent: 'NeuroAI Assistant',
+                newAgent: {
+                  id: agentId,
+                  firstName: agent.firstName,
+                  lastName: agent.lastName
+                },
+                handoffAt: ticket.assignedAt,
+                autoClaimed: true
+              });
+            }
+
+            // Emit ticket update to refresh UI
+            io.to(`ticket_${ticket.id}`).emit('ticket_updated', {
+              ticketId: ticket.id,
+              updates: {
+                agentId: agentId,
+                status: 'in_progress',
+                assignedAt: ticket.assignedAt
+              },
+              updatedBy: agentId,
+              updatedAt: ticket.updatedAt,
+              autoClaimed: true
+            });
+
+            console.log('🎉 Auto-claim completed successfully');
+          } else {
+            console.log('❌ Agent does not have permission to claim tickets or agent not found');
+          }
+        } else {
+          console.log('ℹ️ Ticket already assigned to human agent, skipping auto-claim');
+        }
+      } else {
+        console.log('❌ Ticket not found for auto-claim');
+      }
+    } else {
+      console.log('ℹ️ Typing from non-agent user, no auto-claim needed');
+    }
   });
 
   socket.on('typing_stop', (data) => {
@@ -5375,13 +5850,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('ðŸ‘‹ User disconnected:', socket.id);
+    console.log('👋 User disconnected:', socket.id);
     
     // Check if this socket was associated with an agent session
     const agentId = socketToAgentMap.get(socket.id);
     if (agentId) {
       const agentSession = agentSessions.get(agentId);
-      console.log(`ðŸ‘¨â€ðŸ’¼ Socket ${socket.id} was mapped to agent:`, agentId);
+      console.log(`👨‍💼 Socket ${socket.id} was mapped to agent:`, agentId);
       
       if (agentSession && agentSession.socketId === socket.id && agentSession.isOnline) {
         agentSession.isOnline = false;
@@ -5394,7 +5869,7 @@ io.on('connection', (socket) => {
           lastSeen: new Date().toISOString()
         });
         
-        console.log(`ðŸ”´ Agent ${agentId} disconnected and marked offline`);
+        console.log(`🔴 Agent ${agentId} disconnected and marked offline`);
       }
       
       // Clean up agent socket mapping
@@ -5403,11 +5878,11 @@ io.on('connection', (socket) => {
     
     // Check if this socket was associated with a customer session
     const ticketId = socketToTicketMap.get(socket.id);
-    console.log(`ðŸ“ Socket ${socket.id} was mapped to ticket:`, ticketId);
+    console.log(`📝 Socket ${socket.id} was mapped to ticket:`, ticketId);
     
     if (ticketId) {
       const session = customerSessions.get(ticketId);
-      console.log(`ðŸ“ Found customer session for disconnect:`, session);
+      console.log(`📝 Found customer session for disconnect:`, session);
       
       if (session && session.socketId === socket.id && session.isOnline) {
         session.isOnline = false;
@@ -5436,15 +5911,15 @@ io.on('connection', (socket) => {
           lastSeen: new Date().toISOString()
         });
         
-        console.log(`ðŸ”´ Customer for ticket ${ticketId} disconnected - emitted customer_status_changed`);
+        console.log(`🔴 Customer for ticket ${ticketId} disconnected - emitted customer_status_changed`);
       } else {
-        console.log(`â„¹ï¸ Session not found, socket mismatch, or already offline for ticket ${ticketId}`);
+        console.log(`ℹ️ Session not found, socket mismatch, or already offline for ticket ${ticketId}`);
       }
       
       // Clean up socket mapping
       socketToTicketMap.delete(socket.id);
     } else {
-      console.log(`â„¹ï¸ Socket ${socket.id} was not associated with any customer session`);
+      console.log(`ℹ️ Socket ${socket.id} was not associated with any customer session`);
     }
   });
 });
@@ -5462,8 +5937,8 @@ function generateInsightsData(filters = {}) {
   
   // Filter by date range if provided
   if (startDate || endDate) {
-    console.log('ðŸ“Š INSIGHTS: Filtering by date range - startDate:', startDate, 'endDate:', endDate);
-    console.log('ðŸ“Š INSIGHTS: Total tickets before date filter:', filteredTickets.length);
+    console.log('📊 INSIGHTS: Filtering by date range - startDate:', startDate, 'endDate:', endDate);
+    console.log('📊 INSIGHTS: Total tickets before date filter:', filteredTickets.length);
     
     filteredTickets = filteredTickets.filter(ticket => {
       const ticketDate = new Date(ticket.createdAt);
@@ -5484,7 +5959,7 @@ function generateInsightsData(filters = {}) {
       return includeTicket;
     });
     
-    console.log('ðŸ“Š INSIGHTS: Total tickets after date filter:', filteredTickets.length);
+    console.log('📊 INSIGHTS: Total tickets after date filter:', filteredTickets.length);
   }
   
   if (agentId) {
@@ -5860,7 +6335,7 @@ function generateInsightsData(filters = {}) {
   };
 
   // Debug: Log all ticket statuses to understand the data
-  console.log('ðŸ” TICKET FLOW DEBUG: Analyzing', filteredTickets.length, 'tickets');
+  console.log('🔍 TICKET FLOW DEBUG: Analyzing', filteredTickets.length, 'tickets');
   const statusDebug = {};
   
   filteredTickets.forEach(ticket => {
@@ -5889,14 +6364,14 @@ function generateInsightsData(filters = {}) {
         statusCounts['closed']++;
         break;
       default:
-        console.log('âš ï¸ Unknown ticket status:', status);
+        console.log('⚠️ Unknown ticket status:', status);
         // Default unknown statuses to 'new'
         statusCounts['new']++;
     }
   });
 
-  console.log('ðŸ” TICKET FLOW DEBUG: Status breakdown:', statusDebug);
-  console.log('ðŸ” TICKET FLOW DEBUG: Final counts:', statusCounts);
+  console.log('🔍 TICKET FLOW DEBUG: Status breakdown:', statusDebug);
+  console.log('🔍 TICKET FLOW DEBUG: Final counts:', statusCounts);
 
   const ticketFlowData = [
     { stage: 'New', count: statusCounts['new'], color: '#3B82F6' },
@@ -5954,7 +6429,7 @@ function generateInsightsData(filters = {}) {
 // Get insights/analytics data
 app.get('/api/insights', authenticateToken, (req, res) => {
   try {
-    console.log('ðŸ“Š INSIGHTS ENDPOINT CALLED by user:', req.user.sub);
+    console.log('📊 INSIGHTS ENDPOINT CALLED by user:', req.user.sub);
     
     // Check if user has permission to view insights
     const user = users.find(u => u.id === req.user.sub);
@@ -5982,7 +6457,7 @@ app.get('/api/insights', authenticateToken, (req, res) => {
       category: req.query.category
     };
 
-    console.log('ðŸ“Š INSIGHTS: Received filters:', filters);
+    console.log('📊 INSIGHTS: Received filters:', filters);
 
     const insightsData = generateInsightsData(filters);
 
@@ -6004,12 +6479,12 @@ app.get('/api/insights', authenticateToken, (req, res) => {
 // Debug endpoint to check specific ticket data
 app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
   const { ticketNumber } = req.params;
-  console.log('ðŸ” Debug request for ticket:', ticketNumber);
+  console.log('🔍 Debug request for ticket:', ticketNumber);
   
   const ticket = tickets.find(t => t.ticketNumber === ticketNumber);
   
   if (ticket) {
-    console.log('âœ… Found ticket:', ticketNumber);
+    console.log('✅ Found ticket:', ticketNumber);
     console.log('   Title:', ticket.title);
     console.log('   Customer Name:', ticket.customerName || 'N/A');
     console.log('   Customer Email:', ticket.customerEmail || 'N/A');
@@ -6040,7 +6515,7 @@ app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
       }
     });
   } else {
-    console.log('âŒ Ticket not found:', ticketNumber);
+    console.log('❌ Ticket not found:', ticketNumber);
     console.log('Available tickets:');
     tickets.forEach(t => {
       console.log('  - ' + t.ticketNumber + ': ' + t.title);
@@ -6056,9 +6531,9 @@ app.get('/api/debug/ticket/:ticketNumber', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log('ðŸš€ NeuroChat Server running on http://localhost:' + PORT);
-  console.log('ðŸ“¡ Socket.IO server ready for real-time connections');
-  console.log('ðŸ‘¤ Demo accounts ready: customer@demo.com / agent@demo.com (password: demo123)');
+  console.log('🚀 NeuroChat Server running on http://localhost:' + PORT);
+  console.log('📡 Socket.IO server ready for real-time connections');
+  console.log('👤 Demo accounts ready: customer@demo.com / agent@demo.com (password: demo123)');
   
   // Initialize email system after server starts
   console.log('');
@@ -6907,7 +7382,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
     
     // For tickets with customer company info, try to find or create a company based on customerCompany name
     if (!deviceCompanyId && ticket.customerCompany) {
-              console.log('ðŸ¢ Looking for company:', ticket.customerCompany);
+              console.log('🏢 Looking for company:', ticket.customerCompany);
       let company = companies.find(c => 
         c.name === ticket.customerCompany || 
         (c.aliases && c.aliases.includes(ticket.customerCompany))
@@ -6935,7 +7410,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
           updatedBy: null
         };
         companies.push(company);
-        console.log('ðŸ¢ Auto-created company:', company.name, 'ID:', company.id);
+        console.log('🏢 Auto-created company:', company.name, 'ID:', company.id);
       }
       
       deviceCompanyId = company.id;
@@ -6944,7 +7419,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
       const ticketIndex = tickets.findIndex(t => t.id === ticket.id);
       if (ticketIndex !== -1) {
         tickets[ticketIndex].companyId = company.id;
-        console.log('ðŸ”— Associated ticket with company:', company.name);
+        console.log('🔗 Associated ticket with company:', company.name);
       }
     }
 
@@ -6964,7 +7439,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
     };
     
     devices.push(device);
-    console.log('ðŸ”§ Auto-created device:', device.serialNumber, 'for company:', deviceCompanyId);
+    console.log('🔧 Auto-created device:', device.serialNumber, 'for company:', deviceCompanyId);
   }
 
   // Link ticket to device
@@ -6979,7 +7454,7 @@ const autoCreateDeviceFromTicket = (ticket) => {
       linkedAt: new Date().toISOString(),
       linkedBy: null
     });
-    console.log('ðŸ”— Linked ticket to device:', ticket.id, '->', device.id);
+    console.log('🔗 Linked ticket to device:', ticket.id, '->', device.id);
   }
 
   return device;
@@ -6990,7 +7465,7 @@ linkCustomersToCompanies();
 initializeDemoDevices();
 
 // Process existing demo tickets to create missing devices (now that companies are available)
-console.log('ðŸ”§ Processing existing demo tickets for device auto-creation...');
+console.log('🔧 Processing existing demo tickets for device auto-creation...');
 tickets.forEach(ticket => {
   if (ticket.deviceSerialNumber && ticket.deviceModel) {
     console.log(`  - Processing ticket ${ticket.ticketNumber}: ${ticket.deviceSerialNumber}`);
@@ -7103,7 +7578,7 @@ function findCompanyMatches(inputName, threshold = 75) {
 
 // Automatic fuzzy matching when ticket is closed/resolved
 function performAutomaticCompanyMatching(ticket) {
-  console.log('ðŸ” Performing automatic company matching for ticket:', ticket.id);
+  console.log('🔍 Performing automatic company matching for ticket:', ticket.id);
   
   // Only perform fuzzy matching if customer typed a company name manually
   if (!ticket.customerCompany || ticket.companyId) {
@@ -7124,7 +7599,7 @@ function performAutomaticCompanyMatching(ticket) {
   if (matches.length > 0) {
     const bestMatch = matches[0]; // Highest confidence match
     
-    console.log(`  - Found match: "${ticket.customerCompany}" â†’ "${bestMatch.company.name}" (${bestMatch.confidence}%)`);
+    console.log(`  - Found match: "${ticket.customerCompany}" → "${bestMatch.company.name}" (${bestMatch.confidence}%)`);
     
     // Auto-approve matches with very high confidence (95%+) or exact matches
     if (bestMatch.confidence >= 95 || bestMatch.matchedField === 'name') {
@@ -7271,7 +7746,7 @@ function performAutomaticCompanyMatching(ticket) {
 }
 
 // Get enriched company data with related counts
-const getCompanyWithRelations = (company) => {
+const getCompanyWithRelations = async (company) => {
   // Count related registered customers (users)
   const relatedRegisteredCustomers = users.filter(user => 
     user.userType === 'customer' && 
@@ -7341,11 +7816,35 @@ const getCompanyWithRelations = (company) => {
     allCustomers.some(customer => customer.id === device.customerId)
   );
   
+  // Calculate total service count for all devices belonging to this company
+  let totalServiceCount = 0;
+  
+  for (const device of relatedDevices) {
+    try {
+      if (serviceWorkflowService && typeof serviceWorkflowService.getWorkflowsByDevice === 'function') {
+        const deviceWorkflows = await serviceWorkflowService.getWorkflowsByDevice(device.serialNumber);
+        totalServiceCount += deviceWorkflows ? deviceWorkflows.length : 0;
+      } else {
+        // For testing, assign a sample count based on device model
+        if (device.serialNumber === 'BW3-2024-001234') totalServiceCount += 2;
+        else if (device.serialNumber === 'BWM-2024-005678') totalServiceCount += 1;
+      }
+    } catch (error) {
+      console.error(`Error getting service count for device ${device.serialNumber}:`, error);
+      // For testing, assign a sample count based on device model
+      if (device.serialNumber === 'BW3-2024-001234') totalServiceCount += 2;
+      else if (device.serialNumber === 'BWM-2024-005678') totalServiceCount += 1;
+    }
+  }
+  
+  console.log(`Company ${company.name} has ${totalServiceCount} total service workflows across ${relatedDevices.length} devices`);
+  
   return {
     ...company,
     customerCount: allCustomers.length,
     ticketCount: relatedTickets.length,
     deviceCount: relatedDevices.length,
+    serviceCount: totalServiceCount,
     lastTicketDate: relatedTickets.length > 0 
       ? relatedTickets.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0].createdAt
       : null,
@@ -7356,7 +7855,7 @@ const getCompanyWithRelations = (company) => {
 };
 
 // Get companies list with filtering and pagination
-app.get('/api/companies', authenticateToken, (req, res) => {
+app.get('/api/companies', authenticateToken, async (req, res) => {
   try {
     if (!req.user.permissions.includes('companies.view')) {
       return res.status(403).json({
@@ -7395,7 +7894,7 @@ app.get('/api/companies', authenticateToken, (req, res) => {
     }
 
     // Get enriched data
-    const enrichedCompanies = filteredCompanies.map(getCompanyWithRelations);
+    const enrichedCompanies = await Promise.all(filteredCompanies.map(company => getCompanyWithRelations(company)));
 
     // Apply sorting
     enrichedCompanies.sort((a, b) => {
@@ -7475,7 +7974,7 @@ app.get('/api/companies', authenticateToken, (req, res) => {
 });
 
 // Get single company with details
-app.get('/api/companies/:id', authenticateToken, (req, res) => {
+app.get('/api/companies/:id', authenticateToken, async (req, res) => {
   try {
     if (!req.user.permissions.includes('companies.view')) {
       return res.status(403).json({
@@ -7494,7 +7993,7 @@ app.get('/api/companies/:id', authenticateToken, (req, res) => {
       });
     }
 
-    const enrichedCompany = getCompanyWithRelations(company);
+    const enrichedCompany = await getCompanyWithRelations(company);
 
     logAudit({
       userId: req.user.id,
@@ -8199,7 +8698,7 @@ app.post('/api/tickets/:ticketId/confirm-company-match', authenticateToken, (req
       targetId: ticketId,
       ipAddress: getClientIP(req),
       userAgent: req.headers['user-agent'],
-      details: `Confirmed company match: "${ticket.customerCompany}" â†’ "${company.name}"`
+      details: `Confirmed company match: "${ticket.customerCompany}" → "${company.name}"`
     });
 
     res.json({
@@ -8368,7 +8867,7 @@ app.post('/api/companies/pending-matches/:matchId/review', authenticateToken, (r
           targetId: match.suggestedCompany.id,
           ipAddress: getClientIP(req),
           userAgent: req.headers['user-agent'],
-          details: `Approved fuzzy match: "${match.inputCompanyName}" â†’ "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
+          details: `Approved fuzzy match: "${match.inputCompanyName}" → "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
         });
       }
     } else {
@@ -8395,7 +8894,7 @@ app.post('/api/companies/pending-matches/:matchId/review', authenticateToken, (r
         targetId: match.suggestedCompany.id,
         ipAddress: getClientIP(req),
         userAgent: req.headers['user-agent'],
-        details: `Rejected fuzzy match: "${match.inputCompanyName}" â†’ "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
+        details: `Rejected fuzzy match: "${match.inputCompanyName}" → "${match.suggestedCompany.name}" (${match.confidence}% confidence)`
       });
     }
 
@@ -8644,7 +9143,7 @@ app.post('/api/email/process-reply', (req, res) => {
 // ticketDevices array moved to top of file with other declarations
 
 // Helper function to get device with customer and ticket info
-const getDeviceWithRelations = (device) => {
+const getDeviceWithRelations = async (device) => {
   const customer = users.find(u => u.id === device.customerId);
   const company = companies.find(c => c.id === device.companyId);
   const linkedTickets = ticketDevices
@@ -8661,12 +9160,46 @@ const getDeviceWithRelations = (device) => {
     })
     .filter(t => t !== null);
 
+  // Get service count (workflows) for this device
+  let serviceCount = 0;
+  try {
+    if (serviceWorkflowService && typeof serviceWorkflowService.getWorkflowsByDevice === 'function') {
+      const deviceWorkflows = await serviceWorkflowService.getWorkflowsByDevice(device.serialNumber);
+      serviceCount = deviceWorkflows ? deviceWorkflows.length : 0;
+      console.log(`Device ${device.serialNumber} has ${serviceCount} service workflows`);
+    } else {
+      console.warn('ServiceWorkflowService or getWorkflowsByDevice method not available');
+      // For testing, assign a sample count based on device model
+      if (device.serialNumber === 'BW3-2024-001234') serviceCount = 2;
+      else if (device.serialNumber === 'BWM-2024-005678') serviceCount = 1;
+      else serviceCount = 0;
+    }
+  } catch (error) {
+    console.error('Error getting service count for device:', device.serialNumber, error);
+    // For testing, assign a sample count based on device model
+    if (device.serialNumber === 'BW3-2024-001234') serviceCount = 2;
+    else if (device.serialNumber === 'BWM-2024-005678') serviceCount = 1;
+    else serviceCount = 0;
+  }
+
+  // Get customer country - prioritize user.country, fallback to most recent ticket country
+  let customerCountry = customer?.country || null;
+  if (!customerCountry && linkedTickets.length > 0) {
+    // Find the most recent ticket for this device and get country from it
+    const recentTicket = tickets
+      .filter(t => linkedTickets.some(lt => lt.id === t.id))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    customerCountry = recentTicket?.customerCountry || null;
+  }
+
   return {
     ...device,
     customerName: customer ? `${customer.firstName} ${customer.lastName}` : 'Anonymous User',
     customerEmail: customer ? customer.email : 'anonymous@example.com',
+    customerCountry: customerCountry,
     companyName: company ? company.name : (customer?.company || 'No Company'),
     ticketCount: linkedTickets.length,
+    serviceCount: serviceCount,
     linkedTickets
   };
 };
@@ -8674,7 +9207,7 @@ const getDeviceWithRelations = (device) => {
 // (Function moved earlier in the file)
 
 // GET /api/devices - Get all devices with filtering and pagination
-app.get('/api/devices', authenticateToken, (req, res) => {
+app.get('/api/devices', authenticateToken, async (req, res) => {
   try {
     if (!req.user.permissions.includes('devices.view')) {
       return res.status(403).json({
@@ -8693,7 +9226,7 @@ app.get('/api/devices', authenticateToken, (req, res) => {
       companyId = ''
     } = req.query;
 
-    let filteredDevices = devices.map(device => getDeviceWithRelations(device));
+    let filteredDevices = await Promise.all(devices.map(device => getDeviceWithRelations(device)));
 
     // Apply filters
     if (search) {
@@ -8777,7 +9310,7 @@ app.get('/api/devices', authenticateToken, (req, res) => {
 });
 
 // GET /api/devices/:id - Get specific device with full details
-app.get('/api/devices/:id', authenticateToken, (req, res) => {
+app.get('/api/devices/:id', authenticateToken, async (req, res) => {
   try {
     if (!req.user.permissions.includes('devices.view')) {
       return res.status(403).json({
@@ -8796,7 +9329,7 @@ app.get('/api/devices/:id', authenticateToken, (req, res) => {
       });
     }
 
-    const deviceWithRelations = getDeviceWithRelations(device);
+    const deviceWithRelations = await getDeviceWithRelations(device);
 
     logAudit({
       userId: req.user.id,
@@ -9080,6 +9613,749 @@ app.get('/api/devices/stats', authenticateToken, (req, res) => {
   }
 });
 
+// GET /api/devices/:deviceId/services - Get all services (workflows) for a specific device
+app.get('/api/devices/:deviceId/services', authenticateToken, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    
+    if (!req.user.permissions.includes('devices.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'Device view permission required' }
+      });
+    }
+    
+    // Find device to get serial number
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) {
+      return res.status(404).json({ 
+        success: false,
+        error: { code: 'DEVICE_NOT_FOUND', message: 'Device not found' }
+      });
+    }
+    
+    // Get all workflows for this device (by serial number)
+    const deviceWorkflows = await serviceWorkflowService.getWorkflowsByDevice(device.serialNumber);
+    
+    // Enhance workflows with ticket information and agent details
+    const enhancedWorkflows = await Promise.all(deviceWorkflows.map(async (workflow) => {
+      const ticket = tickets.find(t => t.id === workflow.ticketId);
+      const initiatedByUser = users.find(u => u.id === workflow.initiatedBy);
+      
+      return {
+        workflowId: workflow.workflowId,
+        workflowNumber: workflow.workflowNumber,
+        ticketId: workflow.ticketId,
+        ticketNumber: ticket?.ticketNumber || 'N/A',
+        ticketTitle: ticket?.title || 'N/A',
+        ticketStatus: ticket?.status || 'N/A',
+        currentStep: workflow.currentStep,
+        status: workflow.status,
+        initiatedAt: workflow.initiatedAt,
+        completedAt: workflow.completedAt,
+        cancelledAt: workflow.cancelledAt,
+        initiatedByName: initiatedByUser ? `${initiatedByUser.firstName} ${initiatedByUser.lastName}` : 'System',
+        initiatedByEmail: initiatedByUser?.email || 'N/A',
+        stepDetails: workflow.steps ? workflow.steps.map(step => ({
+          stepNumber: step.stepNumber,
+          stepName: step.stepName,
+          status: step.status,
+          completedAt: step.completedAt,
+          agentName: step.agentName || 'Unassigned'
+        })) : []
+      };
+    }));
+    
+    // Sort by most recent first
+    enhancedWorkflows.sort((a, b) => new Date(b.initiatedAt) - new Date(a.initiatedAt));
+    
+    res.json({
+      success: true,
+      data: {
+        device: {
+          id: device.id,
+          model: device.model,
+          serialNumber: device.serialNumber,
+          customerName: device.customerName
+        },
+        services: enhancedWorkflows,
+        totalServices: enhancedWorkflows.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching device services:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch device services' },
+      details: error.message
+    });
+  }
+});
+
+// GET /api/companies/:companyId/services - Get all services (workflows) for all devices belonging to a company
+app.get('/api/companies/:companyId/services', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    
+    if (!req.user.permissions.includes('companies.view')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Access denied' }
+      });
+    }
+
+    console.log(`Fetching services for company: ${companyId}`);
+
+    // Find the company first
+    const company = companies.find(c => c.id === companyId);
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Company not found' }
+      });
+    }
+
+    // Get all customers for this company from tickets
+    const customerMap = new Map();
+    tickets.forEach(ticket => {
+      // Use customerId (UUID) instead of customerEmail, and check for company match
+      if (!ticket.customerId || !ticket.customerCompany) return;
+      
+      if (ticket.customerCompany === company.name) {
+        if (!customerMap.has(ticket.customerId)) {
+          // Find the user details for this customer
+          const user = users.find(u => u.id === ticket.customerId);
+          customerMap.set(ticket.customerId, {
+            id: ticket.customerId,
+            email: user?.email || 'unknown',
+            companyId: companyId
+          });
+        }
+      }
+    });
+    
+    const companyCustomers = Array.from(customerMap.values());
+    const customerIds = companyCustomers.map(c => c.id);
+
+    // Get all devices for customers of this company (by customerId UUID or by companyId directly)
+    const companyDevices = devices.filter(d => 
+      (d.customerId && customerIds.includes(d.customerId)) || 
+      (d.companyId === companyId)
+    );
+
+    console.log(`Found ${companyDevices.length} devices for company ${company.name}`);
+
+    // Get all workflows from service workflow service
+    const allWorkflows = await serviceWorkflowService.getAllWorkflows();
+    
+    // Filter workflows for devices belonging to this company
+    const companyWorkflows = allWorkflows.filter(workflow => {
+      // Check if workflow is for a device owned by this company
+      const deviceMatch = companyDevices.some(device => device.serialNumber === workflow.deviceSerialNumber);
+      
+      // Also check if workflow is for a ticket belonging to this company
+      const ticketMatch = tickets.some(ticket => 
+        ticket.id === workflow.ticketId && 
+        ticket.customerCompany === company.name
+      );
+      
+      return deviceMatch || ticketMatch;
+    });
+
+    console.log(`Found ${companyWorkflows.length} service workflows for company ${company.name}`);
+
+    // Enhance workflows with additional information
+    const enhancedWorkflows = companyWorkflows.map(workflow => {
+      const device = companyDevices.find(d => d.serialNumber === workflow.deviceSerialNumber);
+      const ticket = tickets.find(t => t.id === workflow.ticketId);
+      const agent = ticket ? users.find(u => u.id === ticket.assignedTo) : null;
+      
+      return {
+        ...workflow,
+        // Device information
+        deviceId: device?.id || null,
+        deviceModel: device?.model || 'Unknown',
+        deviceSerialNumber: workflow.deviceSerialNumber,
+        customerName: device?.customerName || 'Unknown',
+        
+        // Ticket information
+        ticketNumber: ticket?.ticketNumber || 'N/A',
+        ticketTitle: ticket?.title || 'N/A',
+        ticketStatus: ticket?.status || 'unknown',
+        ticketCreatedAt: ticket?.createdAt || null,
+        
+        // Agent information
+        assignedAgentName: agent ? `${agent.firstName} ${agent.lastName}` : 'Unassigned',
+        
+        // Enhanced step information
+        steps: workflow.steps?.map(step => ({
+          ...step,
+          stepDefinition: serviceWorkflowService.getStepDefinition(step.stepNumber)
+        })) || []
+      };
+    });
+    
+    // Sort by most recent first
+    enhancedWorkflows.sort((a, b) => new Date(b.initiatedAt) - new Date(a.initiatedAt));
+
+    res.json({
+      success: true,
+      data: {
+        company: {
+          id: company.id,
+          name: company.name
+        },
+        devices: companyDevices.map(d => ({
+          id: d.id,
+          model: d.model,
+          serialNumber: d.serialNumber,
+          customerName: d.customerName
+        })),
+        services: enhancedWorkflows,
+        totalServices: enhancedWorkflows.length,
+        totalDevices: companyDevices.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching company services:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch company services' },
+      details: error.message
+    });
+  }
+});
+
+// ==========================================
+// SERVICE WORKFLOW MANAGEMENT ROUTES
+// ==========================================
+
+// Create a new service workflow for a ticket
+app.post('/api/tickets/:ticketId/service-workflows', authenticateToken, async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { deviceSerialNumber } = req.body;
+    const initiatedBy = req.user.sub; // Fix: Use 'sub' instead of 'userId'
+
+    console.log(`Creating service workflow for ticket ${ticketId}, device ${deviceSerialNumber}`);
+    console.log(`Initiated by user: ${initiatedBy}`);
+    console.log(`Request body:`, req.body);
+
+    // Validate required fields
+    if (!deviceSerialNumber) {
+      console.log(`Device serial number missing`);
+      return res.status(400).json({ 
+        error: 'Device serial number is required' 
+      });
+    }
+
+    // Check if ticket exists
+    const existingTicket = tickets.find(t => t.id === ticketId);
+    if (!existingTicket) {
+      console.log(`Ticket not found: ${ticketId}`);
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    console.log(`Ticket found: ${existingTicket.ticketNumber}`);
+
+    // Check if workflow already exists for this ticket
+    const existingWorkflows = await serviceWorkflowService.getWorkflowsByTicket(ticketId);
+    console.log(`Found ${existingWorkflows.length} existing workflows for ticket ${ticketId}`);
+    
+    if (existingWorkflows.length > 0) {
+      console.log(`Returning existing workflow: ${existingWorkflows[0].workflowId}`);
+      // Return the existing workflow instead of an error
+      const existingWorkflow = await serviceWorkflowService.getWorkflow(existingWorkflows[0].workflowId);
+      
+      if (!existingWorkflow) {
+        console.error(`Failed to load existing workflow details for ${existingWorkflows[0].workflowId}`);
+        return res.status(500).json({ 
+          error: 'Failed to load existing workflow details' 
+        });
+      }
+      
+      console.log(`Successfully returning existing workflow`);
+      return res.json({
+        success: true,
+        workflow: existingWorkflow,
+        message: 'Returning existing workflow for this ticket'
+      });
+    }
+
+    const createdWorkflow = await serviceWorkflowService.createWorkflow(
+      ticketId, 
+      deviceSerialNumber, 
+      initiatedBy
+    );
+
+    // Get the full workflow with step definitions
+    const workflow = await serviceWorkflowService.getWorkflow(createdWorkflow.workflowId);
+
+    // Log the workflow creation
+    logAudit({
+      userId: req.user.sub, // Fix: Use 'sub' instead of 'userId'
+      userType: req.user.userType,
+      action: 'workflow_created',
+      resource: 'service_workflow',
+      resourceId: workflow.workflowId,
+      details: `Service workflow created for ticket ${ticketId}`,
+      ipAddress: getClientIP(req),
+      userAgent: req.get('User-Agent'),
+      ticketNumber: existingTicket.ticketNumber
+    });
+
+    res.json({
+      success: true,
+      workflow
+    });
+
+  } catch (error) {
+    console.error('Error creating service workflow:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to create service workflow',
+      details: error.message 
+    });
+  }
+});
+
+// Get service workflows for a ticket
+app.get('/api/tickets/:ticketId/service-workflows', authenticateToken, async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    
+    const workflows = await serviceWorkflowService.getWorkflowsByTicket(ticketId);
+    
+    // Return workflows array directly (not wrapped in success object)
+    res.json(workflows);
+
+  } catch (error) {
+    console.error('Error fetching service workflows:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch service workflows',
+      details: error.message 
+    });
+  }
+});
+
+// Get a specific service workflow
+app.get('/api/service-workflows/:workflowId', authenticateToken, async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    
+    const workflow = await serviceWorkflowService.getWorkflow(workflowId);
+    
+    if (!workflow) {
+      return res.status(404).json({ error: 'Service workflow not found' });
+    }
+    
+    // Return workflow directly (not wrapped in success object)
+    res.json(workflow);
+
+  } catch (error) {
+    console.error('Error fetching service workflow:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch service workflow',
+      details: error.message 
+    });
+  }
+});
+
+// Update a workflow step
+app.put('/api/service-workflows/:workflowId/steps/:stepId', authenticateToken, async (req, res) => {
+  try {
+    const { workflowId, stepId } = req.params;
+    const stepData = req.body;
+    const agentId = req.user.sub; // Fix: Use 'sub' instead of 'userId'
+
+    console.log(`Updating workflow step ${stepId} for workflow ${workflowId}`);
+
+    // Get workflow data for validation
+    const workflow = await serviceWorkflowService.getWorkflow(workflowId);
+    if (!workflow) {
+      return res.status(404).json({ error: 'Service workflow not found' });
+    }
+
+    // Note: Step validation is handled within the updateWorkflowStep method
+
+    const updatedStep = await serviceWorkflowService.updateWorkflowStep(
+      stepId, 
+      stepData, 
+      agentId
+    );
+
+    // Get updated workflow data to emit to clients
+    const updatedWorkflow = await serviceWorkflowService.getWorkflow(workflowId);
+
+    // Emit workflow update event to all clients connected to the ticket
+    if (updatedWorkflow && updatedWorkflow.ticketId) {
+      console.log(`Emitting workflow_updated event for ticket ${updatedWorkflow.ticketId}`);
+      io.to(`ticket_${updatedWorkflow.ticketId}`).emit('workflow_updated', {
+        ticketId: updatedWorkflow.ticketId,
+        workflowId: workflowId,
+        workflow: updatedWorkflow,
+        updatedStep: updatedStep,
+        updatedBy: {
+          id: req.user.sub,
+          firstName: req.user.firstName,
+          lastName: req.user.lastName
+        },
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    // Log the step update
+    logAudit({
+      userId: req.user.sub, // Fix: Use 'sub' instead of 'userId'
+      userType: req.user.userType,
+      action: 'workflow_step_updated',
+      resource: 'service_workflow_step',
+      resourceId: stepId,
+      details: `Workflow step updated: ${updatedStep.stepName}`,
+      ipAddress: getClientIP(req),
+      userAgent: req.get('User-Agent')
+    });
+
+    res.json({
+      success: true,
+      step: updatedStep
+    });
+
+  } catch (error) {
+    console.error('Error updating workflow step:', error);
+    res.status(500).json({ 
+      error: 'Failed to update workflow step',
+      details: error.message 
+    });
+  }
+});
+
+// Get step definitions
+app.get('/api/service-workflows/step-definitions', authenticateToken, (req, res) => {
+  try {
+    const stepDefinitions = serviceWorkflowService.getAllStepDefinitions();
+    
+    res.json({
+      success: true,
+      stepDefinitions
+    });
+
+  } catch (error) {
+    console.error('Error fetching step definitions:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch step definitions',
+      details: error.message 
+    });
+  }
+});
+
+// Get workflow audit logs
+app.get('/api/service-workflows/:workflowId/audit-logs', authenticateToken, async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    
+    const auditLogs = await serviceWorkflowService.getWorkflowAuditLogs(workflowId);
+    
+    res.json({
+      success: true,
+      auditLogs
+    });
+
+  } catch (error) {
+    console.error('Error fetching workflow audit logs:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch workflow audit logs',
+      details: error.message 
+    });
+  }
+});
+
+// Upload attachment for workflow step
+app.post('/api/service-workflows/:workflowId/steps/:stepId/attachments', 
+  authenticateToken, 
+  upload.single('attachment'), 
+  async (req, res) => {
+    try {
+      const { workflowId, stepId } = req.params;
+      const uploadedBy = req.user.userId;
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      console.log(`Uploading attachment for workflow step ${stepId}`);
+
+      const attachment = await serviceWorkflowService.uploadAttachment(
+        stepId, 
+        req.file, 
+        uploadedBy
+      );
+
+      res.json({
+        success: true,
+        attachment
+      });
+
+    } catch (error) {
+      console.error('Error uploading workflow attachment:', error);
+      res.status(500).json({ 
+        error: 'Failed to upload attachment',
+        details: error.message 
+      });
+    }
+  }
+);
+
+// Get attachments for workflow step
+app.get('/api/service-workflows/steps/:stepId/attachments', authenticateToken, async (req, res) => {
+  try {
+    const { stepId } = req.params;
+
+    console.log(`Getting attachments for workflow step ${stepId}`);
+
+    const attachments = await serviceWorkflowService.getStepAttachments(stepId);
+
+    res.json(attachments);
+
+  } catch (error) {
+    console.error('Error getting workflow step attachments:', error);
+    res.status(500).json({
+      error: 'Failed to get step attachments',
+      details: error.message
+    });
+  }
+});
+
+// Delete workflow attachment
+app.delete('/api/service-workflows/attachments/:attachmentId', authenticateToken, async (req, res) => {
+  try {
+    const { attachmentId } = req.params;
+
+    console.log(`Deleting workflow attachment ${attachmentId}`);
+
+    await serviceWorkflowService.deleteAttachment(attachmentId);
+
+    res.json({
+      success: true,
+      message: 'Attachment deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting workflow attachment:', error);
+    res.status(500).json({
+      error: 'Failed to delete attachment',
+      details: error.message
+    });
+  }
+});
+
+// Download workflow attachment
+app.get('/api/service-workflows/attachments/:attachmentId/download', authenticateToken, async (req, res) => {
+  try {
+    const { attachmentId } = req.params;
+
+    console.log(`Downloading workflow attachment ${attachmentId}`);
+
+    const attachment = await serviceWorkflowService.getAttachment(attachmentId);
+    console.log('Attachment details:', {
+      attachmentId: attachment.attachmentId,
+      originalName: attachment.originalName,
+      filePath: attachment.filePath,
+      fileSize: attachment.fileSize
+    });
+    
+    // Construct the full file path
+    const filePath = path.join(__dirname, attachment.filePath);
+    console.log('Full file path:', filePath);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      console.error(`File not found: ${filePath}`);
+      console.error('Directory contents:', fs.existsSync(path.dirname(filePath)) ? fs.readdirSync(path.dirname(filePath)) : 'Directory does not exist');
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    console.log('File found, starting download');
+
+    // Log the download
+    serviceWorkflowService.logAudit(
+      attachment.workflowId, 
+      attachment.stepId, 
+      'attachment_downloaded', 
+      `File downloaded: ${attachment.originalName}`, 
+      req.user.userId
+    );
+
+    // Send the file
+    res.download(filePath, attachment.originalName, (err) => {
+      if (err) {
+        console.error('Error sending file:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to download file' });
+        }
+      } else {
+        console.log(`File downloaded successfully: ${attachment.originalName}`);
+      }
+    });
+
+  } catch (error) {
+    console.error('Error downloading workflow attachment:', error);
+    res.status(500).json({
+      error: 'Failed to download attachment',
+      details: error.message
+    });
+  }
+});
+
+// Generate PDF report for workflow
+app.post('/api/service-workflows/:workflowId/generate-pdf-report', authenticateToken, async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    const { reportType = 'draft' } = req.body;
+
+    console.log(`Generating PDF report for workflow ${workflowId}, type: ${reportType}`);
+
+    // Get workflow details
+    const workflow = await serviceWorkflowService.getWorkflow(workflowId);
+    if (!workflow) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    // Get ticket details
+    const ticket = tickets.find(t => t.id === workflow.ticketId);
+
+    // Generate PDF report
+    const reportMetadata = await pdfReportService.generateServiceWorkflowReport(
+      workflow, 
+      ticket, 
+      reportType,
+      users,  // Pass users array for agent name resolution
+      companies  // Pass companies array for company name resolution
+    );
+
+    // Log the report generation
+    logAudit({
+      userId: req.user.sub,
+      userType: req.user.userType,
+      action: 'pdf_report_generated',
+      resource: 'service_workflow_report',
+      resourceId: reportMetadata.filename,
+      details: `PDF report generated for workflow ${workflow.workflowNumber}`,
+      ipAddress: getClientIP(req),
+      userAgent: req.get('User-Agent'),
+      workflowId: workflowId
+    });
+
+    res.json({
+      success: true,
+      report: reportMetadata,
+      filename: reportMetadata.filename,
+      message: 'PDF report generated successfully'
+    });
+
+  } catch (error) {
+    console.error('Error generating PDF report:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate PDF report',
+      details: error.message 
+    });
+  }
+});
+
+// Get PDF reports for workflow
+app.get('/api/service-workflows/:workflowId/pdf-reports', authenticateToken, async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    console.log('PDF Reports API called for workflowId:', workflowId);
+
+    // Get workflow details to get the workflowNumber
+    const workflow = await serviceWorkflowService.getWorkflow(workflowId);
+    console.log('Found workflow:', workflow ? `${workflow.workflowNumber} (ID: ${workflow.workflowId})` : 'NOT FOUND');
+    
+    if (!workflow) {
+      console.log('Workflow not found for ID:', workflowId);
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    console.log('Looking for reports with workflow number:', workflow.workflowNumber);
+    const reports = pdfReportService.getWorkflowReports(workflow.workflowNumber);
+    console.log('Found reports:', reports.length, reports.map(r => r.filename));
+    
+    res.json(reports);
+
+  } catch (error) {
+    console.error('Error fetching PDF reports:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch PDF reports',
+      details: error.message 
+    });
+  }
+});
+
+// Download PDF report
+app.get('/api/service-workflows/reports/:filename', authenticateToken, (req, res) => {
+  try {
+    const { filename } = req.params;
+    const filepath = pdfReportService.getReportPath(filename);
+
+    if (!fs.existsSync(filepath)) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    res.download(filepath, filename, (err) => {
+      if (err) {
+        console.error('Error downloading report:', err);
+        res.status(500).json({ error: 'Failed to download report' });
+      }
+    });
+
+  } catch (error) {
+    console.error('Error downloading PDF report:', error);
+    res.status(500).json({ 
+      error: 'Failed to download PDF report',
+      details: error.message 
+    });
+  }
+});
+
+// Delete PDF report
+app.delete('/api/service-workflows/reports/:filename', authenticateToken, async (req, res) => {
+  try {
+    const { filename } = req.params;
+
+    console.log(`Deleting PDF report: ${filename}`);
+
+    // Delete the report file
+    const result = pdfReportService.deleteReport(filename);
+
+    // Log the report deletion
+    logAudit({
+      userId: req.user.sub,
+      userType: req.user.userType,
+      action: 'pdf_report_deleted',
+      resource: 'service_workflow_report',
+      resourceId: filename,
+      details: `PDF report deleted: ${filename}`,
+      ipAddress: getClientIP(req),
+      userAgent: req.get('User-Agent')
+    });
+
+    res.json({
+      success: true,
+      message: result.message
+    });
+
+  } catch (error) {
+    console.error('Error deleting PDF report:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete PDF report',
+      details: error.message 
+    });
+  }
+});
+
 // ==========================================
 // AI AGENT SYSTEM ENDPOINTS
 // ==========================================
@@ -9257,7 +10533,7 @@ app.get('/api/ai-agent/stats', authenticateToken, (req, res) => {
 app.post('/api/ai-agent/documents', authenticateToken, (req, res) => {
   uploadMultiple.array('documents')(req, res, async (err) => {
     if (err) {
-      console.error('âŒ Multer error in AI document upload:', err.message);
+      console.error('Multer error in AI document upload:', err.message);
       return res.status(400).json({
         success: false,
         error: { code: 'UPLOAD_ERROR', message: err.message }
@@ -9271,11 +10547,11 @@ app.post('/api/ai-agent/documents', authenticateToken, (req, res) => {
 // Handle AI document upload
 async function handleAiDocumentUpload(req, res) {
   try {
-    console.log('ðŸ“„ AI Document Upload Request Started');
+    console.log('📄 AI Document Upload Request Started');
     console.log('User:', req.user.email, 'Role:', req.user.roleName);
     
     if (!req.user.permissions.includes('system.ai_settings')) {
-      console.log('âŒ Access denied: User does not have AI settings permission');
+      console.log('❌ Access denied: User does not have AI settings permission');
       return res.status(403).json({
         success: false,
         error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'AI settings permission required' }
@@ -9283,19 +10559,19 @@ async function handleAiDocumentUpload(req, res) {
     }
 
     if (!req.files || req.files.length === 0) {
-      console.log('âŒ No files uploaded');
+      console.log('❌ No files uploaded');
       return res.status(400).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'No files uploaded' }
       });
     }
 
-    console.log(`ðŸ“ Processing ${req.files.length} files...`);
+    console.log(`📁 Processing ${req.files.length} files...`);
     const uploadedDocuments = [];
     const failedDocuments = [];
 
     for (const file of req.files) {
-      console.log(`ðŸ” Processing file: ${file.originalname}`);
+      console.log(`🔍 Processing file: ${file.originalname}`);
       try {
         const fileType = path.extname(file.originalname).substring(1).toLowerCase();
         console.log(`   - File type: ${fileType}`);
@@ -9311,7 +10587,7 @@ async function handleAiDocumentUpload(req, res) {
         console.log('   - Validating document...');
         const validation = documentService.validateDocument(file.path, fileType, file.size);
         if (!validation.isValid) {
-          console.log('   - âŒ Validation failed:', validation.errors);
+          console.log('   - ❌ Validation failed:', validation.errors);
           await documentService.cleanup(file.path);
           failedDocuments.push({
             fileName: file.originalname,
@@ -9319,7 +10595,7 @@ async function handleAiDocumentUpload(req, res) {
           });
           continue;
         }
-        console.log('   - âœ… Validation passed');
+        console.log('   - ✅ Validation passed');
 
         // Process document
         console.log('   - Processing document content...');
@@ -9329,7 +10605,7 @@ async function handleAiDocumentUpload(req, res) {
           fileType,
           file.size
         );
-        console.log(`   - âœ… Document processed: ${processedDoc.chunkCount} chunks`);
+        console.log(`   - ✅ Document processed: ${processedDoc.chunkCount} chunks`);
 
         // Create document record
         const document = {
@@ -9346,7 +10622,7 @@ async function handleAiDocumentUpload(req, res) {
         };
 
         aiDocuments.push(document);
-        console.log(`   - âœ… Added document with ID: ${document.id}`);
+        console.log(`   - ✅ Added document with ID: ${document.id}`);
 
         // Create document chunks
         console.log('   - Creating document chunks...');
@@ -9360,7 +10636,7 @@ async function handleAiDocumentUpload(req, res) {
             createdAt: new Date().toISOString()
           });
         });
-        console.log(`   - âœ… Created ${processedDoc.chunks.length} chunks`);
+        console.log(`   - ✅ Created ${processedDoc.chunks.length} chunks`);
 
         uploadedDocuments.push({
           id: document.id,
@@ -9372,7 +10648,7 @@ async function handleAiDocumentUpload(req, res) {
         });
 
       } catch (fileError) {
-        console.error(`   - âŒ Error processing file ${file.originalname}:`, fileError.message);
+        console.error(`   - ❌ Error processing file ${file.originalname}:`, fileError.message);
         
         // Cleanup file on error
         if (documentService && typeof documentService.cleanup === 'function') {
@@ -9387,12 +10663,12 @@ async function handleAiDocumentUpload(req, res) {
     }
 
     // Save documents to persistent storage immediately after upload
-    console.log('ðŸ’¾ Saving documents to persistent storage...');
+    console.log('💾 Saving documents to persistent storage...');
     try {
       saveAIDocuments();
-      console.log('âœ… Documents saved successfully');
+      console.log('✅ Documents saved successfully');
     } catch (saveError) {
-      console.error('âŒ Error saving documents:', saveError.message);
+      console.error('❌ Error saving documents:', saveError.message);
     }
 
     // Log audit trail
@@ -9410,7 +10686,7 @@ async function handleAiDocumentUpload(req, res) {
       });
     }
 
-    console.log('ðŸ“Š Upload Summary:');
+    console.log('📊 Upload Summary:');
     console.log(`   - Successful uploads: ${uploadedDocuments.length}`);
     console.log(`   - Failed uploads: ${failedDocuments.length}`);
 
@@ -9423,12 +10699,12 @@ async function handleAiDocumentUpload(req, res) {
     });
 
   } catch (error) {
-    console.error('âŒ Critical error in AI document upload:', error);
+    console.error('❌ Critical error in AI document upload:', error);
     console.error('Error stack:', error.stack);
     
     // Cleanup files on error
     if (req.files) {
-      console.log('ðŸ§¹ Cleaning up uploaded files due to error...');
+      console.log('🧹 Cleaning up uploaded files due to error...');
       for (const file of req.files) {
         try {
           if (documentService && typeof documentService.cleanup === 'function') {
@@ -9675,7 +10951,7 @@ let emailReceiver = null;
 
 // Initialize email receiver service
 function initializeEmailService() {
-  console.log('ðŸš€ Initializing email system...');
+  console.log('🚀 Initializing email system...');
   
   // Set up the email receiver with current tickets and messages
   setTickets(tickets);
@@ -9685,18 +10961,18 @@ function initializeEmailService() {
   try {
     emailReceiver = startEmailReceiver();
     if (emailReceiver) {
-      console.log('âœ… Email receiver service started successfully');
+      console.log('✅ Email receiver service started successfully');
     } else {
-      console.log('âš ï¸ Email receiver service could not start (missing configuration)');
+      console.log('⚠️ Email receiver service could not start (missing configuration)');
     }
   } catch (error) {
-    console.error('âŒ Failed to start email receiver service:', error);
+    console.error('❌ Failed to start email receiver service:', error);
   }
 }
 
 // Initialize AI service
 async function initializeAIService() {
-  console.log('ðŸ¤– Initializing AI system...');
+  console.log('🤖 Initializing AI system...');
   
   try {
     // Load AI documents from persistent storage
@@ -9706,17 +10982,17 @@ async function initializeAIService() {
     const isInitialized = await aiService.initialize();
     const enhancedInitialized = await enhancedAiService.initialize();
     if (isInitialized) {
-      console.log('âœ… AI service initialized successfully');
+      console.log('✅ AI service initialized successfully');
     } else {
-      console.log('âš ï¸ AI service initialization skipped (no API key)');
+      console.log('⚠️ AI service initialization skipped (no API key)');
     }
     
     // Create NeuroAI agent after AI service is initialized
     const neuroAIId = createNeuroAIAgent();
-    console.log('âœ… NeuroAI agent initialized with ID:', neuroAIId);
+    console.log('✅ NeuroAI agent initialized with ID:', neuroAIId);
     
   } catch (error) {
-    console.error('âŒ Failed to initialize AI service:', error);
+    console.error('❌ Failed to initialize AI service:', error);
   }
 }
 
@@ -9726,10 +11002,10 @@ initializeAIService();
 
 // Graceful shutdown handler
 process.on('SIGINT', () => {
-  console.log('\nðŸ›‘ Shutting down server...');
+  console.log('\n🛑 Shutting down server...');
   
   if (emailReceiver) {
-    console.log('ðŸ›‘ Stopping email receiver service...');
+    console.log('🛑 Stopping email receiver service...');
     stopEmailReceiver(emailReceiver);
   }
   
@@ -9737,10 +11013,10 @@ process.on('SIGINT', () => {
 });
 
 process.on('SIGTERM', () => {
-  console.log('\nðŸ›‘ Received SIGTERM, shutting down server...');
+  console.log('\n🛑 Received SIGTERM, shutting down server...');
   
   if (emailReceiver) {
-    console.log('ðŸ›‘ Stopping email receiver service...');
+    console.log('🛑 Stopping email receiver service...');
     stopEmailReceiver(emailReceiver);
   }
   

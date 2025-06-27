@@ -42,8 +42,16 @@ const CompanyDetail: React.FC<CompanyDetailProps> = ({ companyId, onBack, onTick
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'info' | 'customers' | 'devices' | 'tickets'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'customers' | 'devices' | 'tickets' | 'services'>('info');
   const [editing, setEditing] = useState(false);
+  const [servicesData, setServicesData] = useState<{
+    company: { id: string; name: string };
+    devices: any[];
+    services: any[];
+    totalServices: number;
+    totalDevices: number;
+  } | null>(null);
+  const [servicesLoading, setServicesLoading] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '',
     aliases: [''],
@@ -131,6 +139,66 @@ const CompanyDetail: React.FC<CompanyDetailProps> = ({ companyId, onBack, onTick
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString();
+  };
+
+  const loadCompanyServices = async () => {
+    try {
+      setServicesLoading(true);
+      const response = await apiService.getCompanyServices(companyId);
+      setServicesData(response);
+    } catch (err) {
+      console.error('Error loading company services:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load company services');
+    } finally {
+      setServicesLoading(false);
+    }
+  };
+
+  const formatServiceDate = (dateString: string | null): string => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const getWorkflowStatusColor = (status: string): string => {
+    switch (status.toLowerCase()) {
+      case 'in_progress':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
+      case 'completed':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
+      case 'on_hold':
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300';
+      case 'cancelled':
+        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300';
+      default:
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300';
+    }
+  };
+
+  const getTicketStatusColor = (status: string): string => {
+    switch (status.toLowerCase()) {
+      case 'new':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300';
+      case 'in_progress':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
+      case 'resolved':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
+      case 'closed':
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300';
+    }
+  };
+
+  const handleTabChange = (tabId: string) => {
+    setActiveTab(tabId as any);
+    if (tabId === 'services' && !servicesData) {
+      loadCompanyServices();
+    }
   };
 
   if (loading) {
@@ -223,11 +291,12 @@ const CompanyDetail: React.FC<CompanyDetailProps> = ({ companyId, onBack, onTick
             { id: 'info', label: 'Company Info' },
             { id: 'customers', label: `Customers (${company.customerCount})` },
             { id: 'devices', label: `Devices (${company.deviceCount})` },
-            { id: 'tickets', label: `Tickets (${company.ticketCount})` }
+            { id: 'tickets', label: `Tickets (${company.ticketCount})` },
+            { id: 'services', label: `Services (${servicesData?.totalServices || '?'})` }
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => handleTabChange(tab.id)}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === tab.id
                   ? 'border-primary-500 text-primary-600 dark:text-primary-400'
@@ -705,6 +774,155 @@ const CompanyDetail: React.FC<CompanyDetailProps> = ({ companyId, onBack, onTick
             ) : (
               <p className="text-gray-500 dark:text-gray-400">No tickets found for this company.</p>
             )}
+          </div>
+        )}
+
+        {activeTab === 'services' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Company Services</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  All service workflows for devices belonging to this company
+                </p>
+              </div>
+              {servicesData && (
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  {servicesData.totalServices} services across {servicesData.totalDevices} devices
+                </div>
+              )}
+            </div>
+
+            {servicesLoading ? (
+              <div className="flex items-center justify-center h-32">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              </div>
+            ) : servicesData && servicesData.services.length > 0 ? (
+              <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-md">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Workflow #
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Device
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Customer
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Ticket
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Current Step
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Agent
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Started
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                      {servicesData.services.map((service) => {
+                        const currentStep = service.steps?.find((step: any) => step.status === 'in_progress') || 
+                                           service.steps?.filter((step: any) => step.status === 'completed').pop() ||
+                                           service.steps?.[0];
+                        
+                        return (
+                          <tr key={service.workflowId} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                #{service.workflowNumber}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {service.workflowId.substring(0, 8)}...
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900 dark:text-gray-100">
+                                <div className="font-medium">{service.deviceModel}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  S/N: {service.deviceSerialNumber}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900 dark:text-gray-100">
+                                {service.customerName}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900 dark:text-gray-100">
+                                <div className="font-medium">#{service.ticketNumber}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-32">
+                                  {service.ticketTitle}
+                                </div>
+                              </div>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getTicketStatusColor(service.ticketStatus)}`}>
+                                {service.ticketStatus.replace('_', ' ').toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getWorkflowStatusColor(service.status)}`}>
+                                {service.status.replace('_', ' ').toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900 dark:text-gray-100">
+                                {currentStep ? (
+                                  <>
+                                    <div className="font-medium">
+                                      Step {currentStep.stepOrder}: {currentStep.stepDefinition?.name || 'Unknown Step'}
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      {currentStep.status === 'completed' ? 
+                                        `✅ Completed ${formatServiceDate(currentStep.completedAt)}` :
+                                        currentStep.status === 'in_progress' ? 
+                                        `🔄 In Progress` :
+                                        `⏳ ${currentStep.status}`
+                                      }
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="text-sm text-gray-500 dark:text-gray-400">No steps</div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900 dark:text-gray-100">
+                                {service.assignedAgentName}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-500 dark:text-gray-400">
+                                {formatServiceDate(service.initiatedAt)}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : servicesData ? (
+              <div className="text-center py-12">
+                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                  <path d="M34 40h10v-4a6 6 0 00-10.712-3.714M34 40H14m20 0v-4a9.971 9.971 0 00-.712-3.714M14 40H4v-4a6 6 0 0110.713-3.714M14 40v-4c0-1.313.253-2.566.713-3.714m0 0A9.971 9.971 0 0122 34c3.292 0 6.16 1.595 7.287 4.286" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No services found</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  No service workflows have been created for devices belonging to this company.
+                </p>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

@@ -1,4 +1,8 @@
-Write-Host "Starting NeuroChat Frontend..." -ForegroundColor Yellow
-cd frontend
-Write-Host "Frontend app starting on http://localhost:3000" -ForegroundColor Green
+Write-Host "Starting NeuroChat Frontend..." -ForegroundColor Green
+
+# Change to frontend directory
+Set-Location -Path "frontend"
+
+# Start the frontend
+Write-Host "Running npm start..." -ForegroundColor Yellow
 npm start 

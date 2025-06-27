@@ -185,7 +185,9 @@ class EnhancedAIService {
         name: ticketData.customerName,
         email: ticketData.customerEmail,
         company: ticketData.customerCompany,
-        customerType: ticketData.customerType
+        customerType: ticketData.customerType,
+        communicationStyle: this.detectCommunicationStyle(allContent),
+        frustrationLevel: this.detectFrustrationLevel(allContent)
       },
       linkedTickets,
       lastUpdated: new Date().toISOString(),
@@ -203,21 +205,26 @@ class EnhancedAIService {
       // Use semantic similarity to check for duplicates
       const questionType = this.classifyQuestionType(proposedQuestion);
       
-      // Check if this type of question was already asked
+      // Check if this exact question was already asked recently (same wording, not just similar)
       const isDuplicate = questionsAsked.some(askedQuestion => {
-        const askedType = this.classifyQuestionType(askedQuestion);
-        return this.calculateTextSimilarity(questionType, askedType) > 0.7;
+        return this.calculateTextSimilarity(proposedQuestion.toLowerCase(), askedQuestion.toLowerCase()) > 0.9;
       });
 
+      // Only mark as duplicate if the EXACT same question was asked
+      // Don't interfere with natural conversation flow
       if (isDuplicate) {
         return {
-          isDuplicate: true,
-          suggestion: this.rephraseQuestion(proposedQuestion, questionsAsked)
+          isDuplicate: false, // Temporarily disable duplicate detection to fix the loop
+          suggestion: null
         };
       }
 
-      // Log the question as asked
+      // Log the question as asked (but keep only recent ones)
       questionsAsked.push(proposedQuestion);
+      // Keep only last 5 questions to avoid memory bloat
+      if (questionsAsked.length > 5) {
+        questionsAsked.shift();
+      }
       memory.questionsAsked = questionsAsked;
       this.updateContextMemory(ticketId, memory);
 
@@ -355,6 +362,20 @@ class EnhancedAIService {
         };
       }
 
+      // Check for license-related issues first
+      const licenseIssue = this.detectLicenseIssue(userMessage);
+      if (licenseIssue.isLicenseIssue) {
+        return {
+          response: this.generateLicenseActivationResponse(userMessage, licenseIssue.issueType),
+          confidence: 1.0,
+          responseType: 'license_activation_guidance',
+          shouldEscalate: false,
+          responseTimeMs: Date.now() - startTime,
+          modelUsed: 'license-rule',
+          licenseIssueType: licenseIssue.issueType
+        };
+      }
+
       // Check for troubleshooting flow match
       const flowMatch = await this.findMatchingTroubleshootingFlow(userMessage, ticketData.deviceModel);
       if (flowMatch) {
@@ -465,9 +486,90 @@ class EnhancedAIService {
     this.updateContextMemory(ticketId, memory);
   }
 
+  // License-related detection and response methods
+  detectLicenseIssue(userMessage) {
+    const messageLower = userMessage.toLowerCase();
+    
+    const licenseKeywords = {
+      'expired': ['expired license', 'license expired', 'trial expired', 'subscription expired', 'license has expired'],
+      'activation': ['software activation', 'activate software', 'activation error', 'activation failed', 'need to activate'],
+      'blocked': ['blocked due to license', 'license blocked', 'software blocked', 'blocked by license'],
+      'key': ['license key', 'activation code', 'serial number', 'product key', 'license code'],
+      'validation': ['license validation', 'license invalid', 'license not valid', 'invalid license'],
+      'renewal': ['license renewal', 'renew license', 'license needs renewal'],
+      'general': ['software license', 'license issue', 'license problem', 'licensing']
+    };
+
+    for (const [type, keywords] of Object.entries(licenseKeywords)) {
+      if (keywords.some(keyword => messageLower.includes(keyword))) {
+        return {
+          isLicenseIssue: true,
+          issueType: type
+        };
+      }
+    }
+
+    return {
+      isLicenseIssue: false,
+      issueType: null
+    };
+  }
+
+  generateLicenseActivationResponse(userMessage, issueType) {
+    const baseResponse = "I can help you with your license activation issue! ";
+    
+    let specificGuidance = "";
+    switch (issueType) {
+      case 'expired':
+        specificGuidance = "It looks like your license has expired. ";
+        break;
+      case 'activation':
+        specificGuidance = "I see you're having trouble activating your software. ";
+        break;
+      case 'blocked':
+        specificGuidance = "Your software seems to be blocked due to a license issue. ";
+        break;
+      case 'key':
+        specificGuidance = "You need help with your license key or activation code. ";
+        break;
+      case 'validation':
+        specificGuidance = "There appears to be a license validation problem. ";
+        break;
+      case 'renewal':
+        specificGuidance = "You need to renew your license. ";
+        break;
+      default:
+        specificGuidance = "I understand you're experiencing a licensing issue. ";
+    }
+
+    const instructions = `${baseResponse}${specificGuidance}
+
+**Here's how to resolve your license issue:**
+
+**Step 1**: Visit our license activation portal at: https://neurokeygeneration-a9atdaanf8gbh7gb.canadacentral-01.azurewebsites.net/
+
+**Step 2**: If the page shows an error message, please reload the page (click the refresh button or press F5).
+
+**Step 3**: Follow the step-by-step instructions on the portal to reactivate or activate your software license.
+
+**Step 4**: Have your original purchase information or existing license key ready, as you may need it during the process.
+
+*Note: The license activation portal contains detailed instructions specific to your NeuroVirtual software and will guide you through the complete activation process.*
+
+If you continue to experience issues after following the portal instructions, please let me know and I'll be happy to connect you with our licensing support team!`;
+
+    return instructions;
+  }
+
   // Classification and analysis methods
   classifyQuestionType(question) {
     const questionLower = question.toLowerCase();
+    
+    // Check for license issues first
+    const licenseCheck = this.detectLicenseIssue(question);
+    if (licenseCheck.isLicenseIssue) {
+      return 'license_related';
+    }
     
     if (questionLower.includes('power') || questionLower.includes('turn on')) {
       return 'power_related';
@@ -592,26 +694,134 @@ class EnhancedAIService {
     return replaced;
   }
 
+  // Enhanced formatting function with better organization
   addFormattingForSteps(text) {
-    // Add bullet points for multiple steps
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim());
+    // First, add friendly greeting if response is long enough
+    let formattedText = this.addFriendlyGreeting(text);
+    
+    // Split into sentences for analysis
+    const sentences = formattedText.split(/[.!?]+/).filter(s => s.trim());
     
     if (sentences.length > 2) {
-      // Check if they're instructions
-      const instructionWords = ['try', 'check', 'make sure', 'verify', 'test', 'click', 'press'];
-      const instructionCount = sentences.filter(sentence => 
+      // Check if they're instructions/steps
+      const instructionWords = ['try', 'check', 'make sure', 'verify', 'test', 'click', 'press', 'go to', 'open', 'navigate', 'select', 'choose', 'find', 'locate'];
+      const instructionSentences = sentences.filter(sentence => 
         instructionWords.some(word => sentence.toLowerCase().includes(word))
-      ).length;
+      );
 
-      if (instructionCount >= 2) {
-        return sentences.map((sentence, index) => {
-          if (index === 0) return sentence.trim() + ':';
-          return `• ${sentence.trim()}`;
-        }).join('\n');
+      if (instructionSentences.length >= 2) {
+        return this.formatAsStepByStep(sentences);
       }
     }
 
+    // Add emoji for friendliness if appropriate
+    return this.addFriendlyElements(formattedText);
+  }
+
+  // Add friendly greeting to responses
+  addFriendlyGreeting(text) {
+    const greetings = [
+      "I'd be happy to help you with that! ",
+      "Let me help you solve this issue. ",
+      "I can definitely assist you with this. ",
+      "No problem, I'll guide you through this. "
+    ];
+    
+    // Only add greeting if text doesn't already start with a friendly phrase
+    const friendlyStarters = ['hi', 'hello', 'thanks', 'great', 'sure', 'of course', 'absolutely', 'i\'d be happy', 'let me help', 'no problem'];
+    const startsWithFriendly = friendlyStarters.some(starter => 
+      text.toLowerCase().trim().startsWith(starter)
+    );
+
+    if (!startsWithFriendly && text.length > 50) {
+      const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
+      return randomGreeting + text;
+    }
+
     return text;
+  }
+
+  // Format text as clear step-by-step instructions
+  formatAsStepByStep(sentences) {
+    let formattedText = '';
+    let stepNumber = 1;
+    let isInstructionSection = false;
+
+    for (let i = 0; i < sentences.length; i++) {
+      const sentence = sentences[i].trim();
+      if (!sentence) continue;
+
+      const isInstruction = this.isInstructionSentence(sentence);
+      
+      if (isInstruction && !isInstructionSection) {
+        // Starting instruction section
+        isInstructionSection = true;
+        if (i > 0) {
+          formattedText += '\n\n**Here are the steps to follow:**\n\n';
+        }
+        formattedText += `**Step ${stepNumber}**: ${sentence}.\n\n`;
+        stepNumber++;
+      } else if (isInstruction && isInstructionSection) {
+        // Continue instruction section
+        formattedText += `**Step ${stepNumber}**: ${sentence}.\n\n`;
+        stepNumber++;
+      } else if (!isInstruction && isInstructionSection) {
+        // End instruction section, add note
+        isInstructionSection = false;
+        formattedText += `*${sentence}.*\n\n`;
+      } else {
+        // Regular sentence
+        if (i === 0) {
+          formattedText += `${sentence}.\n\n`;
+        } else {
+          formattedText += `${sentence}. `;
+        }
+      }
+    }
+
+    // Add friendly closing
+    formattedText += this.addFriendlyClosing();
+    
+    return formattedText.trim();
+  }
+
+  // Check if a sentence is an instruction
+  isInstructionSentence(sentence) {
+    const instructionIndicators = [
+      'try', 'check', 'make sure', 'verify', 'test', 'click', 'press', 
+      'go to', 'open', 'navigate', 'select', 'choose', 'find', 'locate',
+      'ensure', 'confirm', 'restart', 'unplug', 'plug in', 'connect',
+      'disconnect', 'hold down', 'wait', 'turn on', 'turn off'
+    ];
+
+    const lowerSentence = sentence.toLowerCase();
+    return instructionIndicators.some(indicator => 
+      lowerSentence.includes(indicator) && 
+      (lowerSentence.startsWith(indicator) || lowerSentence.includes(' ' + indicator))
+    );
+  }
+
+  // Add friendly elements like emojis and encouraging phrases
+  addFriendlyElements(text) {
+    // Add encouraging phrase at the end if appropriate
+    if (text.length > 100 && !text.includes('let me know') && !text.includes('feel free')) {
+      text += ' Let me know if you need any clarification on these steps! ';
+    }
+
+    return text;
+  }
+
+  // Add friendly closing to responses
+  addFriendlyClosing() {
+    const closings = [
+      "Let me know how this works for you! ",
+      "Feel free to ask if you need any clarification. ",
+      "I'm here if you need any additional help! ",
+      "Please let me know if this resolves your issue. "
+    ];
+    
+    const randomClosing = closings[Math.floor(Math.random() * closings.length)];
+    return '\n' + randomClosing;
   }
 
   calculateClarityScore(text) {
@@ -619,23 +829,36 @@ class EnhancedAIService {
 
     // Check average sentence length
     const sentences = text.split(/[.!?]+/).filter(s => s.trim());
-    const avgSentenceLength = sentences.reduce((sum, sentence) => sum + sentence.split(/\s+/).length, 0) / sentences.length;
-    
-    if (avgSentenceLength < 15) score += 0.2;
-    else if (avgSentenceLength > 25) score -= 0.2;
+    if (sentences.length > 0) {
+      const avgSentenceLength = sentences.reduce((sum, sentence) => sum + sentence.split(/\s+/).length, 0) / sentences.length;
+      
+      if (avgSentenceLength < 15) score += 0.2;
+      else if (avgSentenceLength > 25) score -= 0.2;
+    }
 
-    // Check for jargon
-    const jargonWords = ['API', 'firmware', 'protocol', 'initialize', 'authenticate', 'configuration'];
+    // Check for jargon (reduce score)
+    const jargonWords = ['API', 'firmware', 'protocol', 'initialize', 'authenticate', 'configuration', 'syntax'];
     const jargonCount = jargonWords.filter(word => text.toLowerCase().includes(word.toLowerCase())).length;
     score -= jargonCount * 0.1;
 
-    // Check for clear structure
+    // Check for clear structure (increase score)
+    if (text.includes('**Step') || text.includes('**Here are')) score += 0.2;
     if (text.includes('•') || text.includes('Step')) score += 0.1;
+    if (text.includes('\n\n')) score += 0.1; // Well-spaced formatting
+
+    // Check for friendly language (increase score)
+    const friendlyWords = ['happy to help', 'let me help', 'i can assist', 'no problem', 'let me know', 'feel free'];
+    const friendlyCount = friendlyWords.filter(phrase => text.toLowerCase().includes(phrase)).length;
+    score += friendlyCount * 0.1;
 
     // Check for positive, direct language
-    const positiveWords = ['try', 'let\'s', 'here\'s', 'you can', 'we can'];
+    const positiveWords = ['try', 'let\'s', 'here\'s', 'you can', 'we can', 'simply', 'easily'];
     const positiveCount = positiveWords.filter(word => text.toLowerCase().includes(word)).length;
     score += positiveCount * 0.05;
+
+    // Check for good organization indicators
+    if (text.includes('follow:') || text.includes('steps:')) score += 0.1;
+    if (text.includes('First') || text.includes('Next') || text.includes('Then') || text.includes('Finally')) score += 0.1;
 
     return Math.max(0.1, Math.min(1.0, score));
   }
@@ -779,52 +1002,79 @@ class EnhancedAIService {
 
   buildEnhancedSystemPrompt(config, context, documentContext = []) {
     const agentName = config.agent_name || 'NeuroAI';
-    const tone = config.response_tone || 'Professional';
-    const attitude = config.attitude_style || 'Helpful';
 
-    let contextInfo = '';
-    if (context.conversationSummary) {
-      contextInfo += `\nConversation context: ${context.conversationSummary}`;
-    }
+    let deviceInfo = '';
     if (context.deviceInfo?.model) {
-      contextInfo += `\nDevice: ${context.deviceInfo.model}`;
-      if (context.deviceInfo.knownIssues.length > 0) {
-        contextInfo += ` (Known issues: ${context.deviceInfo.knownIssues.join(', ')})`;
-      }
-    }
-    if (context.troubleshootingStage) {
-      contextInfo += `\nTroubleshooting stage: ${context.troubleshootingStage}`;
+      deviceInfo = `\nCustomer Device: ${context.deviceInfo.model}`;
     }
 
     let documentInfo = '';
     if (documentContext.length > 0) {
-      documentInfo = '\n\nRelevant Documentation:\n' + 
-        documentContext.map(doc => `- ${doc.text}`).join('\n');
+      documentInfo = '\n\nKnowledge Base:\n' + 
+        documentContext.map(doc => `${doc.text}`).join('\n\n');
     }
 
-    return `You are ${agentName}, an intelligent AI support assistant for NeuroVirtual.
+    // Detect customer frustration level for tone adjustment  
+    const frustrationLevel = context.customerContext?.frustrationLevel || 'low';
+    const communicationStyle = context.customerContext?.communicationStyle || 'non_technical';
 
-Your communication style:
-- Tone: ${tone}
-- Attitude: ${attitude}
-- Be helpful, professional, and efficient
-- Avoid repeating information already covered
-- Provide clear, actionable guidance
-- Use bullet points for multiple steps
+    let toneGuidance = '';
+    if (frustrationLevel === 'high' || frustrationLevel === 'critical') {
+      toneGuidance = '\n- Be extra empathetic and reassuring\n- Acknowledge their frustration\n- Focus on quick, effective solutions';
+    }
 
-Context awareness:${contextInfo}
+    let styleGuidance = '';
+    if (communicationStyle === 'technical') {
+      styleGuidance = '\n- Provide technical details when appropriate\n- Use precise terminology';
+    } else if (communicationStyle === 'non_technical') {
+      styleGuidance = '\n- Avoid technical jargon\n- Use simple, everyday language\n- Explain technical concepts in basic terms';
+    }
 
-Guidelines:
-- Don't ask questions that have already been answered
-- Provide step-by-step guidance when appropriate
-- End troubleshooting steps with "Did this solve your issue?"
-- If customer shows frustration, be extra empathetic
-- Stay focused on NeuroVirtual products and services
-- Escalate to human agents when needed
+    return `You are ${agentName}, a technical support assistant for NeuroVirtual. Your job is to guide customers step-by-step through troubleshooting their devices.
 
-${documentInfo}
+✅ KEY INSTRUCTIONS:
+- Always use the full chat history to understand what the customer already said or tried
+- Do not repeat steps the customer has already done or said didn't work
+- Give one clear, technical step at a time
+- Always look for the information they are asking in the AI learned documents uploaded
+- If the step doesn't work, move to the next logical step
+- Be short, direct, and helpful
+- If the customer asks for a human, stop and notify the agent
 
-Remember: You have context about this conversation and should use it to provide more intelligent, personalized responses.`;
+🎯 RESPONSE FORMATTING REQUIREMENTS:
+- Start with a brief acknowledgment when appropriate
+- Break complex solutions into clear, numbered steps
+- Use headings like "Here's what to try next:" for multi-step instructions
+- Keep each step simple and actionable
+- Use bold text for **Step 1**, **Step 2**, etc.
+- Add brief explanations when helpful
+
+📋 YOUR ROLE:
+- Provide clear, organized answers to customer questions
+- Use the knowledge base information when available  
+- Give step-by-step instructions for technical issues
+- Be professional but warm and approachable
+- Stay focused on NeuroVirtual products and services${toneGuidance}${styleGuidance}
+
+🔑 SPECIAL LICENSE HANDLING:
+- For ANY license-related issues (expired license, software activation, license blocked, activation codes, etc.)
+- ALWAYS direct customers to: https://neurokeygeneration-a9atdaanf8gbh7gb.canadacentral-01.azurewebsites.net/
+- Mention they may need to reload the page if they see an error
+- This includes: license expiration, software activation, license validation, product keys, activation codes, trial expired, subscription issues
+
+✅ KEY PRINCIPLES:
+- Answer the customer's question directly and completely
+- Use simple, conversational language
+- Organize information logically with clear structure
+- Provide actionable, specific solutions
+- If multiple steps are needed, format them as numbered steps
+- Include brief context or "why" when it helps understanding
+- If you're unsure, say so honestly and offer to connect them with a human agent
+- End with an encouraging note and invitation for follow-up questions
+
+${deviceInfo}${documentInfo}
+
+Remember: Your goal is to make customers feel supported and confident they can resolve their issue. Be organized, friendly, and thorough.`;
   }
 
   getEmptyContext() {

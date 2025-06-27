@@ -10,6 +10,7 @@ import Insights from './Insights';
 import CustomerManagement from '../customers/CustomerManagement';
 import DeviceManagement from '../devices/DeviceManagement';
 import CompanyManagement from '../companies/CompanyManagement';
+import FileDashboard from './FileDashboard';
 import ThemeToggle from '../common/ThemeToggle';
 import CompanyMatchNotification from '../common/CompanyMatchNotification';
 import { Ticket, User } from '../../types';
@@ -17,7 +18,7 @@ import apiService from '../../services/api';
 import socketService from '../../services/socket';
 import soundService from '../../services/soundService';
 
-type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit' | 'insights' | 'customers' | 'devices' | 'companies';
+type ViewType = 'tickets' | 'my-tickets' | 'my-open-tickets' | 'all-open-tickets' | 'unassigned' | 'resolved' | 'create' | 'detail' | 'users' | 'audit' | 'insights' | 'customers' | 'devices' | 'companies' | 'files';
 
 const Dashboard: React.FC = () => {
   const { user, logout, updateUser } = useAuth();
@@ -165,11 +166,17 @@ const Dashboard: React.FC = () => {
         await socketService.connect();
         console.log('✅ Dashboard: Socket.IO connected successfully');
         
+        // Add a small delay to ensure connection is fully established
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         // Join agent dashboard if user is an agent
         if (user?.role === 'agent' && user?.id) {
           const agentName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.name || 'Unknown Agent';
           console.log('🚀 Dashboard: Joining agent dashboard for:', { agentId: user.id, agentName });
           socketService.joinAgentDashboard(user.id, agentName);
+          
+          // Log success confirmation
+          console.log('🎯 Agent dashboard join attempt completed');
         } else {
           console.log('🔥 DASHBOARD: User is not an agent or missing ID:', { role: user?.role, id: user?.id });
         }
@@ -502,6 +509,15 @@ const Dashboard: React.FC = () => {
           setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
           return null;
         }
+      case 'files':
+        // Check if user has permission to access file management
+        if (user?.role === 'agent' && user.permissions?.includes('tickets.view_all')) {
+          return <FileDashboard />;
+        } else {
+          // Redirect to default view if no permission
+          setCurrentView(user?.role === 'agent' ? 'all-open-tickets' : 'tickets');
+          return null;
+        }
       case 'tickets':
       case 'my-tickets':
       case 'my-open-tickets':
@@ -556,6 +572,9 @@ const Dashboard: React.FC = () => {
             if (view === 'companies' && !(user?.role === 'agent' && user.permissions?.includes('companies.view'))) {
               return; // Don't allow view change if no permission
             }
+            if (view === 'files' && !(user?.role === 'agent' && user.permissions?.includes('tickets.view_all'))) {
+              return; // Don't allow view change if no permission
+            }
             setCurrentView(view as ViewType);
           }}
           onCreateTicket={handleTicketCreate}
@@ -591,6 +610,9 @@ const Dashboard: React.FC = () => {
               return; // Don't allow view change if no permission
             }
             if (view === 'companies' && !(user?.role === 'agent' && user.permissions?.includes('companies.view'))) {
+              return; // Don't allow view change if no permission
+            }
+            if (view === 'files' && !(user?.role === 'agent' && user.permissions?.includes('tickets.view_all'))) {
               return; // Don't allow view change if no permission
             }
             setCurrentView(view as ViewType);

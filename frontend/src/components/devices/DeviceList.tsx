@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import apiService from '../../services/api';
-import ConfigurableTable, { TableColumn, FilterConfig } from '../common/ConfigurableTable';
+import ConfigurableTable, { TableColumn, FilterConfig, ColumnFilter } from '../common/ConfigurableTable';
 
 interface Device {
   id: string;
@@ -13,7 +13,10 @@ interface Device {
   comments: string | null;
   customerName: string;
   customerEmail: string;
+  customerCountry: string | null;
+  companyName: string;
   ticketCount: number;
+  serviceCount: number;
   linkedTickets: Array<{
     id: string;
     ticketNumber: string;
@@ -36,6 +39,7 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [columnFilters, setColumnFilters] = useState<ColumnFilter[]>([]);
 
   const deviceModels = ['BWIII', 'BWMini', 'Compass', 'Maxxi'];
   const statusOptions = [
@@ -102,6 +106,9 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: deviceModels.map(model => ({ value: model, label: model })),
       render: (device) => (
         <div className="text-sm">
           <div className="font-medium text-gray-900 dark:text-white">
@@ -120,6 +127,8 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (device) => (
         <div className="text-sm">
           <div className="font-medium text-gray-900 dark:text-white">
@@ -132,12 +141,48 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
       ),
     },
     {
+      id: 'companyName',
+      label: 'Company',
+      width: 180,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
+      render: (device) => (
+        <div className="text-sm">
+          <div className="font-medium text-gray-900 dark:text-white">
+            {device.companyName || 'No Company'}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'customerCountry',
+      label: 'Country',
+      width: 120,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      render: (device) => (
+        <div className="text-sm">
+          <div className="text-gray-900 dark:text-white">
+            {device.customerCountry || '-'}
+          </div>
+        </div>
+      ),
+    },
+    {
       id: 'ticketCount',
       label: 'Tickets',
       width: 100,
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'number',
       render: (device) => (
         <div className="text-sm text-center">
           <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
@@ -151,78 +196,84 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
       ),
     },
     {
-      id: 'warrantyExpires',
-      label: 'Warranty Status',
-      width: 150,
+      id: 'serviceCount',
+      label: 'Services',
+      width: 100,
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'number',
+      render: (device) => (
+        <div className="text-sm text-center">
+          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+            device.serviceCount > 0 
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200' 
+              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+          }`}>
+            {device.serviceCount}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'warrantyExpires',
+      label: 'Warranty Status',
+      width: 140,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [
+        { value: 'active', label: 'Active' },
+        { value: 'expired', label: 'Expired' },
+        { value: 'expiring-soon', label: 'Expiring Soon' },
+        { value: 'no-warranty', label: 'No Info' }
+      ],
       render: (device) => {
-        const warranty = getWarrantyStatus(device.warrantyExpires);
+        const { status, color } = getWarrantyStatus(device.warrantyExpires);
         return (
           <div className="text-sm">
-            <div className={`font-medium ${warranty.color}`}>
-              {warranty.status}
+            <div className={`font-medium ${color}`}>
+              {status}
             </div>
-            {device.warrantyExpires && (
-              <div className="text-gray-500 dark:text-gray-400 text-xs">
-                {formatDate(device.warrantyExpires)}
-              </div>
-            )}
+            <div className="text-gray-500 dark:text-gray-400 text-xs">
+              {formatDate(device.warrantyExpires)}
+            </div>
           </div>
         );
       },
     },
     {
       id: 'invoiceNumber',
-      label: 'Invoice Number',
+      label: 'Invoice',
       width: 130,
       visible: true,
       resizable: true,
-      sortable: false,
-      render: (device) => (
-        <div className="text-sm text-gray-900 dark:text-white font-mono">
-          {device.invoiceNumber || '-'}
-        </div>
-      ),
-    },
-    {
-      id: 'invoiceDate',
-      label: 'Invoice Date',
-      width: 120,
-      visible: true,
-      resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (device) => (
-        <div className="text-sm text-gray-900 dark:text-white">
-          {formatDate(device.invoiceDate)}
-        </div>
-      ),
-    },
-    {
-      id: 'comments',
-      label: 'Comments',
-      width: 150,
-      visible: false,
-      resizable: true,
-      sortable: false,
-      render: (device) => (
-        <div className="text-sm text-gray-900 dark:text-white">
-          {device.comments ? (
-            <span className="truncate" title={device.comments}>
-              {device.comments.length > 50 ? `${device.comments.substring(0, 50)}...` : device.comments}
-            </span>
-          ) : '-'}
+        <div className="text-sm">
+          <div className="text-gray-900 dark:text-white font-mono">
+            {device.invoiceNumber || '-'}
+          </div>
+          <div className="text-gray-500 dark:text-gray-400 text-xs">
+            {formatDate(device.invoiceDate)}
+          </div>
         </div>
       ),
     },
     {
       id: 'createdAt',
-      label: 'Added',
+      label: 'Created',
       width: 120,
       visible: false,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'date',
       render: (device) => (
         <div className="text-sm text-gray-900 dark:text-white">
           {formatDate(device.createdAt)}
@@ -275,7 +326,10 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
         'Serial Number': device.serialNumber,
         'Customer Name': device.customerName,
         'Customer Email': device.customerEmail,
+        'Company Name': device.companyName || 'No Company',
+        'Country': device.customerCountry || '-',
         'Ticket Count': device.ticketCount,
+        'Service Count': device.serviceCount,
         'Warranty Status': warranty.status,
         'Warranty Expires': formatDate(device.warrantyExpires),
         'Invoice Number': device.invoiceNumber || '-',
@@ -319,34 +373,48 @@ const DeviceList: React.FC<DeviceListProps> = ({ onDeviceSelect }) => {
   }
 
   return (
-    <ConfigurableTable
-      data={devices}
-      columns={columns}
-      loading={loading}
-      storageKey="agent-device-list-preferences"
-      title={`Devices (${devices.length})`}
-      searchTerm={search}
-      onSearchChange={setSearch}
-      filters={filters}
-      onRowClick={onDeviceSelect}
-      onExport={handleExport}
-      exportFilename="devices-list.xlsx"
-      actions={actions}
-      emptyState={
-        <div className="text-gray-500 dark:text-gray-400">
-          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No devices found</h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {search || modelFilter || statusFilter
-              ? 'Try adjusting your search criteria or filters.' 
-              : 'No devices have been registered yet.'
-            }
-          </p>
+    <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700 dark:text-red-200">{error}</p>
+            </div>
+          </div>
         </div>
-      }
-    />
+      )}
+
+      <ConfigurableTable
+        data={devices}
+        columns={columns}
+        loading={loading}
+        storageKey="devices-table"
+        title="Devices"
+        searchTerm={search}
+        onSearchChange={setSearch}
+        columnFilters={columnFilters}
+        onColumnFiltersChange={setColumnFilters}
+        onRowClick={onDeviceSelect}
+        onExport={handleExport}
+        exportFilename="devices"
+        emptyState={
+          <div className="text-center py-12">
+            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No devices found</h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {search || columnFilters.length > 0 ? 'Try adjusting your search or filters.' : 'No devices to display.'}
+            </p>
+          </div>
+        }
+      />
+    </div>
   );
 };
 

@@ -90,6 +90,8 @@ const extractTextValue = (
       return ticket.deviceModel || 'Not specified';
     case 'deviceSerialNumber':
       return ticket.deviceSerialNumber || 'Not provided';
+    case 'service':
+      return ticket.hasServiceWorkflow ? 'YES' : 'NO';
     default:
       return 'N/A';
   }

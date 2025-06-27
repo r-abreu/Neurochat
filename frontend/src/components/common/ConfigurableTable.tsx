@@ -25,6 +25,9 @@ export interface TableColumn<T = any> {
   visible: boolean;
   resizable: boolean;
   sortable?: boolean;
+  filterable?: boolean;
+  filterType?: 'text' | 'select' | 'date' | 'number';
+  filterOptions?: Array<{ value: string; label: string }>;
   render: (item: T) => React.ReactNode;
 }
 
@@ -43,6 +46,12 @@ export interface FilterConfig {
   onChange: (value: string) => void;
 }
 
+export interface ColumnFilter {
+  columnId: string;
+  value: string;
+  operator?: 'equals' | 'contains' | 'startsWith' | 'endsWith' | 'greaterThan' | 'lessThan';
+}
+
 export interface ConfigurableTableProps<T = any> {
   data: T[];
   columns: TableColumn<T>[];
@@ -52,6 +61,8 @@ export interface ConfigurableTableProps<T = any> {
   searchTerm?: string;
   onSearchChange?: (value: string) => void;
   filters?: FilterConfig[];
+  columnFilters?: ColumnFilter[];
+  onColumnFiltersChange?: (filters: ColumnFilter[]) => void;
   onRowClick?: (item: T) => void;
   onExport?: () => void;
   exportFilename?: string;
@@ -75,6 +86,116 @@ export interface ConfigurableTableProps<T = any> {
   headerActions?: React.ReactNode;
 }
 
+const ColumnFilterDropdown: React.FC<{
+  column: TableColumn;
+  filter: ColumnFilter | undefined;
+  onFilterChange: (columnId: string, value: string, operator?: string) => void;
+  onClose: () => void;
+  data: any[];
+}> = ({ column, filter, onFilterChange, onClose, data }) => {
+  const [tempValue, setTempValue] = useState(filter?.value || '');
+  const [tempOperator, setTempOperator] = useState<string>(filter?.operator || 'contains');
+
+  const getUniqueValues = () => {
+    if (column.filterOptions) return column.filterOptions;
+    
+    const values = new Set<string>();
+    data.forEach(item => {
+      const value = getNestedValue(item, column.id);
+      if (value !== null && value !== undefined && value !== '') {
+        values.add(String(value));
+      }
+    });
+    return Array.from(values).sort().map(value => ({ value, label: value }));
+  };
+
+  const getNestedValue = (obj: any, path: string) => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
+
+  const handleApply = () => {
+    onFilterChange(column.id, tempValue, tempOperator);
+    onClose();
+  };
+
+  const handleClear = () => {
+    onFilterChange(column.id, '');
+    onClose();
+  };
+
+  return (
+    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-50 min-w-64">
+      <div className="p-3">
+        <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Filter by {column.label}
+        </div>
+        
+        {column.filterType === 'select' ? (
+          <select
+            value={tempValue}
+            onChange={(e) => setTempValue(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+          >
+            <option value="">All</option>
+            {getUniqueValues().map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <select
+              value={tempOperator}
+              onChange={(e) => setTempOperator(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 mb-2"
+            >
+              <option value="contains">Contains</option>
+              <option value="equals">Equals</option>
+              <option value="startsWith">Starts with</option>
+              <option value="endsWith">Ends with</option>
+              {column.filterType === 'number' && (
+                <>
+                  <option value="greaterThan">Greater than</option>
+                  <option value="lessThan">Less than</option>
+                </>
+              )}
+            </select>
+            <input
+              type={column.filterType === 'date' ? 'date' : column.filterType === 'number' ? 'number' : 'text'}
+              value={tempValue}
+              onChange={(e) => setTempValue(e.target.value)}
+              placeholder={`Filter ${column.label.toLowerCase()}...`}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+            />
+          </>
+        )}
+        
+        <div className="flex space-x-2 mt-3">
+          <button
+            onClick={handleApply}
+            className="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Apply
+          </button>
+          <button
+            onClick={handleClear}
+            className="flex-1 px-3 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+          >
+            Clear
+          </button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-sm rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SortableTableHeader: React.FC<{
   column: TableColumn;
   onResize: (id: string, width: number) => void;
@@ -82,10 +203,14 @@ const SortableTableHeader: React.FC<{
   onSort?: (columnId: string) => void;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
-}> = ({ column, onResize, onToggleVisibility, onSort, sortBy, sortOrder }) => {
+  filter?: ColumnFilter;
+  onFilterChange?: (columnId: string, value: string, operator?: string) => void;
+  data?: any[];
+}> = ({ column, onResize, onToggleVisibility, onSort, sortBy, sortOrder, filter, onFilterChange, data = [] }) => {
   const [resizing, setResizing] = useState(false);
   const [startX, setStartX] = useState(0);
   const [startWidth, setStartWidth] = useState(0);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
 
   const {
     attributes,
@@ -136,19 +261,33 @@ const SortableTableHeader: React.FC<{
   const getSortIcon = () => {
     if (!column.sortable || sortBy !== column.id) {
       return column.sortable ? (
-        <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-4 h-4 text-gray-400 hover:text-gray-600 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
         </svg>
       ) : null;
     }
     
     return sortOrder === 'asc' ? (
-      <svg className="w-3 h-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+      <svg className="w-4 h-4 text-blue-600 hover:text-blue-800 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
       </svg>
     ) : (
-      <svg className="w-3 h-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+      <svg className="w-4 h-4 text-blue-600 hover:text-blue-800 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+      </svg>
+    );
+  };
+
+  const getFilterIcon = () => {
+    const hasFilter = filter && filter.value;
+    return (
+      <svg 
+        className={`w-4 h-4 ${hasFilter ? 'text-blue-600 hover:text-blue-800' : 'text-gray-500 hover:text-gray-700'} transition-colors`} 
+        fill="none" 
+        viewBox="0 0 24 24" 
+        stroke="currentColor"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={hasFilter ? 2.5 : 2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.707A1 1 0 013 7V4z" />
       </svg>
     );
   };
@@ -165,22 +304,60 @@ const SortableTableHeader: React.FC<{
       className="px-2 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-gray-600 relative group"
       {...attributes}
     >
-      <div className="flex items-center justify-between">
-        <div 
-          {...listeners} 
-          className="cursor-move flex-1 select-none flex items-center space-x-1"
-          onClick={() => column.sortable && onSort?.(column.id)}
-        >
-          <span className={column.sortable ? 'cursor-pointer' : ''}>{column.label}</span>
-          {getSortIcon()}
-        </div>
-        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => onToggleVisibility(column.id)}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            title="Hide column"
+      <div className="flex items-center justify-between min-h-[28px] relative group">
+        <div className="flex items-center flex-1 min-w-0 pr-2">
+          <span 
+            {...listeners} 
+            className="cursor-move select-none truncate text-xs font-medium flex-1"
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            {column.label}
+          </span>
+        </div>
+        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity absolute right-0 top-0 bottom-0 bg-gray-50 dark:bg-gray-800 pl-1">
+          {column.sortable && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSort?.(column.id);
+              }}
+              className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+              title={`Sort by ${column.label}`}
+            >
+              {getSortIcon()}
+            </button>
+          )}
+          {column.filterable && onFilterChange && (
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowFilterDropdown(!showFilterDropdown);
+                }}
+                className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                title={`Filter ${column.label}`}
+              >
+                {getFilterIcon()}
+              </button>
+              {showFilterDropdown && (
+                <ColumnFilterDropdown
+                  column={column}
+                  filter={filter}
+                  onFilterChange={onFilterChange}
+                  onClose={() => setShowFilterDropdown(false)}
+                  data={data}
+                />
+              )}
+            </div>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleVisibility(column.id);
+            }}
+            className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            title={`Hide ${column.label} column`}
+          >
+            <svg className="w-4 h-4 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L8.464 8.464M14.12 14.12l1.415 1.415M14.12 14.12L9.88 9.88m4.24 4.24l1.415 1.415M9.88 9.88l-1.415-1.415" />
             </svg>
           </button>
@@ -198,13 +375,15 @@ const SortableTableHeader: React.FC<{
 
 function ConfigurableTable<T extends { id: string }>({
   data,
-  columns: defaultColumns,
+  columns: initialColumns,
   loading = false,
   storageKey,
   title,
   searchTerm = '',
   onSearchChange,
   filters = [],
+  columnFilters = [],
+  onColumnFiltersChange,
   onRowClick,
   onExport,
   exportFilename,
@@ -217,17 +396,18 @@ function ConfigurableTable<T extends { id: string }>({
   headerActions,
 }: ConfigurableTableProps<T>) {
   const sensors = useSensors(useSensor(PointerSensor));
+  const [columns, setColumns] = useState<TableColumn<T>[]>(initialColumns);
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [showExportSuccess, setShowExportSuccess] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [selectedItems, setSelectedItems] = useState<T[]>([]);
   const [sortBy, setSortBy] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Load preferences from localStorage
   const loadPreferences = (): TablePreferences => {
     const defaultPrefs = {
-      columnOrder: defaultColumns.map(c => c.id),
+      columnOrder: initialColumns.map(c => c.id),
       columnWidths: {},
       columnVisibility: {},
     };
@@ -262,20 +442,26 @@ function ConfigurableTable<T extends { id: string }>({
 
   // Apply preferences to columns
   const configuredColumns = useMemo(() => {
-    const columnMap = new Map(defaultColumns.map(col => [col.id, col]));
+    const columnMap = new Map(initialColumns.map(col => [col.id, col]));
     
-    // Ensure columnOrder is always an array
-    const columnOrder = Array.isArray(preferences.columnOrder) ? preferences.columnOrder : defaultColumns.map(c => c.id);
+    // Ensure columnOrder is always an array and contains all current column IDs
+    const defaultColumnIds = initialColumns.map(c => c.id);
+    let columnOrder = Array.isArray(preferences.columnOrder) ? preferences.columnOrder : defaultColumnIds;
+    
+    // Add any new columns that aren't in the saved order
+    const existingIds = new Set(columnOrder);
+    const newColumnIds = defaultColumnIds.filter(id => !existingIds.has(id));
+    if (newColumnIds.length > 0) {
+      columnOrder = [...columnOrder, ...newColumnIds];
+    }
+    
+    // Remove any column IDs that no longer exist
+    columnOrder = columnOrder.filter(id => columnMap.has(id));
     
     // Reorder columns based on preferences
     const orderedColumns = columnOrder
       .map(id => columnMap.get(id))
       .filter(Boolean) as TableColumn<T>[];
-    
-    // Add any new columns that aren't in the saved order
-    const existingIds = new Set(columnOrder);
-    const newColumns = defaultColumns.filter(col => !existingIds.has(col.id));
-    orderedColumns.push(...newColumns);
     
     // Apply width and visibility preferences
     return orderedColumns.map(col => ({
@@ -285,12 +471,28 @@ function ConfigurableTable<T extends { id: string }>({
         ? preferences.columnVisibility[col.id] 
         : col.visible
     }));
-  }, [defaultColumns, preferences]);
+  }, [initialColumns, preferences]);
 
   const visibleColumns = useMemo(() => 
     configuredColumns.filter(col => col.visible), 
     [configuredColumns]
   );
+
+  // Update preferences when columns change
+  useEffect(() => {
+    const currentColumnIds = configuredColumns.map(col => col.id);
+    const savedColumnIds = preferences.columnOrder;
+    
+    // Check if column order needs to be updated
+    if (JSON.stringify(currentColumnIds) !== JSON.stringify(savedColumnIds)) {
+      const newPreferences = { 
+        ...preferences, 
+        columnOrder: currentColumnIds 
+      };
+      setPreferences(newPreferences);
+      savePreferences(newPreferences);
+    }
+  }, [configuredColumns, preferences, savePreferences]);
 
   // Handle drag and drop
   const handleDragStart = (event: DragStartEvent) => {
@@ -301,14 +503,20 @@ function ConfigurableTable<T extends { id: string }>({
     const { active, over } = event;
     setActiveColumnId(null);
 
-    if (active.id !== over?.id) {
-      const oldIndex = preferences.columnOrder.indexOf(active.id as string);
-      const newIndex = preferences.columnOrder.indexOf(over?.id as string);
+    if (active.id !== over?.id && over?.id) {
+      // Get the current column order from configured columns
+      const currentColumnOrder = configuredColumns.map(col => col.id);
       
-      const newColumnOrder = arrayMove(preferences.columnOrder, oldIndex, newIndex);
-      const newPreferences = { ...preferences, columnOrder: newColumnOrder };
-      setPreferences(newPreferences);
-      savePreferences(newPreferences);
+      const oldIndex = currentColumnOrder.indexOf(active.id as string);
+      const newIndex = currentColumnOrder.indexOf(over.id as string);
+      
+      // Only proceed if both columns are found
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newColumnOrder = arrayMove(currentColumnOrder, oldIndex, newIndex);
+        const newPreferences = { ...preferences, columnOrder: newColumnOrder };
+        setPreferences(newPreferences);
+        savePreferences(newPreferences);
+      }
     }
   };
 
@@ -336,7 +544,7 @@ function ConfigurableTable<T extends { id: string }>({
 
   const resetToDefault = () => {
     const defaultPreferences = {
-      columnOrder: defaultColumns.map(c => c.id),
+      columnOrder: initialColumns.map(c => c.id),
       columnWidths: {},
       columnVisibility: {},
     };
@@ -379,26 +587,89 @@ function ConfigurableTable<T extends { id: string }>({
   };
 
   const handleSelectAll = () => {
-    if (selectedItems.size === data.length) {
-      setSelectedItems(new Set());
+    if (selectedItems.length === data.length) {
+      setSelectedItems([]);
       onSelectionChange?.([]);
     } else {
-      const allIds = new Set(data.map(item => item.id));
-      setSelectedItems(allIds);
+      setSelectedItems(data);
       onSelectionChange?.(data);
     }
   };
 
   const handleSelectItem = (item: T) => {
-    const newSelected = new Set(selectedItems);
-    if (newSelected.has(item.id)) {
-      newSelected.delete(item.id);
-    } else {
-      newSelected.add(item.id);
-    }
+    const newSelected = selectedItems.filter(i => i.id !== item.id);
     setSelectedItems(newSelected);
-    onSelectionChange?.(data.filter(d => newSelected.has(d.id)));
+    onSelectionChange?.(newSelected);
   };
+
+  const handleColumnFilterChange = (columnId: string, value: string, operator: string = 'contains') => {
+    if (!onColumnFiltersChange) return;
+    
+    const newFilters = columnFilters.filter(f => f.columnId !== columnId);
+    if (value) {
+      newFilters.push({ columnId, value, operator: operator as any });
+    }
+    onColumnFiltersChange(newFilters);
+  };
+
+  const applyColumnFilters = (items: T[]): T[] => {
+    if (!columnFilters.length) return items;
+    
+    return items.filter(item => {
+      return columnFilters.every(filter => {
+        const value = getNestedValue(item, filter.columnId);
+        const filterValue = filter.value.toLowerCase();
+        const itemValue = String(value || '').toLowerCase();
+        
+        switch (filter.operator) {
+          case 'equals':
+            return itemValue === filterValue;
+          case 'startsWith':
+            return itemValue.startsWith(filterValue);
+          case 'endsWith':
+            return itemValue.endsWith(filterValue);
+          case 'greaterThan':
+            return Number(value) > Number(filter.value);
+          case 'lessThan':
+            return Number(value) < Number(filter.value);
+          case 'contains':
+          default:
+            return itemValue.includes(filterValue);
+        }
+      });
+    });
+  };
+
+  const getNestedValue = (obj: any, path: string) => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
+
+  const sortedAndFilteredData = useMemo(() => {
+    let filteredData = applyColumnFilters(data);
+    
+    if (searchTerm) {
+      filteredData = filteredData.filter(item =>
+        Object.values(item).some(value =>
+          String(value || '').toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      );
+    }
+
+    if (sortBy) {
+      filteredData.sort((a, b) => {
+        const aValue = getNestedValue(a, sortBy);
+        const bValue = getNestedValue(b, sortBy);
+        
+        if (aValue === null || aValue === undefined) return 1;
+        if (bValue === null || bValue === undefined) return -1;
+        
+        const comparison = String(aValue).localeCompare(String(bValue), undefined, { numeric: true });
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+    }
+
+    return filteredData;
+  }, [data, columnFilters, searchTerm, sortBy, sortOrder]);
 
   if (loading) {
     return (
@@ -409,7 +680,50 @@ function ConfigurableTable<T extends { id: string }>({
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+    <div className="space-y-4">
+      {/* Header section */}
+      {(title || onSearchChange || headerActions) && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center space-x-4">
+            {title && (
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                {title}
+              </h2>
+            )}
+            {columnFilters.length > 0 && (
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  {columnFilters.length} filter{columnFilters.length > 1 ? 's' : ''} active
+                </span>
+                <button
+                  onClick={() => onColumnFiltersChange?.([])}
+                  className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center space-x-3">
+            {onSearchChange && (
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchTerm}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <svg className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            )}
+            {headerActions}
+          </div>
+        </div>
+      )}
+
       {/* Export Success Notification */}
       {showExportSuccess && (
         <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-400 p-4 mb-4">
@@ -427,91 +741,6 @@ function ConfigurableTable<T extends { id: string }>({
           </div>
         </div>
       )}
-
-      {/* Header with search, filters, and actions */}
-      <div className="border-b border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex flex-col space-y-4">
-          {/* Title and header actions */}
-          {(title || headerActions) && (
-            <div className="flex justify-between items-center">
-              {title && (
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {title}
-                </h2>
-              )}
-              {headerActions}
-            </div>
-          )}
-
-          {/* Search and filters */}
-          <div className="flex flex-col sm:flex-row gap-4">
-            {/* Search */}
-            {onSearchChange && (
-              <div className="flex-1">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    value={searchTerm}
-                    onChange={(e) => onSearchChange(e.target.value)}
-                    className="w-full px-3 py-2 pl-10 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  />
-                  <svg className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-              </div>
-            )}
-
-            {/* Filters */}
-            {filters.map((filter) => (
-              <div key={filter.key} className="min-w-0 flex-shrink-0">
-                {filter.type === 'select' ? (
-                  <select
-                    value={filter.value}
-                    onChange={(e) => filter.onChange(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">{filter.label}</option>
-                    {filter.options?.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type={filter.type}
-                    placeholder={filter.label}
-                    value={filter.value}
-                    onChange={(e) => filter.onChange(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Bulk actions */}
-          {enableSelection && selectedItems.size > 0 && bulkActions.length > 0 && (
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                {selectedItems.size} selected
-              </span>
-              {bulkActions.map((action, index) => (
-                <button
-                  key={index}
-                  onClick={() => action.onClick(data.filter(d => selectedItems.has(d.id)))}
-                  className={`flex items-center space-x-1 px-2 py-1 rounded text-sm ${action.className || 'text-blue-600 hover:text-blue-800'}`}
-                >
-                  {action.icon}
-                  <span>{action.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Column controls */}
       <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex justify-between items-center">
@@ -565,133 +794,137 @@ function ConfigurableTable<T extends { id: string }>({
       )}
 
       {/* Table */}
-      <div className="overflow-x-auto">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <table className="w-full table-auto divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                {enableSelection && (
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider border-r border-gray-200 dark:border-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={selectedItems.size === data.length && data.length > 0}
-                      onChange={handleSelectAll}
-                      className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                    />
-                  </th>
-                )}
-                <SortableContext items={visibleColumns.map(col => col.id)} strategy={horizontalListSortingStrategy}>
-                  {visibleColumns.map(column => (
-                    <SortableTableHeader
-                      key={column.id}
-                      column={column}
-                      onResize={handleColumnResize}
-                      onToggleVisibility={handleToggleColumnVisibility}
-                      onSort={handleSort}
-                      sortBy={sortBy}
-                      sortOrder={sortOrder}
-                    />
-                  ))}
-                </SortableContext>
-                {actions.length > 0 && (
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Actions
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {data.length === 0 ? (
+      <div className="overflow-hidden bg-white dark:bg-gray-800 shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+        <div className="overflow-x-auto">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <td 
-                    colSpan={visibleColumns.length + (enableSelection ? 1 : 0) + (actions.length > 0 ? 1 : 0)} 
-                    className="px-6 py-12 text-center"
-                  >
-                    {emptyState || (
-                      <div className="text-gray-500 dark:text-gray-400">
-                        <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No data</h3>
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">No items to display.</p>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                data.map((item) => (
-                  <tr 
-                    key={item.id} 
-                    className={`hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
-                    style={getRowStyle?.(item)}
-                    onClick={() => onRowClick?.(item)}
+                  <SortableContext
+                    items={visibleColumns.map(col => col.id)}
+                    strategy={horizontalListSortingStrategy}
                   >
                     {enableSelection && (
-                      <td className="px-2 py-2 border-r border-gray-200 dark:border-gray-600">
+                      <th className="px-4 py-3 text-left">
                         <input
                           type="checkbox"
-                          checked={selectedItems.has(item.id)}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            handleSelectItem(item);
-                          }}
-                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                          checked={selectedItems.length === sortedAndFilteredData.length && sortedAndFilteredData.length > 0}
+                          onChange={handleSelectAll}
+                          className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                         />
-                      </td>
+                      </th>
                     )}
                     {visibleColumns.map(column => (
-                      <td
+                      <SortableTableHeader
                         key={column.id}
-                        className="px-2 py-2 border-r border-gray-200 dark:border-gray-600 overflow-hidden"
-                        style={{
-                          width: `${column.width}px`,
-                          minWidth: `${column.width}px`,
-                          maxWidth: `${column.width}px`,
-                        }}
-                      >
-                        {column.render(item)}
-                      </td>
+                        column={column}
+                        onResize={handleColumnResize}
+                        onToggleVisibility={handleToggleColumnVisibility}
+                        onSort={handleSort}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        filter={columnFilters.find(f => f.columnId === column.id)}
+                        onFilterChange={handleColumnFilterChange}
+                        data={data}
+                      />
                     ))}
                     {actions.length > 0 && (
-                      <td className="px-2 py-2 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end space-x-2">
-                          {actions.map((action, index) => {
-                            if (action.show && !action.show(item)) return null;
-                            return (
-                              <button
-                                key={index}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  action.onClick(item);
-                                }}
-                                className={`${action.className || 'text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300'}`}
-                                title={action.label}
-                              >
-                                {action.icon}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </td>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Actions
+                      </th>
                     )}
+                  </SortableContext>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan={visibleColumns.filter(col => col.visible).length + (enableSelection ? 1 : 0) + (actions.length > 0 ? 1 : 0)} className="px-4 py-8 text-center">
+                      <div className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        <span className="ml-2 text-gray-500 dark:text-gray-400">Loading...</span>
+                      </div>
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-          <DragOverlay>
-            {activeColumnId ? (
-              <div className="bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700 rounded px-3 py-2 text-sm font-medium">
-                {configuredColumns.find(col => col.id === activeColumnId)?.label}
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+                ) : sortedAndFilteredData.length === 0 ? (
+                  <tr>
+                    <td colSpan={visibleColumns.filter(col => col.visible).length + (enableSelection ? 1 : 0) + (actions.length > 0 ? 1 : 0)} className="px-4 py-8 text-center">
+                      {emptyState || (
+                        <div className="text-gray-500 dark:text-gray-400">
+                          No data available
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  sortedAndFilteredData.map((item, index) => (
+                    <tr
+                      key={item.id}
+                      className={`${
+                        onRowClick ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700' : ''
+                      } ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-900'}`}
+                      onClick={() => onRowClick?.(item)}
+                      style={getRowStyle?.(item)}
+                    >
+                      {enableSelection && (
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedItems.some(selected => selected.id === item.id)}
+                            onChange={() => handleSelectItem(item)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                          />
+                        </td>
+                      )}
+                      {visibleColumns.map(column => (
+                        column.visible && (
+                          <td
+                            key={column.id}
+                            className="px-2 py-3 whitespace-nowrap border-r border-gray-200 dark:border-gray-600"
+                            style={{
+                              width: `${column.width}px`,
+                              minWidth: `${column.width}px`,
+                              maxWidth: `${column.width}px`,
+                            }}
+                          >
+                            {column.render(item)}
+                          </td>
+                        )
+                      ))}
+                      {actions.length > 0 && (
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center space-x-2">
+                            {actions.map((action, actionIndex) => (
+                              (!action.show || action.show(item)) && (
+                                <button
+                                  key={actionIndex}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    action.onClick(item);
+                                  }}
+                                  className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${action.className || 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                                  title={action.label}
+                                >
+                                  {action.icon}
+                                </button>
+                              )
+                            ))}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </DndContext>
+        </div>
       </div>
     </div>
   );

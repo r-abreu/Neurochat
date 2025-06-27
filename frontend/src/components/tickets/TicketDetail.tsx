@@ -5,6 +5,7 @@ import apiService from '../../services/api';
 import socketService from '../../services/socket';
 import soundService from '../../services/soundService';
 import CountrySelect from '../common/CountrySelect';
+import ServiceWorkflow from '../service/ServiceWorkflow';
 
 interface TicketDetailProps {
   ticket: Ticket;
@@ -42,6 +43,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     customerCompany: initialTicket?.customerCompany || '',
     customerAddress: initialTicket?.customerAddress || '', // Keep for backward compatibility
     customerStreetAddress: initialTicket?.customerStreetAddress || '',
+    customerCity: initialTicket?.customerCity || '',
     customerState: initialTicket?.customerState || '',
     customerZipCode: initialTicket?.customerZipCode || '',
     customerCountry: initialTicket?.customerCountry || '',
@@ -80,6 +82,19 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     changedBy: null,
     disabledAt: null
   });
+  const [showServiceWorkflow, setShowServiceWorkflow] = useState(false);
+  const [workflow, setWorkflow] = useState<any>(null);
+  const [loadingWorkflow, setLoadingWorkflow] = useState(false);
+  
+  // Dropdown states for clickable badges
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [showAssignmentDropdown, setShowAssignmentDropdown] = useState(false);
+
+  // Add typing state and timer for agent typing detection
+  const [isAgentTyping, setIsAgentTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update local ticket state when prop changes
   useEffect(() => {
@@ -107,6 +122,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
         customerCompany: initialTicket.customerCompany || '',
         customerAddress: initialTicket.customerAddress || '',
         customerStreetAddress: initialTicket.customerStreetAddress || '',
+        customerCity: initialTicket.customerCity || '',
         customerState: initialTicket.customerState || '',
         customerZipCode: initialTicket.customerZipCode || '',
         customerCountry: initialTicket.customerCountry || '',
@@ -124,6 +140,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     loadMessages();
     loadAgents();
     loadDropdownOptions();
+    loadWorkflow();
     if (user?.role === 'agent' || user?.userType === 'agent') {
       loadInternalComments();
       loadCustomerStatus();
@@ -169,6 +186,19 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     // Listen for ticket updates
     const handleTicketUpdate = (updatedTicket: any) => {
       console.log('🎫 Ticket updated:', updatedTicket);
+      
+      // Handle auto-claim notifications
+      if (updatedTicket.autoClaimed) {
+        console.log('🤖 Auto-claim detected:', updatedTicket);
+        // You can add a toast notification here if needed
+      }
+      
+      // If we have a locally generated summary, preserve it to prevent overwrite
+      if (ticket?.resolutionSummary && updatedTicket?.resolutionSummary !== ticket.resolutionSummary) {
+        console.log('📝 Preserving local summary during ticket update');
+        return; // Don't refresh to preserve local summary
+      }
+      
       onTicketUpdate();
     };
 
@@ -244,30 +274,106 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
           };
         });
         
-        // Also call onTicketUpdate to refresh parent component after socket confirmation
+        // Reset the generating state to ensure UI is properly updated
+        setGeneratingSummary(false);
+        
+        // Don't call onTicketUpdate() here as it overwrites local state
+        // The socket event already updated the local state, no need to refresh from parent
+        console.log('📝 Summary updated via socket, skipping parent refresh to prevent overwrite');
+      }
+    };
+
+    // Listen for AI ticket details updates
+    const handleTicketDetailsUpdated = (data: {
+      ticketId: string;
+      title: string;
+      description: string;
+      confidence: number;
+      generatedAt: string;
+    }) => {
+      if (ticket?.id && data.ticketId === ticket.id) {
+        console.log('🤖 AI ticket details updated via socket:', data);
+        setTicket(prev => {
+          if (!prev) return prev;
+          console.log('🤖 Updating ticket title and description:', {
+            oldTitle: prev.title,
+            newTitle: data.title,
+            oldDescription: prev.description,
+            newDescription: data.description
+          });
+          return {
+            ...prev,
+            title: data.title,
+            description: data.description,
+            aiGeneratedDetails: {
+              confidence: data.confidence,
+              generatedAt: data.generatedAt
+            }
+          };
+        });
+
+        // Update the edit form if it's open
+        setEditForm((prev: any) => ({
+          ...prev,
+          title: data.title,
+          description: data.description
+        }));
+        
+        // Refresh parent component
         setTimeout(() => {
-          console.log('📝 Refreshing parent after socket confirmation');
+          console.log('🤖 Refreshing parent after AI details update');
           onTicketUpdate();
-        }, 500); // Small delay to ensure state is updated
+        }, 500);
+      }
+    };
+
+    // Listen for workflow updates
+    const handleWorkflowUpdate = (data: { ticketId: string; workflowId: string; workflow: any; updatedStep: any; updatedBy: any; updatedAt: string }) => {
+      if (ticket?.id && data.ticketId === ticket.id) {
+        console.log('🔄 Workflow update received:', data);
+        setWorkflow(data.workflow);
+      }
+    };
+
+    // Listen for ticket claimed events (including auto-claims)
+    const handleTicketClaimed = (data: { ticketId: string; agent: any; claimedAt: string; handoffFromAI?: boolean; autoClaimed?: boolean }) => {
+      if (ticket?.id && data.ticketId === ticket.id) {
+        console.log('👤 Ticket claimed:', data);
+        
+        if (data.autoClaimed) {
+          console.log('🤖 Auto-claim notification:', `${data.agent.firstName} ${data.agent.lastName} auto-claimed this ticket`);
+          // You could show a toast notification here
+        }
+        
+        // Refresh the ticket to show updated assignment
+        setTimeout(() => {
+          onTicketUpdate();
+        }, 100);
       }
     };
 
     socketService.on('new_message', handleNewMessage);
     socketService.on('user_typing', handleTyping);
     socketService.on('ticket_updated', handleTicketUpdate);
+    socketService.on('ticket_claimed', handleTicketClaimed);
     socketService.on('customer_status_changed', handleCustomerStatusChange);
     socketService.on('agent_status_changed', handleAgentStatusChange);
     socketService.on('ai_status_changed', handleAiStatusChange);
     socketService.on('ticket_summary_generated', handleSummaryGenerated);
+    socketService.on('ticket_details_updated', handleTicketDetailsUpdated);
+    socketService.on('workflow_updated', handleWorkflowUpdate);
 
     return () => {
       socketService.off('new_message', handleNewMessage);
       socketService.off('user_typing', handleTyping);
       socketService.off('ticket_updated', handleTicketUpdate);
+      socketService.off('ticket_claimed', handleTicketClaimed);
       socketService.off('customer_status_changed', handleCustomerStatusChange);
       socketService.off('agent_status_changed', handleAgentStatusChange);
       socketService.off('ai_status_changed', handleAiStatusChange);
       socketService.off('ticket_summary_generated', handleSummaryGenerated);
+      socketService.off('ticket_details_updated', handleTicketDetailsUpdated);
+      socketService.off('workflow_updated', handleWorkflowUpdate);
       if (ticket?.id) {
         socketService.leaveTicket(ticket.id);
       }
@@ -405,38 +511,117 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     }
   };
 
+  const loadWorkflow = async () => {
+    if (!ticket?.id) return;
+    
+    try {
+      setLoadingWorkflow(true);
+      console.log('🔧 Loading workflow for ticket:', ticket.id);
+      
+      // First, get list of workflows for this ticket
+      const workflowsResponse = await apiService.get(`/tickets/${ticket.id}/service-workflows`);
+      console.log('🔧 Workflows response:', workflowsResponse);
+      
+      if (workflowsResponse && Array.isArray(workflowsResponse) && workflowsResponse.length > 0) {
+        // Get the full workflow details for the first workflow
+        const workflowId = workflowsResponse[0].workflowId;
+        console.log('🔧 Loading workflow details for:', workflowId);
+        
+        const workflowDetails = await apiService.get(`/service-workflows/${workflowId}`);
+        console.log('🔧 Workflow details:', workflowDetails);
+        
+        setWorkflow(workflowDetails);
+      } else {
+        setWorkflow(null);
+      }
+    } catch (error: any) {
+      console.error('🔧 Error loading workflow:', error);
+      // Don't show error for 404 - just means no workflow exists
+      if (error.response?.status !== 404) {
+        console.error('🔧 Unexpected error loading workflow:', error);
+      }
+      setWorkflow(null);
+    } finally {
+      setLoadingWorkflow(false);
+    }
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Handle message input change with typing detection
+  const handleMessageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setNewMessage(value);
+
+    // Only trigger typing for agents
+    if (user?.role === 'agent' || user?.userType === 'agent') {
+      // Start typing if not already typing
+      if (!isAgentTyping && value.length > 0) {
+        setIsAgentTyping(true);
+        if (ticket?.id) {
+          console.log('🔤 Agent started typing, emitting typing_start');
+          socketService.startTyping(ticket.id);
+        }
+      }
+
+      // Clear existing timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      // Set timeout to stop typing after 2 seconds of inactivity
+      typingTimeoutRef.current = setTimeout(() => {
+        if (isAgentTyping) {
+          setIsAgentTyping(false);
+          if (ticket?.id) {
+            console.log('🔤 Agent stopped typing, emitting typing_stop');
+            socketService.stopTyping(ticket.id);
+          }
+        }
+      }, 2000);
+    }
+  };
+
+  // Stop typing when message is sent
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !ticket?.id) return;
+
+    // Clear typing state immediately when sending
+    if (isAgentTyping) {
+      setIsAgentTyping(false);
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      socketService.stopTyping(ticket.id);
+    }
 
     const messageContent = newMessage.trim();
     setNewMessage('');
 
     try {
       setSendingMessage(true);
-      console.log('📤 Agent sending message to ticket:', ticket.id);
-      const sentMessage = await apiService.sendMessage(ticket.id, messageContent);
-      console.log('📤 Agent message sent successfully:', sentMessage);
-      
-      // Add message to local state (if not already added by Socket.IO)
-      setMessages(prev => {
-        if (prev.find(m => m.id === sentMessage.id)) {
-          return prev;
-        }
-        return [...prev, sentMessage];
-      });
+      console.log('📤 Sending message to ticket:', ticket.id);
+      await apiService.sendMessage(ticket.id, messageContent);
+      console.log('📤 Message sent successfully');
     } catch (error) {
       console.error('❌ Error sending message:', error);
       setNewMessage(messageContent); // Restore message on error
-      alert('Failed to send message. Please try again.');
     } finally {
       setSendingMessage(false);
     }
   };
+
+  // Cleanup typing timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -598,6 +783,8 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
       // The Socket.IO event 'ticket_summary_generated' will handle real-time updates for all users
       console.log('🔴 [DEBUG] Summary updated locally, waiting for socket event confirmation');
       
+      // The socket event will handle further updates, no need to refresh parent
+      
     } catch (error: any) {
       console.error('❌ Error generating summary:', error);
       console.error('🔴 [DEBUG] Error type:', typeof error);
@@ -726,6 +913,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
           customerCompany: updatedTicket.customerCompany || '',
           customerAddress: updatedTicket.customerAddress || '',
           customerStreetAddress: updatedTicket.customerStreetAddress || '',
+          customerCity: updatedTicket.customerCity || '',
           customerState: updatedTicket.customerState || '',
           customerZipCode: updatedTicket.customerZipCode || '',
           customerCountry: updatedTicket.customerCountry || '',
@@ -776,6 +964,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
         customerCompany: currentTicket.customerCompany || '',
         customerAddress: currentTicket.customerAddress || '',
         customerStreetAddress: currentTicket.customerStreetAddress || '',
+        customerCity: currentTicket.customerCity || '',
         customerState: currentTicket.customerState || '',
         customerZipCode: currentTicket.customerZipCode || '',
         customerCountry: currentTicket.customerCountry || '',
@@ -847,6 +1036,96 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
     return emailRegex.test(email);
   };
 
+  const handleManageWorkflow = () => {
+    setShowServiceWorkflow(true);
+  };
+
+  const handleCloseWorkflow = () => {
+    setShowServiceWorkflow(false);
+    // Reload workflow data in case it was created or modified
+    loadWorkflow();
+  };
+
+  // Available dropdown options
+  const statusOptions = [
+    { value: 'new', label: 'New', color: getStatusColor('new') },
+    { value: 'in_progress', label: 'In Progress', color: getStatusColor('in_progress') },
+    { value: 'resolved', label: 'Resolved', color: getStatusColor('resolved') }
+  ];
+  
+  const priorityOptions = [
+    { value: 'low', label: 'Low', color: getPriorityColor('low') },
+    { value: 'medium', label: 'Medium', color: getPriorityColor('medium') },
+    { value: 'high', label: 'High', color: getPriorityColor('high') }
+  ];
+  
+  const categoryOptions = ['General', 'Technical', 'Billing', 'Support', 'Feature Request', 'Bug Report'];
+
+  // Close all dropdowns
+  const closeAllDropdowns = () => {
+    setShowStatusDropdown(false);
+    setShowPriorityDropdown(false);
+    setShowCategoryDropdown(false);
+    setShowAssignmentDropdown(false);
+  };
+
+  // Handlers for dropdown selections
+  const handleStatusChange = async (newStatus: string) => {
+    if (newStatus !== ticket.status && user?.permissions?.includes('tickets.edit')) {
+      await handleStatusUpdate(newStatus);
+    }
+    closeAllDropdowns();
+  };
+
+  const handlePriorityChange = async (newPriority: string) => {
+    if (newPriority !== ticket.priority && user?.permissions?.includes('tickets.edit')) {
+      try {
+        const priorityValue = newPriority as 'low' | 'medium' | 'high';
+        const response = await apiService.updateTicket(ticket.id, { priority: priorityValue });
+        if (response) {
+          setTicket(prev => ({ ...prev, priority: priorityValue }));
+          onTicketUpdate();
+        }
+      } catch (error) {
+        console.error('Error updating priority:', error);
+      }
+    }
+    closeAllDropdowns();
+  };
+
+  const handleCategoryChange = async (newCategory: string) => {
+    if (newCategory !== ticket.category && user?.permissions?.includes('tickets.edit')) {
+      try {
+        const response = await apiService.updateTicket(ticket.id, { category: newCategory });
+        if (response) {
+          setTicket(prev => ({ ...prev, category: newCategory }));
+          onTicketUpdate();
+        }
+      } catch (error) {
+        console.error('Error updating category:', error);
+      }
+    }
+    closeAllDropdowns();
+  };
+
+  const handleAssignmentChange = async (agentId: string) => {
+    await handleReassignTicket(agentId);
+    closeAllDropdowns();
+  };
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.dropdown-container')) {
+        closeAllDropdowns();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Don't render if ticket is not loaded yet
   if (!ticket) {
     return (
@@ -883,27 +1162,191 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Ticket Details */}
-        <div className="lg:col-span-1">
-          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Ticket Details</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">#{ticket.ticketNumber}</p>
+      <div className="space-y-6">
+        {/* Ticket Details - Full width at top */}
+        <div>
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex-1">
+                <div className="flex items-center space-x-3 mb-2">
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">#{ticket.ticketNumber}</h1>
+                  
+                  {/* Date Badge - Next to ticket number */}
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">
+                    {formatDate(ticket.createdAt)}
+                  </span>
+
+                  {/* Service Workflow Badge - Shows when workflow exists */}
+                  {workflow && (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                      Service
+                    </span>
+                  )}
+
+                  {/* Status Badge - Clickable */}
+                  <div className="relative dropdown-container">
+                    <button
+                      onClick={() => {
+                        if (user?.permissions?.includes('tickets.edit')) {
+                          closeAllDropdowns();
+                          setShowStatusDropdown(!showStatusDropdown);
+                        }
+                      }}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium ${getStatusColor(ticket.status)} ${user?.permissions?.includes('tickets.edit') ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'} transition-opacity`}
+                      disabled={!user?.permissions?.includes('tickets.edit')}
+                    >
+                      {formatStatus(ticket.status)}
+                      {user?.permissions?.includes('tickets.edit') && (
+                        <svg className="ml-1 h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </button>
+                    {showStatusDropdown && user?.permissions?.includes('tickets.edit') && (
+                      <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-10">
+                        {statusOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => handleStatusChange(option.value)}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${option.value === ticket.status ? 'bg-gray-50 dark:bg-gray-700' : ''}`}
+                          >
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${option.color}`}>
+                              {option.label}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Priority Badge - Clickable */}
+                  <div className="relative dropdown-container">
+                    <button
+                      onClick={() => {
+                        if (user?.permissions?.includes('tickets.edit')) {
+                          closeAllDropdowns();
+                          setShowPriorityDropdown(!showPriorityDropdown);
+                        }
+                      }}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 ${user?.permissions?.includes('tickets.edit') ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'} transition-opacity`}
+                      disabled={!user?.permissions?.includes('tickets.edit')}
+                    >
+                      {ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
+                      {user?.permissions?.includes('tickets.edit') && (
+                        <svg className="ml-1 h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </button>
+                    {showPriorityDropdown && user?.permissions?.includes('tickets.edit') && (
+                      <div className="absolute top-full left-0 mt-1 w-32 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-10">
+                        {priorityOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => handlePriorityChange(option.value)}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${option.value === ticket.priority ? 'bg-gray-50 dark:bg-gray-700' : ''}`}
+                          >
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200`}>
+                              {option.label}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Category Badge - Clickable */}
+                  <div className="relative dropdown-container">
+                    <button
+                      onClick={() => {
+                        if (user?.permissions?.includes('tickets.edit')) {
+                          closeAllDropdowns();
+                          setShowCategoryDropdown(!showCategoryDropdown);
+                        }
+                      }}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 ${user?.permissions?.includes('tickets.edit') ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'} transition-opacity`}
+                      disabled={!user?.permissions?.includes('tickets.edit')}
+                    >
+                      {ticket.category}
+                      {user?.permissions?.includes('tickets.edit') && (
+                        <svg className="ml-1 h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </button>
+                    {showCategoryDropdown && user?.permissions?.includes('tickets.edit') && (
+                      <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-10">
+                        {categoryOptions.map((category) => (
+                          <button
+                            key={category}
+                            onClick={() => handleCategoryChange(category)}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${category === ticket.category ? 'bg-gray-50 dark:bg-gray-700' : ''}`}
+                          >
+                            {category}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Agent Assignment Badge - Clickable */}
+                  <div className="relative dropdown-container">
+                    <button
+                      onClick={() => {
+                        if (user?.permissions?.includes('tickets.edit')) {
+                          closeAllDropdowns();
+                          setShowAssignmentDropdown(!showAssignmentDropdown);
+                        }
+                      }}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 ${user?.permissions?.includes('tickets.edit') ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'} transition-opacity`}
+                      disabled={!user?.permissions?.includes('tickets.edit')}
+                    >
+                      {ticket.agentId ? (ticket.agent?.name || 'Unknown') : 'Unassigned'}
+                      {user?.permissions?.includes('tickets.edit') && (
+                        <svg className="ml-1 h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </button>
+                    {showAssignmentDropdown && user?.permissions?.includes('tickets.edit') && (
+                      <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-10">
+                        {ticket.agentId && (
+                          <button
+                            onClick={() => handleAssignmentChange('')}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                          >
+                            ⊘ Unassign Ticket
+                          </button>
+                        )}
+                        {agents.map(agent => {
+                          const isOnline = agent.isOnline || agentPresence.get(agent.id) || false;
+                          const statusIndicator = isOnline ? '🟢' : '🔴';
+                          return (
+                            <button
+                              key={agent.id}
+                              onClick={() => handleAssignmentChange(agent.id)}
+                              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${agent.id === ticket.agentId ? 'bg-gray-50 dark:bg-gray-700' : ''}`}
+                            >
+                              {statusIndicator} {agent.roleName || 'Unknown Role'} - {agent.name || `${agent.firstName} ${agent.lastName}`}
+                              {agent.id === ticket.agentId ? ' (Current)' : ''}
+                              {agent.id === user?.id ? ' (You)' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="ml-6">
                 {user?.role === 'agent' && user?.permissions?.includes('tickets.edit') && !isEditing && (
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 px-2 py-1 border border-blue-300 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                   >
-                    Edit
+                    Edit Ticket
                   </button>
                 )}
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(ticket.status)}`}>
-                  {formatStatus(ticket.status)}
-                </span>
               </div>
             </div>
 
@@ -1041,6 +1484,18 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                         placeholder="123 Main Street"
                       />
                     </div>
+                    <div>
+                      <label htmlFor="customerCity" className="block text-xs font-medium text-gray-400 dark:text-gray-500">City</label>
+                      <input
+                        type="text"
+                        id="customerCity"
+                        name="customerCity"
+                        value={editForm.customerCity}
+                        onChange={handleEditFormChange}
+                        className="mt-1 w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Los Angeles"
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label htmlFor="customerState" className="block text-xs font-medium text-gray-400 dark:text-gray-500">State/Province</label>
@@ -1169,122 +1624,110 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                 </div>
               </div>
             ) : (
-              /* Display Mode */
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Title</h3>
-                  <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">{ticket.title}</p>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</h3>
-                  <p className="mt-1 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{ticket.description}</p>
-                </div>
-
+              /* Display Mode - Compact Layout */
+              <div className="space-y-3">
+                {/* Title and Description - Side by Side */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Priority</h3>
-                    <p className={`mt-1 text-sm font-medium ${getPriorityColor(ticket.priority)}`}>
-                      {ticket.priority}
-                    </p>
+                    <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Title</span>
+                    <p className="text-sm text-gray-900 dark:text-gray-100">{ticket.title}</p>
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Category</h3>
-                    <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">{ticket.category}</p>
+                    <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Description</span>
+                    <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{ticket.description}</p>
                   </div>
                 </div>
 
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Created</h3>
-                  <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(ticket.createdAt)}</p>
-                </div>
 
-                {/* Customer Information */}
-                <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Customer Information</h3>
-                  <div className="space-y-3">
+
+                                  {/* Customer Information - Compact Grid */}
+                  <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Customer & Device Info</h3>
+                  
+                  {/* Customer Basic Info */}
+                  <div className="grid grid-cols-3 gap-4 mb-3">
                     <div>
-                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Name</h4>
-                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Name</span>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
                         {ticket.customer?.name || ticket.customerName || 'Not provided'}
                       </p>
                     </div>
                     <div>
-                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Email</h4>
-                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Email</span>
+                      <p className="text-sm text-gray-900 dark:text-gray-100 truncate" title={ticket.customer?.email || ticket.customerEmail || 'Not provided'}>
                         {ticket.customer?.email || ticket.customerEmail || 'Not provided'}
                       </p>
                     </div>
-                    {/* Temporarily show all fields for debugging */}
                     <div>
-                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Phone</h4>
-                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                        {ticket.customerPhone || 'No phone provided'}
+                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Phone</span>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {ticket.customerPhone || 'Not provided'}
                       </p>
                     </div>
-                    
+                  </div>
+
+                  {/* Company, Type, Address, and Country */}
+                  <div className="grid grid-cols-4 gap-4 mb-3">
                     <div>
-                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Company</h4>
-                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                        {ticket.customerCompany || 'No company provided'}
+                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Company</span>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {ticket.customerCompany || 'Not provided'}
                       </p>
                     </div>
-                    
                     <div>
-                      <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Country</h4>
-                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                        {ticket.customerCountry || 'No country provided'}
+                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Type</span>
+                      <div>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          ticket.customerType === 'VIP' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                          ticket.customerType === 'Distributor' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                          'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                        }`}>
+                          {ticket.customerType || 'Standard'}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Address</span>
+                      <div className="text-sm text-gray-900 dark:text-gray-100">
+                        {(() => {
+                          const addressParts = [];
+                          if (ticket.customerStreetAddress) addressParts.push(ticket.customerStreetAddress);
+                          if (ticket.customerCity) addressParts.push(ticket.customerCity);
+                          if (ticket.customerState) addressParts.push(ticket.customerState);
+                          if (ticket.customerZipCode) addressParts.push(ticket.customerZipCode);
+                          
+                          if (addressParts.length > 0) {
+                            return <p className="truncate" title={addressParts.join(', ')}>{addressParts.join(', ')}</p>;
+                          } else if (ticket.customerAddress) {
+                            return <p className="whitespace-pre-wrap truncate" title={ticket.customerAddress}>{ticket.customerAddress}</p>;
+                          } else {
+                            return <p className="text-gray-500 dark:text-gray-400">No address provided</p>;
+                          }
+                        })()}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Country</span>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {ticket.customerCountry || 'Not provided'}
                       </p>
-                                         </div>
-                     
-                     <div>
-                       <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Customer Type</h4>
-                       <div className="mt-1">
-                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                           ticket.customerType === 'VIP' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                           ticket.customerType === 'Distributor' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
-                           'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                         }`}>
-                           {ticket.customerType || 'Standard'}
-                         </span>
-                       </div>
-                     </div>
-                     
-                     <div className="grid grid-cols-2 gap-4">
-                       <div>
-                         <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Device Model</h4>
-                         <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                           {ticket.deviceModel || 'Not specified'}
-                         </p>
-                       </div>
-                       <div>
-                         <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Device Serial Number</h4>
-                         <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                           {ticket.deviceSerialNumber || 'Not provided'}
-                         </p>
-                       </div>
-                     </div>
-                     
-                     <div>
-                       <h4 className="text-xs font-medium text-gray-400 dark:text-gray-500">Address</h4>
-                      <div className="mt-1 text-sm text-gray-900 dark:text-gray-100 space-y-1">
-                        {ticket.customerStreetAddress && (
-                          <p>{ticket.customerStreetAddress}</p>
-                        )}
-                        {(ticket.customerState || ticket.customerZipCode) && (
-                          <p>
-                            {ticket.customerState && ticket.customerZipCode 
-                              ? `${ticket.customerState}, ${ticket.customerZipCode}`
-                              : ticket.customerState || ticket.customerZipCode
-                            }
-                          </p>
-                        )}
-                        {!ticket.customerStreetAddress && !ticket.customerState && !ticket.customerZipCode && ticket.customerAddress && (
-                          <p className="whitespace-pre-wrap">{ticket.customerAddress}</p>
-                        )}
-                        {!ticket.customerStreetAddress && !ticket.customerState && !ticket.customerZipCode && !ticket.customerAddress && (
-                          <p className="text-gray-500 dark:text-gray-400">No address provided</p>
-                        )}
+                    </div>
+                  </div>
+
+                  {/* Device Info - Separated Section */}
+                  <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <div className="grid grid-cols-2 gap-4 mb-3">
+                      <div>
+                        <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Device Model</span>
+                        <p className="text-sm text-gray-900 dark:text-gray-100">
+                          {ticket.deviceModel || 'Not specified'}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Serial Number</span>
+                        <p className="text-sm text-gray-900 dark:text-gray-100">
+                          {ticket.deviceSerialNumber || 'Not provided'}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -1292,69 +1735,11 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
               </div>
             )}
 
-            {/* Assigned Agent - Always show this section */}
-            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Assigned Agent</h3>
-                {user?.role === 'agent' && user?.permissions?.includes('tickets.edit') && ticket.status !== 'resolved' && (
-                  <button
-                    onClick={() => setShowReassignDropdown(!showReassignDropdown)}
-                    className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                    disabled={reassigning}
-                  >
-                    {reassigning ? 'Reassigning...' : ticket.agentId ? 'Reassign' : 'Assign'}
-                  </button>
-                )}
-              </div>
-              <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                {ticket.agentId ? (ticket.agent?.name || 'Unknown Agent') : 'Unassigned'}
-              </p>
-              
-              {showReassignDropdown && user?.role === 'agent' && ticket.status !== 'resolved' && (
-                <div className="mt-2 relative">
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value !== ticket.agentId) {
-                        if (e.target.value === 'unassign') {
-                          handleReassignTicket('');
-                        } else if (e.target.value) {
-                          handleReassignTicket(e.target.value);
-                        }
-                      }
-                    }}
-                    className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    disabled={reassigning}
-                    defaultValue=""
-                  >
-                    <option value="">Select agent...</option>
-                    {ticket.agentId && (
-                      <option value="unassign">⊘ Unassign Ticket</option>
-                    )}
-                    {(() => {
-                      console.log('🔍 Dropdown rendering - all agents:', agents);
-                      console.log('🔍 Current ticket agentId:', ticket.agentId);
-                      console.log('🔍 All agents for dropdown (including current):', agents);
-                      console.log('🔍 Agent presence map:', Array.from(agentPresence.entries()));
-                      return agents.map(agent => {
-                        const isOnline = agent.isOnline || agentPresence.get(agent.id) || false;
-                        const statusIndicator = isOnline ? '🟢' : '🔴';
-                        return (
-                          <option key={agent.id} value={agent.id}>
-                            {statusIndicator} {agent.roleName || 'Unknown Role'} - {agent.name || `${agent.firstName} ${agent.lastName}`}
-                            {agent.id === ticket.agentId ? ' (Current)' : ''}
-                            {agent.id === user?.id ? ' (You)' : ''}
-                          </option>
-                        );
-                      });
-                    })()}
-                  </select>
-                </div>
-              )}
-            </div>
 
-            {/* Actions */}
+
+            {/* Actions - Horizontal Layout */}
             {user?.role === 'agent' && (
-              <div className="mt-6 pt-4 border-t border-gray-200 space-y-3">
+              <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
                 {!ticket.agentId && user?.permissions?.includes('tickets.edit') && (
                   <button
                     onClick={handleClaimTicket}
@@ -1365,85 +1750,97 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                 )}
 
                 {ticket.agentId === user.id && user?.permissions?.includes('tickets.edit') && ticket.status !== 'resolved' && (
-                  <div className="space-y-2">
+                  <div className="flex items-center space-x-3">
                     <button
                       onClick={() => handleStatusUpdate('in_progress')}
                       disabled={ticket.status === 'in_progress'}
-                      className="w-full bg-yellow-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                      className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
                     >
                       Mark In Progress
                     </button>
                     <button
                       onClick={() => handleStatusUpdate('resolved')}
-                      className="w-full bg-green-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
+                      className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
                     >
                       Mark Resolved
                     </button>
-                  </div>
-                )}
-
-                {ticket.agentId === user.id && user?.permissions?.includes('tickets.edit') && ticket.status === 'resolved' && (
-                  <button
-                    onClick={() => handleStatusUpdate('in_progress')}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-                  >
-                    Reopen Ticket
-                  </button>
-                )}
-
-                {/* AI Toggle Section */}
-                {user?.permissions?.includes('tickets.edit') && (
-                  <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center space-x-2">
-                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">AI Assistant</h4>
+                    {user?.permissions?.includes('tickets.edit') && (
+                      <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-md">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">AI</span>
                         <div className={`w-2 h-2 rounded-full ${aiEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                      </div>
-                      <div className="flex items-center">
                         <button
                           onClick={() => handleToggleAi(!aiEnabled, aiEnabled ? 'manual' : undefined)}
                           disabled={aiToggling}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                             aiEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'
                           } ${aiToggling ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              aiEnabled ? 'translate-x-6' : 'translate-x-1'
+                            className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                              aiEnabled ? 'translate-x-5' : 'translate-x-1'
                             }`}
                           />
                         </button>
                       </div>
-                    </div>
-                    
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {aiEnabled ? (
-                        <span className="text-green-600 dark:text-green-400">✓ AI will respond to customer messages</span>
-                      ) : (
-                        <div>
-                          <span className="text-red-600 dark:text-red-400">✗ AI responses disabled</span>
-                          {aiStatus.disabledAt && (
-                            <div className="mt-1">
-                              <span>Disabled {aiStatus.reason === 'escalation' ? 'due to escalation' : 'manually'}</span>
-                              {aiStatus.changedBy && (
-                                <span> by {aiStatus.changedBy}</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                 )}
 
+                {ticket.agentId === user.id && user?.permissions?.includes('tickets.edit') && ticket.status === 'resolved' && (
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() => handleStatusUpdate('in_progress')}
+                      className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
+                    >
+                      Reopen Ticket
+                    </button>
+                    {user?.permissions?.includes('tickets.edit') && (
+                      <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-md">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">AI</span>
+                        <div className={`w-2 h-2 rounded-full ${aiEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <button
+                          onClick={() => handleToggleAi(!aiEnabled, aiEnabled ? 'manual' : undefined)}
+                          disabled={aiToggling}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                            aiEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'
+                          } ${aiToggling ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span
+                            className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                              aiEnabled ? 'translate-x-5' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
+                {/* AI Status Indicator */}
+                {user?.permissions?.includes('tickets.edit') && (
+                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    {aiEnabled ? (
+                      <span className="text-green-600 dark:text-green-400">✓ AI will respond to customer messages</span>
+                    ) : (
+                      <div>
+                        <span className="text-red-600 dark:text-red-400">✗ AI responses disabled</span>
+                        {aiStatus.disabledAt && (
+                          <span className="ml-1">
+                            (Disabled {aiStatus.reason === 'escalation' ? 'due to escalation' : 'manually'}
+                            {aiStatus.changedBy && ` by ${aiStatus.changedBy}`})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
 
-        {/* Chat */}
-        <div className="lg:col-span-2">
+        {/* Chat - Full width below ticket details */}
+        <div>
           <div className="bg-white dark:bg-gray-800 shadow rounded-lg flex flex-col" style={{ height: '600px' }}>
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
@@ -1645,7 +2042,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
                       <input
                         type="text"
                         value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
+                        onChange={handleMessageInputChange}
                         placeholder="Type your message..."
                         disabled={sendingMessage}
                         className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
@@ -1862,11 +2259,11 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
           </div>
         </div>
 
-        {/* AI Summary Section - Below chat */}
-        <div className="lg:col-span-3 mt-4">
-          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">AI Summary</h3>
+        {/* AI Summary Section - Smaller, below chat */}
+        <div>
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">AI Summary</h3>
               {user?.permissions?.includes('tickets.edit') && (
                 <button
                   onClick={() => {
@@ -1894,7 +2291,7 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
             {ticket.resolutionSummary ? (
               <div className="space-y-4">
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{ticket.resolutionSummary}</p>
+                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{ticket.resolutionSummary}</p>
                 </div>
                 <div className="flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
                   <span>
@@ -1930,7 +2327,144 @@ const TicketDetail: React.FC<TicketDetailProps> = ({ ticket: initialTicket, onBa
             )}
           </div>
         </div>
+
+        {/* Service Workflow Section - Smaller, at bottom */}
+        <div>
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">Service Workflow</h3>
+              {user?.permissions?.includes('tickets.edit') && ticket.deviceSerialNumber && (
+                <button 
+                  onClick={handleManageWorkflow}
+                  className="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+                >
+                  {workflow ? 'Manage Workflow' : 'Create Workflow'}
+                </button>
+              )}
+            </div>
+            
+            {loadingWorkflow ? (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-2"></div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Loading workflow...</p>
+              </div>
+            ) : workflow ? (
+              <div className="space-y-4">
+                {/* Workflow Info */}
+                <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Workflow #</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{workflow.workflowNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      workflow.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                      workflow.status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                      'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+                    }`}>
+                      {workflow.status.replace('_', ' ').toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Device Serial</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{workflow.deviceSerialNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Current Step</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{workflow.currentStep} / {workflow.steps?.length || 0}</p>
+                  </div>
+                </div>
+
+                {/* Workflow Steps */}
+                {workflow.steps && workflow.steps.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Steps Progress</p>
+                    <div className="space-y-1">
+                      {workflow.steps.map((step: any, index: number) => (
+                        <div key={step.stepId} className="flex items-center space-x-3 p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                            step.status === 'completed' ? 'bg-green-500 text-white' :
+                            step.status === 'in_progress' ? 'bg-blue-500 text-white' :
+                            step.status === 'skipped' ? 'bg-yellow-500 text-white' :
+                            'bg-gray-300 text-gray-600'
+                          }`}>
+                            {step.status === 'completed' ? '✓' : 
+                             step.status === 'skipped' ? '-' : 
+                             step.stepNumber}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {step.stepName}
+                            </p>
+                            {step.agentName && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Assigned to: {step.agentName}
+                              </p>
+                            )}
+                          </div>
+                          <div className={`text-xs px-2 py-1 rounded-full ${
+                            step.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                            step.status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                            step.status === 'skipped' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+                          }`}>
+                            {step.status.replace('_', ' ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Progress Bar */}
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                    style={{ 
+                      width: `${workflow.steps ? 
+                        (workflow.steps.filter((s: any) => s.status === 'completed').length / workflow.steps.length) * 100 
+                        : 0}%` 
+                    }}
+                  ></div>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                  <span>Progress</span>
+                  <span>
+                    {workflow.steps ? 
+                      `${workflow.steps.filter((s: any) => s.status === 'completed').length} / ${workflow.steps.length} completed`
+                      : '0 / 0 completed'
+                    }
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <svg className="mx-auto h-8 w-8 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">No Service Workflow</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  {ticket.deviceSerialNumber 
+                    ? 'Click "Create Workflow" to create a service workflow for device tracking'
+                    : 'Add device information to enable service workflow management'
+                  }
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+      
+      {/* Service Workflow Modal */}
+      {showServiceWorkflow && (
+        <ServiceWorkflow
+          ticketId={ticket.id}
+          deviceSerialNumber={ticket.deviceSerialNumber}
+          onClose={handleCloseWorkflow}
+        />
+      )}
     </div>
   );
 };

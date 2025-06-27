@@ -13,6 +13,8 @@ interface Device {
   comments: string | null;
   customerName: string;
   customerEmail: string;
+  customerCountry: string | null;
+  companyName?: string;
   ticketCount: number;
   linkedTickets: Array<{
     id: string;
@@ -23,6 +25,29 @@ interface Device {
   }>;
   createdAt: string;
   updatedAt: string;
+}
+
+interface DeviceService {
+  workflowId: string;
+  workflowNumber: string;
+  ticketId: string;
+  ticketNumber: string;
+  ticketTitle: string;
+  ticketStatus: string;
+  currentStep: number;
+  status: string;
+  initiatedAt: string;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  initiatedByName: string;
+  initiatedByEmail: string;
+  stepDetails: Array<{
+    stepNumber: number;
+    stepName: string;
+    status: string;
+    completedAt: string | null;
+    agentName: string;
+  }>;
 }
 
 interface DeviceDetailProps {
@@ -37,6 +62,9 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ device: initialDevice, onBa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [services, setServices] = useState<DeviceService[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(false);
+  const [servicesError, setServicesError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     warrantyExpires: device.warrantyExpires || '',
     invoiceNumber: device.invoiceNumber || '',
@@ -61,8 +89,24 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ device: initialDevice, onBa
     }
   };
 
+  const loadDeviceServices = async () => {
+    try {
+      setServicesLoading(true);
+      setServicesError(null);
+      
+      const servicesData = await apiService.getDeviceServices(device.id);
+      setServices(servicesData.services);
+    } catch (error: any) {
+      console.error('Error loading device services:', error);
+      setServicesError(error.message || 'Failed to load device services');
+    } finally {
+      setServicesLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadDeviceDetails();
+    loadDeviceServices();
   }, [device.id]);
 
   const handleEdit = () => {
@@ -139,6 +183,45 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ device: initialDevice, onBa
       default:
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const getWorkflowStatusColor = (status: string): string => {
+    switch (status.toLowerCase()) {
+      case 'in_progress':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
+      case 'completed':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
+      case 'cancelled':
+        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+    }
+  };
+
+  const formatServiceDate = (dateString: string | null): string => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const getStepName = (stepNumber: number): string => {
+    const stepNames = {
+      1: 'Request Device',
+      2: 'Ship Loaner',
+      3: 'Inspection',
+      4: 'Analysis',
+      5: 'Quote & Approval',
+      6: 'Repair',
+      7: 'Final Approval',
+      8: 'Return Device',
+      9: 'Post-Service',
+      10: 'Return Loaner'
+    };
+    return stepNames[stepNumber as keyof typeof stepNames] || `Step ${stepNumber}`;
   };
 
   const warrantyStatus = getWarrantyStatus(device.warrantyExpires);
@@ -347,6 +430,14 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ device: initialDevice, onBa
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
                 <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">{device.customerEmail}</p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Company</label>
+                <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">{device.companyName || 'No Company'}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Country</label>
+                <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">{device.customerCountry || '-'}</p>
+              </div>
               <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Device Added</label>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{formatDatetime(device.createdAt)}</p>
@@ -427,6 +518,151 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ device: initialDevice, onBa
             <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No linked tickets</h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               This device has no tickets associated with it yet.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Device Services */}
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+            Device Services ({services.length})
+          </h3>
+        </div>
+        {servicesLoading ? (
+          <div className="px-6 py-8 text-center">
+            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">Loading services...</h3>
+          </div>
+        ) : servicesError ? (
+          <div className="px-6 py-8 text-center">
+            <svg className="mx-auto h-12 w-12 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-red-800 dark:text-red-200">Error</h3>
+            <p className="mt-1 text-sm text-red-700 dark:text-red-300">{servicesError}</p>
+          </div>
+        ) : services.length > 0 ? (
+                     <div className="overflow-x-auto">
+             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+               <thead className="bg-gray-50 dark:bg-gray-700">
+                 <tr>
+                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                     Service #
+                   </th>
+                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                     Related Ticket
+                   </th>
+                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                     Service Status
+                   </th>
+                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                     Current Step
+                   </th>
+                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                     Initiated By
+                   </th>
+                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                     Service Date
+                   </th>
+                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                     Actions
+                   </th>
+                 </tr>
+               </thead>
+               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                 {services.map((service) => (
+                   <tr key={service.workflowId} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       <div className="flex flex-col">
+                         <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                           {service.workflowNumber}
+                         </span>
+                         <span className="text-xs text-gray-500 dark:text-gray-400">
+                           ID: {service.workflowId.substring(0, 8)}...
+                         </span>
+                       </div>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       <div className="flex flex-col">
+                         <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                           {service.ticketNumber}
+                         </span>
+                         <span className="text-xs text-gray-500 dark:text-gray-400 max-w-xs truncate">
+                           {service.ticketTitle}
+                         </span>
+                       </div>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getWorkflowStatusColor(service.status)}`}>
+                         {service.status.replace('_', ' ').toUpperCase()}
+                       </span>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       <div className="flex flex-col">
+                         <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                           Step {service.currentStep}
+                         </span>
+                         <span className="text-xs text-gray-500 dark:text-gray-400">
+                           {getStepName(service.currentStep)}
+                         </span>
+                       </div>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       <div className="flex flex-col">
+                         <span className="text-sm text-gray-900 dark:text-gray-100">
+                           {service.initiatedByName}
+                         </span>
+                         <span className="text-xs text-gray-500 dark:text-gray-400">
+                           {service.initiatedByEmail}
+                         </span>
+                       </div>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       <div className="flex flex-col">
+                         <span className="text-sm text-gray-900 dark:text-gray-100">
+                           {formatServiceDate(service.initiatedAt)}
+                         </span>
+                         {service.completedAt && (
+                           <span className="text-xs text-green-600 dark:text-green-400">
+                             Completed: {formatServiceDate(service.completedAt)}
+                           </span>
+                         )}
+                         {service.cancelledAt && (
+                           <span className="text-xs text-red-600 dark:text-red-400">
+                             Cancelled: {formatServiceDate(service.cancelledAt)}
+                           </span>
+                         )}
+                       </div>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                       <div className="flex space-x-2">
+                         <button
+                           onClick={() => onTicketSelect(service.ticketId)}
+                           className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300"
+                         >
+                           View Ticket
+                         </button>
+                         {/* Future: Add service workflow view button when available */}
+                       </div>
+                     </td>
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
+        ) : (
+          <div className="px-6 py-8 text-center">
+            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No services</h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              This device has no services associated with it yet.
             </p>
           </div>
         )}

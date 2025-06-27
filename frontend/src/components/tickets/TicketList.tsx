@@ -110,7 +110,8 @@ const TicketList: React.FC<TicketListProps> = ({
   }, [user]);
 
   // Handle urgency changes to trigger row blinking
-  const handleUrgencyChange = (ticketId: string, urgency: string) => {
+  const handleUrgencyChange = (ticketId: string, urgency: string, message: string) => {
+    console.log(`Urgency changed for ticket ${ticketId}: ${urgency} - ${message}`);
     setBlinkingRows(prev => {
       const updated = new Map(prev);
       updated.set(ticketId, { urgency, startTime: Date.now() });

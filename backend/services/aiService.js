@@ -113,29 +113,39 @@ class AIService {
   // Build system prompt based on configuration
   buildSystemPrompt(config, documentContext = '') {
     const agentName = config.agent_name || 'NeuroAI';
-    const tone = config.response_tone || 'Technical';
-    const attitude = config.attitude_style || 'Curious';
-    const limitations = config.context_limitations || 'Only provide support for NeuroVirtual products';
 
-    return `You are ${agentName}, an AI support assistant for NeuroVirtual.
+    let docInfo = '';
+    if (documentContext) {
+      docInfo = `\n\nKnowledge Base:\n${documentContext}`;
+    }
 
-Your communication style:
-- Tone: ${tone}
-- Attitude: ${attitude}
-- Be helpful, professional, and concise
+    return `You are ${agentName}, a technical support assistant for NeuroVirtual. Your job is to guide customers step-by-step through troubleshooting their devices.
 
-Important guidelines:
-- ${limitations}
-- Always stay within your knowledge domain
-- If you're unsure, be honest about limitations
-- Use the provided documentation context when available
-- Don't make up information about products or policies
-- Keep responses under 500 words
-- Use a friendly but professional tone
+✅ KEY INSTRUCTIONS:
+- Always use the full chat history to understand what the customer already said or tried
+- Do not repeat steps the customer has already done or said didn't work
+- Give one clear, technical step at a time
+- Always look for the information they are asking in the AI learned documents uploaded
+- If the step doesn't work, move to the next logical step
+- Be short, direct, and helpful
+- If the customer asks for a human, stop and notify the agent
 
-${documentContext}
+Your role:
+- Provide clear, direct answers to customer questions
+- Use the knowledge base information when available
+- Give step-by-step instructions for technical issues
+- Be professional but friendly
+- Stay focused on NeuroVirtual products and services
 
-Remember: You are the first responder but human agents are available for complex issues.`;
+Key principles:
+- Answer the customer's question directly
+- Use simple, clear language
+- Provide actionable solutions
+- Don't make up information - use only the provided knowledge base
+- If you're unsure, say so and offer to connect them with a human agent
+- Keep responses helpful and under 500 words${docInfo}
+
+Focus on being helpful and providing solutions to the customer's questions.`;
   }
 
   // Calculate confidence score based on various factors
@@ -376,6 +386,128 @@ Summarize this support conversation in 3–5 sentences. Focus on the issue, key 
 
     // Cap confidence between 0.5 and 0.95
     return Math.max(0.5, Math.min(0.95, confidence));
+  }
+
+  // Generate AI-powered ticket title and description based on chat context
+  async generateTicketDetails(messages, existingTicket = null, modelVersion = 'gpt-4o') {
+    if (!this.isEnabled()) {
+      throw new Error('AI Service is not available');
+    }
+
+    const startTime = Date.now();
+
+    try {
+      // Filter and format chat messages for analysis
+      const conversationMessages = messages
+        .filter(msg => msg.messageType === 'text')
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map(msg => {
+          const sender = msg.sender || {};
+          const senderType = sender.userType === 'ai' ? 'AI Assistant' : 
+                           sender.userType === 'agent' ? 'Agent' :
+                           'Customer';
+          return `[${senderType}]: ${msg.content}`;
+        });
+
+      // Build the conversation transcript
+      const transcript = conversationMessages.join('\n');
+
+      // Create the analysis prompt
+      const systemPrompt = `You are an expert at analyzing customer support conversations to extract concise ticket summaries.
+
+Your task is to generate:
+1. A ticket TITLE (maximum 30 characters) that captures the main issue
+2. A ticket DESCRIPTION (maximum 200 characters) that summarizes the problem and context
+
+Guidelines for TITLE:
+- Be extremely concise but descriptive
+- Focus on the main technical issue or request
+- Use technical terms when relevant
+- Avoid filler words
+- Examples: "WiFi connection drops", "Login error 404", "Device not charging"
+
+Guidelines for DESCRIPTION:
+- Summarize the customer's main problem
+- Include key technical details (error codes, device models, etc.)
+- Mention what the customer has already tried (if any)
+- Keep it factual and specific
+- Use complete sentences
+
+Format your response as JSON:
+{
+  "title": "Your title here",
+  "description": "Your description here",
+  "confidence": 0.85
+}
+
+Analyze this conversation:`;
+
+      // Generate AI response
+      const completion = await this.openai.chat.completions.create({
+        model: modelVersion,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: transcript }
+        ],
+        temperature: 0.3, // Lower temperature for more consistent results
+        max_tokens: 300,
+        response_format: { type: "json_object" }
+      });
+
+      const aiResponse = completion.choices[0]?.message?.content?.trim();
+      
+      if (!aiResponse) {
+        throw new Error('No response generated');
+      }
+
+      // Parse the JSON response
+      let parsedResponse;
+      try {
+        parsedResponse = JSON.parse(aiResponse);
+      } catch (parseError) {
+        throw new Error(`Failed to parse AI response: ${parseError.message}`);
+      }
+
+      // Validate and truncate if necessary
+      const title = (parsedResponse.title || '').substring(0, 30).trim();
+      const description = (parsedResponse.description || '').substring(0, 200).trim();
+      const confidence = Math.max(0.1, Math.min(0.95, parsedResponse.confidence || 0.7));
+
+      // Fallback if AI couldn't generate proper content
+      if (!title || !description) {
+        return {
+          title: existingTicket?.title || 'Support Request',
+          description: existingTicket?.description || 'Customer support request',
+          confidence: 0.3,
+          responseTimeMs: Date.now() - startTime,
+          modelUsed: modelVersion,
+          wasGenerated: false
+        };
+      }
+
+      return {
+        title,
+        description,
+        confidence,
+        responseTimeMs: Date.now() - startTime,
+        modelUsed: modelVersion,
+        wasGenerated: true
+      };
+
+    } catch (error) {
+      console.error('Error generating ticket details:', error);
+      
+      // Return fallback values
+      return {
+        title: existingTicket?.title || 'Support Request',
+        description: existingTicket?.description || 'Customer support request',
+        confidence: 0.1,
+        responseTimeMs: Date.now() - startTime,
+        modelUsed: modelVersion,
+        wasGenerated: false,
+        error: error.message
+      };
+    }
   }
 }
 

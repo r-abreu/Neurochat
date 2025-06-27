@@ -13,7 +13,10 @@ interface Device {
   comments: string | null;
   customerName: string;
   customerEmail: string;
+  customerCountry: string | null;
+  companyName?: string;
   ticketCount: number;
+  serviceCount: number;
   linkedTickets: Array<{
     id: string;
     ticketNumber: string;

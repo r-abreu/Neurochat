@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiService } from '../../services/api';
-import ConfigurableTable, { TableColumn, FilterConfig } from '../common/ConfigurableTable';
+import ConfigurableTable, { TableColumn, FilterConfig, ColumnFilter } from '../common/ConfigurableTable';
 
 interface Company {
   id: string;
@@ -24,6 +24,7 @@ interface Company {
   customerCount: number;
   ticketCount: number;
   deviceCount: number;
+  serviceCount: number;
   lastTicketDate: string | null;
   customers: any[];
   tickets: any[];
@@ -42,6 +43,7 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [countryFilter, setCountryFilter] = useState('');
+  const [columnFilters, setColumnFilters] = useState<ColumnFilter[]>([]);
 
   // Delete confirmation state
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; company: Company | null }>({
@@ -188,6 +190,8 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'text',
       render: (company) => (
         <div className="text-sm">
           <div className="font-medium text-gray-900 dark:text-white">
@@ -203,14 +207,76 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       ),
     },
     {
-      id: 'customers',
+      id: 'primaryEmail',
+      label: 'Primary Email',
+      width: 200,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
+      render: (company) => (
+        <div className="text-sm text-gray-900 dark:text-white break-all">
+          {company.primaryEmail || '-'}
+        </div>
+      ),
+    },
+    {
+      id: 'primaryPhone',
+      label: 'Phone',
+      width: 150,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
+      render: (company) => (
+        <div className="text-sm text-gray-900 dark:text-white">
+          {company.primaryPhone || '-'}
+        </div>
+      ),
+    },
+    {
+      id: 'city',
+      label: 'City',
+      width: 120,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'text',
+      render: (company) => (
+        <div className="text-sm text-gray-900 dark:text-white">
+          {company.city || '-'}
+        </div>
+      ),
+    },
+    {
+      id: 'country',
+      label: 'Country',
+      width: 120,
+      visible: true,
+      resizable: true,
+      sortable: true,
+      filterable: true,
+      filterType: 'select',
+      render: (company) => (
+        <div className="text-sm text-gray-900 dark:text-white">
+          {company.country || '-'}
+        </div>
+      ),
+    },
+    {
+      id: 'customerCount',
       label: 'Customers',
       width: 100,
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'number',
       render: (company) => (
-        <div className="text-center">
+        <div className="text-sm text-center">
           <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
             company.customerCount > 0 
               ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200' 
@@ -222,14 +288,16 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       ),
     },
     {
-      id: 'tickets',
+      id: 'ticketCount',
       label: 'Tickets',
       width: 100,
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'number',
       render: (company) => (
-        <div className="text-center">
+        <div className="text-sm text-center">
           <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
             company.ticketCount > 0 
               ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200' 
@@ -241,96 +309,14 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       ),
     },
     {
-      id: 'devices',
-      label: 'Devices',
-      width: 100,
+      id: 'lastTicketDate',
+      label: 'Last Ticket',
+      width: 120,
       visible: true,
       resizable: true,
       sortable: true,
-      render: (company) => (
-        <div className="text-center">
-          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-            company.deviceCount > 0 
-              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200' 
-              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-          }`}>
-            {company.deviceCount}
-          </span>
-        </div>
-      ),
-    },
-    {
-      id: 'contact',
-      label: 'Primary Contact',
-      width: 200,
-      visible: true,
-      resizable: true,
-      sortable: false,
-      render: (company) => (
-        <div className="text-sm">
-          {company.primaryEmail && (
-            <div className="text-gray-900 dark:text-white break-all">
-              {company.primaryEmail}
-            </div>
-          )}
-          {company.primaryPhone && (
-            <div className="text-gray-500 dark:text-gray-400 text-xs">
-              {company.primaryPhone}
-            </div>
-          )}
-          {!company.primaryEmail && !company.primaryPhone && (
-            <span className="text-gray-400">No contact info</span>
-          )}
-        </div>
-      ),
-    },
-    {
-      id: 'location',
-      label: 'Location',
-      width: 150,
-      visible: true,
-      resizable: true,
-      sortable: true,
-      render: (company) => (
-        <div className="text-sm text-gray-900 dark:text-white">
-          {company.city && company.country ? `${company.city}, ${company.country}` :
-           company.country ? company.country :
-           company.city ? company.city : '-'}
-        </div>
-      ),
-    },
-    {
-      id: 'website',
-      label: 'Website',
-      width: 150,
-      visible: false,
-      resizable: true,
-      sortable: false,
-      render: (company) => (
-        <div className="text-sm">
-          {company.website ? (
-            <a 
-              href={company.website.startsWith('http') ? company.website : `https://${company.website}`}
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {company.website}
-            </a>
-          ) : (
-            <span className="text-gray-400">-</span>
-          )}
-        </div>
-      ),
-    },
-    {
-      id: 'lastActivity',
-      label: 'Last Activity',
-      width: 130,
-      visible: true,
-      resizable: true,
-      sortable: true,
+      filterable: true,
+      filterType: 'date',
       render: (company) => (
         <div className="text-sm">
           <div className="text-gray-900 dark:text-white">
@@ -343,16 +329,22 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       ),
     },
     {
-      id: 'status',
+      id: 'isActive',
       label: 'Status',
       width: 100,
       visible: true,
       resizable: true,
       sortable: true,
+      filterable: true,
+      filterType: 'select',
+      filterOptions: [
+        { value: 'true', label: 'Active' },
+        { value: 'false', label: 'Inactive' }
+      ],
       render: (company) => (
-        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-          company.isActive 
-            ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200' 
+        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+          company.isActive
+            ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
             : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200'
         }`}>
           {company.isActive ? 'Active' : 'Inactive'}
@@ -421,6 +413,7 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
       'Customer Count': company.customerCount,
       'Ticket Count': company.ticketCount,
       'Device Count': company.deviceCount,
+      'Service Count': company.serviceCount,
       'Last Ticket Date': formatDate(company.lastTicketDate),
       'Status': company.isActive ? 'Active' : 'Inactive',
       'Created Date': formatDate(company.createdAt),
@@ -471,32 +464,80 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
   }
 
   return (
-    <>
+    <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700 dark:text-red-200">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfigurableTable
         data={companies}
         columns={columns}
         loading={loading}
-        storageKey="agent-company-list-preferences"
-        title={`Companies (${companies.length})`}
+        storageKey="companies-table"
+        title="Companies"
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
-        filters={filters}
+        columnFilters={columnFilters}
+        onColumnFiltersChange={setColumnFilters}
         onRowClick={onCompanySelect}
         onExport={handleExport}
-        exportFilename="companies-list.xlsx"
-        actions={actions}
-        headerActions={headerActions}
+        exportFilename="companies"
+        actions={[
+          {
+            label: 'Edit',
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            ),
+            onClick: (company) => onCompanyEdit?.(company),
+            show: () => user?.permissions?.includes('companies.edit') || false,
+            className: 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300'
+          },
+          {
+            label: 'Delete',
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            ),
+            onClick: handleDeleteCompany,
+            show: () => user?.permissions?.includes('companies.delete') || false,
+            className: 'text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300'
+          }
+        ]}
+        headerActions={
+          user?.permissions?.includes('companies.create') && (
+            <button
+              onClick={() => setShowCreateForm(true)}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              Add Company
+            </button>
+          )
+        }
         emptyState={
-          <div className="text-gray-500 dark:text-gray-400">
+          <div className="text-center py-12">
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
             <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No companies found</h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {searchTerm || countryFilter
-                ? 'Try adjusting your search criteria or filters.' 
-                : 'Get started by creating your first company.'
-              }
+              {searchTerm || columnFilters.length > 0 ? 'Try adjusting your search or filters.' : 'Get started by creating a new company.'}
             </p>
           </div>
         }
@@ -619,7 +660,7 @@ const CompanyList: React.FC<CompanyListProps> = ({ onCompanySelect, onCompanyEdi
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
 

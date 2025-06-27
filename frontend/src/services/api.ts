@@ -231,6 +231,7 @@ class ApiService {
           name: `${ticket.agent.firstName} ${ticket.agent.lastName}`,
           role: 'agent' as const
         } : undefined,
+        hasServiceWorkflow: ticket.hasServiceWorkflow || false,
         messages: ticket.messages ? ticket.messages.map((msg: any) => ({
           id: msg.id,
           ticketId: msg.ticketId,
@@ -643,6 +644,47 @@ class ApiService {
       });
       throw error;
     }
+  }
+
+  // Get all files across the system
+  async getAllFiles(filters?: {
+    search?: string;
+    fileType?: string;
+    ticketId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ files: any[]; pagination: any }> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, value.toString());
+        }
+      });
+    }
+    
+    const queryString = params.toString();
+    const url = `/files/all${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await this.fetchWithAuth(url);
+    const result = await this.handleResponse<{ success: boolean; data: { files: any[]; pagination: any } }>(response);
+    
+    return result.data;
+  }
+
+  // Get file statistics
+  async getFileStats(): Promise<any> {
+    const response = await this.fetchWithAuth('/files/stats');
+    const result = await this.handleResponse<{ success: boolean; data: any }>(response);
+    return result.data;
+  }
+
+  // Delete a file
+  async deleteFile(fileId: string): Promise<void> {
+    const response = await this.fetchWithAuth(`/files/${fileId}`, {
+      method: 'DELETE'
+    });
+    await this.handleResponse<{ success: boolean; message: string }>(response);
   }
 
   // Categories API
@@ -1265,6 +1307,41 @@ class ApiService {
     const response = await this.fetchWithAuth('/devices/stats');
     const apiResponse = await this.handleResponse<{ success: boolean; data: { stats: any } }>(response);
     return apiResponse.data.stats;
+  }
+
+  async getDeviceServices(deviceId: string): Promise<{
+    device: {
+      id: string;
+      model: string;
+      serialNumber: string;
+      customerName: string;
+    };
+    services: any[];
+    totalServices: number;
+  }> {
+    const response = await this.fetchWithAuth(`/devices/${deviceId}/services`);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: any }>(response);
+    return apiResponse.data;
+  }
+
+  async getCompanyServices(companyId: string): Promise<{
+    company: {
+      id: string;
+      name: string;
+    };
+    devices: {
+      id: string;
+      model: string;
+      serialNumber: string;
+      customerName: string;
+    }[];
+    services: any[];
+    totalServices: number;
+    totalDevices: number;
+  }> {
+    const response = await this.fetchWithAuth(`/companies/${companyId}/services`);
+    const apiResponse = await this.handleResponse<{ success: boolean; data: any }>(response);
+    return apiResponse.data;
   }
 
   // Generic HTTP methods for convenience

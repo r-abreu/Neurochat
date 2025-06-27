@@ -150,6 +150,44 @@ router.post('/troubleshooting-flows/:flowId/execute', async (req, res) => {
 });
 
 /**
+ * POST /api/ai/enhanced-response
+ * Generate an enhanced AI response with improved formatting
+ */
+router.post('/enhanced-response', async (req, res) => {
+  try {
+    const { ticketId, userMessage, config, ticketData, messages, contextDocuments } = req.body;
+    
+    if (!ticketId || !userMessage || !config) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'ticketId, userMessage, and config are required' }
+      });
+    }
+
+    const result = await enhancedAiService.generateEnhancedResponse(
+      userMessage,
+      config,
+      ticketId,
+      messages || [],
+      ticketData || {},
+      contextDocuments || []
+    );
+
+    res.json({
+      success: true,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error generating enhanced response:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to generate enhanced response' }
+    });
+  }
+});
+
+/**
  * POST /api/ai/analyze-clarity
  * Analyze and optimize response clarity
  */
