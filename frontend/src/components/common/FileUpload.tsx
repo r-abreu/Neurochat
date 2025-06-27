@@ -18,9 +18,22 @@ const FileUpload: React.FC<FileUploadProps> = ({
   className = ''
 }) => {
   const [isDragging, setIsDragging] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [dragCounter, setDragCounter] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Detect mobile device
+  React.useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+        || window.innerWidth <= 768;
+      setIsMobile(isMobileDevice);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const validateFiles = (files: FileList): boolean => {
     for (let i = 0; i < files.length; i++) {
@@ -85,7 +98,6 @@ const FileUpload: React.FC<FileUploadProps> = ({
       }
       e.dataTransfer.clearData();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, onFileSelect]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -122,11 +134,14 @@ const FileUpload: React.FC<FileUploadProps> = ({
         onChange={handleFileInputChange}
         disabled={disabled}
         className="hidden"
+        // Enhanced accept attribute for mobile cameras
+        {...(isMobile && accept.includes('image') ? { capture: 'environment' } : {})}
       />
       
       <div
         className={`
-          border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all duration-200
+          border-2 border-dashed rounded-lg text-center cursor-pointer transition-all duration-200
+          ${isMobile ? 'p-3' : 'p-4'} 
           ${isDragging 
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
             : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
@@ -136,15 +151,15 @@ const FileUpload: React.FC<FileUploadProps> = ({
             : 'hover:bg-gray-50 dark:hover:bg-gray-800'
           }
         `}
-        onDragEnter={handleDragIn}
-        onDragLeave={handleDragOut}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
+        onDragEnter={!isMobile ? handleDragIn : undefined}
+        onDragLeave={!isMobile ? handleDragOut : undefined}
+        onDragOver={!isMobile ? handleDrag : undefined}
+        onDrop={!isMobile ? handleDrop : undefined}
         onClick={handleClick}
       >
         <div className="flex flex-col items-center space-y-2">
           <svg 
-            className={`w-8 h-8 ${isDragging ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'}`} 
+            className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'} ${isDragging ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'}`} 
             fill="none" 
             viewBox="0 0 24 24" 
             stroke="currentColor"
@@ -157,14 +172,14 @@ const FileUpload: React.FC<FileUploadProps> = ({
             />
           </svg>
           
-          <div className="text-sm">
+          <div className={`${isMobile ? 'text-xs' : 'text-sm'}`}>
             <span className={`font-medium ${isDragging ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
-              {isDragging ? 'Drop files here' : 'Click to upload or drag files here'}
+              {isDragging ? 'Drop files here' : (isMobile ? 'Tap to select files' : 'Click to upload or drag files here')}
             </span>
           </div>
           
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            <p>Supported: Images, PDF, DOC, XLS, CSV, ZIP</p>
+          <div className={`text-gray-500 dark:text-gray-400 ${isMobile ? 'text-xs' : 'text-xs'}`}>
+            <p>{isMobile ? 'Images, PDF, DOC, XLS' : 'Supported: Images, PDF, DOC, XLS, CSV, ZIP'}</p>
             <p>Max size: {formatFileSize(maxSize)}</p>
           </div>
         </div>

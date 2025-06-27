@@ -84,15 +84,36 @@ const CustomerChat: React.FC = () => {
   const [showCompanySuggestions, setShowCompanySuggestions] = useState(false);
   const [companyInputTimeout, setCompanyInputTimeout] = useState<NodeJS.Timeout | null>(null);
   const [systemSettings, setSystemSettings] = useState<any>(null);
+  // Mobile-specific states
+  const [showCameraCapture, setShowCameraCapture] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [showAttachmentPreview, setShowAttachmentPreview] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState<{url: string, type: string, name: string} | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
   const currentTicketIdRef = useRef<string | null>(null);
-
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraCanvasRef = useRef<HTMLCanvasElement>(null);
+  
   // Update ref whenever currentTicketId changes
   useEffect(() => {
     currentTicketIdRef.current = currentTicketId;
   }, [currentTicketId]);
+
+  // Detect mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+        || window.innerWidth <= 768;
+      setIsMobile(isMobileDevice);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Load system settings
   useEffect(() => {
@@ -264,12 +285,29 @@ const CustomerChat: React.FC = () => {
         setIsTyping(data.isTyping);
       };
 
+      // Listen for AI ticket details updates
+      const handleTicketDetailsUpdated = (data: {
+        ticketId: string;
+        title: string;
+        description: string;
+        confidence: number;
+        generatedAt: string;
+      }) => {
+        if (currentTicketId && data.ticketId === currentTicketId) {
+          console.log('🤖 Customer received AI ticket details update:', data);
+          // For customers, we'll show a subtle notification that AI has analyzed the conversation
+          // The title/description update is mainly for agents, but we can still log it
+        }
+      };
+
       socketService.on('new_message', handleNewMessage);
       socketService.on('user_typing', handleTyping);
+      socketService.on('ticket_details_updated', handleTicketDetailsUpdated);
 
       return () => {
         socketService.off('new_message', handleNewMessage);
         socketService.off('user_typing', handleTyping);
+        socketService.off('ticket_details_updated', handleTicketDetailsUpdated);
         // Leave ticket room when changing tickets
         if (currentTicketId) {
           socketService.leaveTicket(currentTicketId);
@@ -602,6 +640,76 @@ const CustomerChat: React.FC = () => {
     }
   };
 
+  // Camera functions for mobile
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment', // Use back camera by default
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream;
+        cameraVideoRef.current.play();
+      }
+      setShowCameraCapture(true);
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      alert('Unable to access camera. Please check permissions or try uploading a file instead.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraVideoRef.current && cameraVideoRef.current.srcObject) {
+      const stream = cameraVideoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      cameraVideoRef.current.srcObject = null;
+    }
+    setShowCameraCapture(false);
+  };
+
+  const capturePhoto = () => {
+    if (cameraVideoRef.current && cameraCanvasRef.current) {
+      const video = cameraVideoRef.current;
+      const canvas = cameraCanvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      if (context) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0);
+        
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const file = new File([blob], `photo-${timestamp}.jpg`, { type: 'image/jpeg' });
+            const fileList = Object.assign(Object.create(FileList.prototype), {
+              0: file,
+              length: 1,
+              item: (index: number) => index === 0 ? file : null
+            }) as FileList;
+            
+            await handleFileSelect(fileList);
+            stopCamera();
+          }
+        }, 'image/jpeg', 0.9);
+      }
+    }
+  };
+
+  // Enhanced attachment preview for mobile
+  const showAttachmentInPreview = (url: string, type: string, name: string) => {
+    setPreviewAttachment({ url, type, name });
+    setShowAttachmentPreview(true);
+  };
+
+  const closeAttachmentPreview = () => {
+    setShowAttachmentPreview(false);
+    setPreviewAttachment(null);
+  };
+
   // Reset inactivity timer
   const resetInactivityTimer = () => {
     lastActivityRef.current = new Date();
@@ -777,37 +885,41 @@ const CustomerChat: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-4xl mx-auto px-4 py-4">
+      {/* Header - Mobile Optimized */}
+      <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
+            <div className="flex items-center min-w-0">
               <img 
                 src="/neurovirtual-logo.png" 
                 alt="NeuroVirtual Logo" 
-                className="h-12 w-12 object-contain mr-4"
+                className={`object-contain mr-2 sm:mr-4 ${isMobile ? 'h-8 w-8' : 'h-12 w-12'}`}
               />
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">NeuroVirtual Support</h1>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Get help from our support team</p>
+              <div className="min-w-0">
+                <h1 className={`font-bold text-gray-900 dark:text-gray-100 ${isMobile ? 'text-lg' : 'text-2xl'}`}>
+                  {isMobile ? 'Support' : 'NeuroVirtual Support'}
+                </h1>
+                <p className={`text-gray-600 dark:text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                  {isMobile ? 'Get help' : 'Get help from our support team'}
+                </p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 sm:space-x-4">
               <ThemeToggle />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+      <div className={`max-w-4xl mx-auto px-3 sm:px-4 ${isMobile ? 'py-4' : 'py-8'}`}>
+        <div className={`bg-white dark:bg-gray-800 ${isMobile ? 'rounded-lg shadow-sm' : 'rounded-lg shadow-sm'} border border-gray-200 dark:border-gray-700`}>
           {/* Customer Info Form */}
           {!currentTicketId && (
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+            <div className={`${isMobile ? 'p-4' : 'p-6'} border-b border-gray-200 dark:border-gray-700`}>
+              <h2 className={`font-medium text-gray-900 dark:text-gray-100 mb-4 ${isMobile ? 'text-base' : 'text-lg'}`}>
                 Let's get started
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className={`grid gap-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Your Name *
@@ -817,7 +929,7 @@ const CustomerChat: React.FC = () => {
                     value={customerInfo.name}
                     onChange={(e) => handleInfoChange('name', e.target.value)}
                     placeholder="John Doe"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    className={`w-full px-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${isMobile ? 'py-3 text-base' : 'py-2'}`}
                   />
                 </div>
                 <div>
@@ -829,7 +941,7 @@ const CustomerChat: React.FC = () => {
                     value={customerInfo.email}
                     onChange={(e) => handleInfoChange('email', e.target.value)}
                     placeholder="john@company.com"
-                    className={`w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+                    className={`w-full px-3 border rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${isMobile ? 'py-3 text-base' : 'py-2'} ${
                       emailError ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                   />
@@ -846,7 +958,7 @@ const CustomerChat: React.FC = () => {
                     value={customerInfo.phone}
                     onChange={(e) => handleInfoChange('phone', e.target.value)}
                     placeholder="+1-555-0123"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    className={`w-full px-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${isMobile ? 'py-3 text-base' : 'py-2'}`}
                   />
                 </div>
                               <div className="relative">
@@ -858,7 +970,7 @@ const CustomerChat: React.FC = () => {
                   value={customerInfo.company}
                   onChange={(e) => handleInfoChange('company', e.target.value)}
                   placeholder="Company Inc."
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className={`w-full px-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${isMobile ? 'py-3 text-base' : 'py-2'}`}
                 />
                 {showCompanySuggestions && (
                   <CompanySuggestion
@@ -870,7 +982,7 @@ const CustomerChat: React.FC = () => {
               </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div className={`grid gap-4 mt-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Country *
@@ -900,7 +1012,7 @@ const CustomerChat: React.FC = () => {
                                         emailError === '';
                       setIsInfoComplete(isComplete);
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    className={`w-full px-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${isMobile ? 'py-3 text-base' : 'py-2'}`}
                   >
                     {categories.map((category) => (
                       <option key={category.id} value={category.id}>
@@ -934,30 +1046,30 @@ const CustomerChat: React.FC = () => {
             </div>
           )}
 
-          {/* Chat Area */}
-          <div className="flex flex-col" style={{ height: currentTicketId ? '800px' : '600px' }}>
+          {/* Chat Area - Mobile Optimized */}
+          <div className="flex flex-col" style={{ height: currentTicketId ? (isMobile ? '70vh' : '800px') : (isMobile ? '50vh' : '600px') }}>
             {/* Ticket Header - Show when ticket is created */}
             {currentTicketId && currentTicketNumber && !ticketClosed && (
-              <div className="px-6 py-3 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800">
+              <div className={`${isMobile ? 'px-4 py-2' : 'px-6 py-3'} bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <div>
-                      <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                      <p className={`font-medium text-green-800 dark:text-green-200 ${isMobile ? 'text-xs' : 'text-sm'}`}>
                         Ticket Created: #{currentTicketNumber}
                       </p>
-                      <p className="text-xs text-green-600 dark:text-green-400">
-                        Your conversation has started. Our support team will respond shortly.
+                      <p className={`text-green-600 dark:text-green-400 ${isMobile ? 'text-xs hidden' : 'text-xs'}`}>
+                        {isMobile ? '' : 'Your conversation has started. Our support team will respond shortly.'}
                       </p>
                     </div>
                   </div>
                   <button
                     onClick={() => setShowCloseConfirmation(true)}
-                    className="px-3 py-1 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:text-red-400 dark:bg-red-900/20 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                    className={`font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:text-red-400 dark:bg-red-900/20 dark:hover:bg-red-900/30 rounded-md transition-colors ${isMobile ? 'px-2 py-1 text-xs' : 'px-3 py-1 text-xs'}`}
                   >
-                    Close Ticket
+                    {isMobile ? 'Close' : 'Close Ticket'}
                   </button>
                 </div>
               </div>
@@ -1011,7 +1123,7 @@ const CustomerChat: React.FC = () => {
             )}
             
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ minHeight: currentTicketId ? '500px' : 'auto' }}>
+            <div className={`flex-1 overflow-y-auto space-y-4 ${isMobile ? 'p-3' : 'p-6'}`} style={{ minHeight: currentTicketId ? '500px' : 'auto' }}>
               {ticketClosed ? (
                 <div className="flex justify-center items-center h-full">
                   <div className="text-center text-gray-500 dark:text-gray-400">
@@ -1120,7 +1232,7 @@ const CustomerChat: React.FC = () => {
                         key={message.id}
                         className={`flex ${isCustomerMessage ? 'justify-end' : 'justify-start'} mb-2`}
                       >
-                        <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                        <div className={`px-4 py-2 rounded-lg ${isMobile ? 'max-w-[85%]' : 'max-w-xs lg:max-w-md'} ${
                           isCustomerMessage
                             ? 'bg-blue-600 text-white rounded-br-sm'
                             : isAgentMessage
@@ -1155,7 +1267,13 @@ const CustomerChat: React.FC = () => {
                                     src={`http://localhost:3001${message.fileUrl}`}
                                     alt={message.fileName}
                                     className="max-w-full h-auto rounded cursor-pointer hover:opacity-90 transition-opacity"
-                                    onClick={() => window.open(`http://localhost:3001${message.fileUrl}`, '_blank')}
+                                    onClick={() => {
+                                      if (isMobile) {
+                                        showAttachmentInPreview(`http://localhost:3001${message.fileUrl}`, message.messageType || 'image', message.fileName || 'Image');
+                                      } else {
+                                        window.open(`http://localhost:3001${message.fileUrl}`, '_blank');
+                                      }
+                                    }}
                                     onError={(e) => {
                                       console.error('Image load error:', e);
                                       e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="%23f3f4f6"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%236b7280">Image</text></svg>';
@@ -1220,9 +1338,9 @@ const CustomerChat: React.FC = () => {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Message Input */}
+            {/* Message Input - Mobile Optimized */}
             {!ticketClosed && (
-              <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+              <div className={`border-t border-gray-200 dark:border-gray-700 ${isMobile ? 'p-3' : 'p-4'}`}>
                 {/* File Upload Area */}
                 {showFileUpload && (
                   <div className="mb-4">
@@ -1245,7 +1363,7 @@ const CustomerChat: React.FC = () => {
                   </div>
                 )}
                 
-                <div className="flex space-x-2">
+                <div className={`flex ${isMobile ? 'space-x-1' : 'space-x-2'}`}>
                   <input
                     type="text"
                     value={newMessage}
@@ -1258,15 +1376,31 @@ const CustomerChat: React.FC = () => {
                     }}
                     placeholder={isInfoComplete ? "Type your message..." : "Please fill in your details above first"}
                     disabled={!isInfoComplete || loading || ticketClosed}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+                    className={`flex-1 px-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:bg-gray-100 dark:disabled:bg-gray-800 ${isMobile ? 'py-3 text-base' : 'py-2'}`}
                   />
+                  
+                  {/* Camera Button - Mobile Only */}
+                  {isMobile && (
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      disabled={!isInfoComplete || loading || ticketClosed}
+                      className={`px-3 py-2 rounded-md transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed`}
+                      title="Take photo"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </button>
+                  )}
                   
                   {/* File Upload Button */}
                   <button
                     type="button"
                     onClick={() => setShowFileUpload(!showFileUpload)}
                     disabled={!isInfoComplete || loading || ticketClosed}
-                    className={`px-3 py-2 rounded-md transition-colors ${
+                    className={`rounded-md transition-colors ${isMobile ? 'px-2 py-2' : 'px-3 py-2'} ${
                       showFileUpload 
                         ? 'bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300' 
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
@@ -1282,7 +1416,7 @@ const CustomerChat: React.FC = () => {
                     type="submit"
                     onClick={handleSendMessage}
                     disabled={!isInfoComplete || !newMessage.trim() || loading || ticketClosed}
-                    className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className={`bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isMobile ? 'px-3 py-2' : 'px-4 py-2'}`}
                   >
                     {loading ? (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -1446,6 +1580,121 @@ const CustomerChat: React.FC = () => {
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Capture Modal - Mobile Only */}
+      {showCameraCapture && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full h-full md:w-auto md:h-auto md:max-w-lg md:max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                Take Photo
+              </h3>
+              <button
+                onClick={stopCamera}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="flex-1 flex items-center justify-center p-4">
+              <div className="relative">
+                <video
+                  ref={cameraVideoRef}
+                  className="w-full max-w-sm rounded-lg"
+                  autoPlay
+                  playsInline
+                  muted
+                />
+                <canvas
+                  ref={cameraCanvasRef}
+                  className="hidden"
+                />
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={stopCamera}
+                  className="px-4 py-2 text-gray-700 bg-gray-200 hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={capturePhoto}
+                  className="px-6 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                >
+                  Capture
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attachment Preview Modal - Mobile Optimized */}
+      {showAttachmentPreview && previewAttachment && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full h-full md:w-auto md:h-auto md:max-w-4xl md:max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 truncate">
+                {previewAttachment.name}
+              </h3>
+              <button
+                onClick={closeAttachmentPreview}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-4"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="flex-1 flex items-center justify-center p-4 overflow-auto">
+              {previewAttachment.type.startsWith('image/') ? (
+                <img
+                  src={previewAttachment.url}
+                  alt={previewAttachment.name}
+                  className="max-w-full max-h-full object-contain"
+                />
+              ) : (
+                <div className="text-center">
+                  <div className="text-6xl mb-4">📄</div>
+                  <p className="text-gray-600 dark:text-gray-400">
+                    Cannot preview this file type
+                  </p>
+                  <button
+                    onClick={() => window.open(previewAttachment.url, '_blank')}
+                    className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                  >
+                    Download File
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={closeAttachmentPreview}
+                  className="px-4 py-2 text-gray-700 bg-gray-200 hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => window.open(previewAttachment.url, '_blank')}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                >
+                  Open in New Tab
+                </button>
+              </div>
             </div>
           </div>
         </div>
